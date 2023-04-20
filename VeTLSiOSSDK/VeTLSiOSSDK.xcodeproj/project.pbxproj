@@ -1,0 +1,1162 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 55;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		2B00A00629B9F7DA00045FA4 /* VeTLSiOSSDK.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B7D9B75296D51F5005ADA84 /* VeTLSiOSSDK.framework */; };
+		2B204C6D29769D730012A730 /* TLSClientConfig.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204BFA29769D720012A730 /* TLSClientConfig.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C6E29769D730012A730 /* GPBType.pbobjc.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204BFC29769D720012A730 /* GPBType.pbobjc.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C6F29769D730012A730 /* GPBCodedOutputStream_PackagePrivate.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204BFD29769D720012A730 /* GPBCodedOutputStream_PackagePrivate.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C7029769D730012A730 /* GPBArray.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204BFE29769D720012A730 /* GPBArray.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C7129769D730012A730 /* GPBAny.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204BFF29769D720012A730 /* GPBAny.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C7229769D730012A730 /* GPBExtensionRegistry.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C0029769D720012A730 /* GPBExtensionRegistry.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C7329769D730012A730 /* GPBRootObject.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C0129769D720012A730 /* GPBRootObject.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C7429769D730012A730 /* GPBDescriptor.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C0229769D720012A730 /* GPBDescriptor.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C7529769D730012A730 /* GPBMessage.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C0329769D720012A730 /* GPBMessage.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C7629769D730012A730 /* GPBEmpty.pbobjc.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C0429769D720012A730 /* GPBEmpty.pbobjc.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C7729769D730012A730 /* GPBProtocolBuffers.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C0529769D720012A730 /* GPBProtocolBuffers.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C7829769D730012A730 /* GPBWireFormat.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C0629769D720012A730 /* GPBWireFormat.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C7929769D730012A730 /* GPBFieldMask.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C0729769D720012A730 /* GPBFieldMask.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C7A29769D730012A730 /* GPBUtilities.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C0829769D720012A730 /* GPBUtilities.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C7B29769D730012A730 /* GPBDuration.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C0929769D720012A730 /* GPBDuration.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C7C29769D730012A730 /* GPBExtensionInternals.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C0A29769D720012A730 /* GPBExtensionInternals.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C7D29769D730012A730 /* GPBUnknownFieldSet.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C0B29769D720012A730 /* GPBUnknownFieldSet.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C7E29769D730012A730 /* GPBDictionary.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C0C29769D720012A730 /* GPBDictionary.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C7F29769D730012A730 /* GPBCodedOutputStream.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C0D29769D720012A730 /* GPBCodedOutputStream.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C8029769D730012A730 /* GPBStruct.pbobjc.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C0E29769D720012A730 /* GPBStruct.pbobjc.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C8129769D730012A730 /* GPBRootObject_PackagePrivate.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C0F29769D720012A730 /* GPBRootObject_PackagePrivate.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C8229769D730012A730 /* Api.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C1229769D720012A730 /* Api.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C8329769D730012A730 /* SourceContext.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C1329769D720012A730 /* SourceContext.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C8429769D730012A730 /* Duration.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C1429769D720012A730 /* Duration.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C8529769D730012A730 /* Empty.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C1529769D720012A730 /* Empty.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C8629769D730012A730 /* Wrappers.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C1629769D720012A730 /* Wrappers.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C8729769D730012A730 /* Struct.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C1729769D720012A730 /* Struct.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C8829769D730012A730 /* FieldMask.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C1829769D720012A730 /* FieldMask.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C8929769D730012A730 /* Timestamp.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C1929769D720012A730 /* Timestamp.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C8A29769D730012A730 /* Type.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C1A29769D720012A730 /* Type.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C8B29769D730012A730 /* Any.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C1B29769D720012A730 /* Any.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C8C29769D730012A730 /* GPBUtilities_PackagePrivate.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C1C29769D720012A730 /* GPBUtilities_PackagePrivate.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C8D29769D730012A730 /* GPBTimestamp.pbobjc.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C1D29769D720012A730 /* GPBTimestamp.pbobjc.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C8E29769D730012A730 /* GPBCodedInputStream.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C1E29769D720012A730 /* GPBCodedInputStream.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C8F29769D730012A730 /* GPBWrappers.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C1F29769D720012A730 /* GPBWrappers.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C9029769D730012A730 /* GPBApi.pbobjc.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C2029769D720012A730 /* GPBApi.pbobjc.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C9129769D730012A730 /* GPBWellKnownTypes.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C2129769D720012A730 /* GPBWellKnownTypes.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C9229769D730012A730 /* GPBUnknownField.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C2229769D720012A730 /* GPBUnknownField.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C9329769D730012A730 /* GPBSourceContext.pbobjc.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C2329769D720012A730 /* GPBSourceContext.pbobjc.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C9429769D730012A730 /* GPBDescriptor.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C2429769D720012A730 /* GPBDescriptor.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C9529769D730012A730 /* GPBCodedInputStream_PackagePrivate.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C2529769D720012A730 /* GPBCodedInputStream_PackagePrivate.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C9629769D730012A730 /* GPBRootObject.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C2629769D720012A730 /* GPBRootObject.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C9729769D730012A730 /* GPBBootstrap.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C2729769D720012A730 /* GPBBootstrap.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C9829769D730012A730 /* GPBExtensionRegistry.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C2829769D720012A730 /* GPBExtensionRegistry.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C9929769D730012A730 /* GPBArray.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C2929769D720012A730 /* GPBArray.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C9A29769D730012A730 /* GPBAny.pbobjc.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C2A29769D720012A730 /* GPBAny.pbobjc.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C9B29769D730012A730 /* GPBType.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C2B29769D720012A730 /* GPBType.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C9C29769D730012A730 /* GPBRuntimeTypes.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C2C29769D720012A730 /* GPBRuntimeTypes.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C9D29769D730012A730 /* GPBFieldMask.pbobjc.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C2D29769D720012A730 /* GPBFieldMask.pbobjc.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204C9E29769D730012A730 /* GPBUtilities.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C2E29769D720012A730 /* GPBUtilities.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204C9F29769D730012A730 /* GPBDuration.pbobjc.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C2F29769D720012A730 /* GPBDuration.pbobjc.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204CA029769D730012A730 /* GPBMessage_PackagePrivate.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C3029769D720012A730 /* GPBMessage_PackagePrivate.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CA129769D730012A730 /* GPBWireFormat.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C3129769D720012A730 /* GPBWireFormat.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CA229769D730012A730 /* GPBArray_PackagePrivate.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C3229769D720012A730 /* GPBArray_PackagePrivate.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CA329769D730012A730 /* GPBEmpty.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C3329769D720012A730 /* GPBEmpty.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CA429769D730012A730 /* GPBMessage.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C3429769D720012A730 /* GPBMessage.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CA529769D730012A730 /* GPBProtocolBuffers_RuntimeSupport.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C3529769D720012A730 /* GPBProtocolBuffers_RuntimeSupport.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CA629769D730012A730 /* GPBApi.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C3629769D720012A730 /* GPBApi.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CA729769D730012A730 /* GPBWrappers.pbobjc.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C3729769D720012A730 /* GPBWrappers.pbobjc.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204CA829769D730012A730 /* GPBCodedInputStream.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C3829769D720012A730 /* GPBCodedInputStream.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CA929769D730012A730 /* GPBDescriptor_PackagePrivate.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C3929769D720012A730 /* GPBDescriptor_PackagePrivate.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CAA29769D730012A730 /* GPBTimestamp.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C3A29769D720012A730 /* GPBTimestamp.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CAB29769D730012A730 /* GPBStruct.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C3B29769D720012A730 /* GPBStruct.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CAC29769D730012A730 /* GPBCodedOutputStream.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C3C29769D720012A730 /* GPBCodedOutputStream.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204CAD29769D730012A730 /* GPBDictionary.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C3D29769D720012A730 /* GPBDictionary.m */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		2B204CAE29769D730012A730 /* GPBUnknownFieldSet.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C3E29769D720012A730 /* GPBUnknownFieldSet.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CAF29769D730012A730 /* GPBExtensionInternals.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C3F29769D720012A730 /* GPBExtensionInternals.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CB029769D730012A730 /* GPBSourceContext.pbobjc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C4029769D720012A730 /* GPBSourceContext.pbobjc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CB129769D730012A730 /* GPBUnknownField.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C4129769D720012A730 /* GPBUnknownField.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CB229769D730012A730 /* GPBUnknownFieldSet_PackagePrivate.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C4229769D720012A730 /* GPBUnknownFieldSet_PackagePrivate.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CB329769D730012A730 /* GPBWellKnownTypes.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C4329769D720012A730 /* GPBWellKnownTypes.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CB429769D730012A730 /* GPBUnknownField_PackagePrivate.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C4429769D720012A730 /* GPBUnknownField_PackagePrivate.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CB529769D730012A730 /* GPBDictionary_PackagePrivate.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C4529769D720012A730 /* GPBDictionary_PackagePrivate.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CB629769D730012A730 /* TLSClient.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C4629769D720012A730 /* TLSClient.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CB729769D730012A730 /* TLSProtobuf.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C4729769D720012A730 /* TLSProtobuf.m */; };
+		2B204CB829769D730012A730 /* TLSModel.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C4829769D720012A730 /* TLSModel.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CB929769D730012A730 /* TLSResponse.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C4929769D720012A730 /* TLSResponse.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CBB29769D730012A730 /* TLSModel.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C4B29769D730012A730 /* TLSModel.m */; };
+		2B204CBC29769D730012A730 /* TLSResponse.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C4C29769D730012A730 /* TLSResponse.m */; };
+		2B204CBD29769D730012A730 /* TLSProtobuf.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C4D29769D730012A730 /* TLSProtobuf.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CC029769D730012A730 /* TLSClientConfig.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C5029769D730012A730 /* TLSClientConfig.m */; };
+		2B204CC129769D730012A730 /* TLSRequest.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C5129769D730012A730 /* TLSRequest.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CC329769D730012A730 /* JSONValueTransformer.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C5529769D730012A730 /* JSONValueTransformer.m */; };
+		2B204CC429769D730012A730 /* JSONKeyMapper.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C5629769D730012A730 /* JSONKeyMapper.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CC529769D730012A730 /* JSONValueTransformer.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C5729769D730012A730 /* JSONValueTransformer.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CC629769D730012A730 /* JSONKeyMapper.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C5829769D730012A730 /* JSONKeyMapper.m */; };
+		2B204CC729769D730012A730 /* JSONModel.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C5A29769D730012A730 /* JSONModel.m */; };
+		2B204CC829769D730012A730 /* JSONModelError.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C5B29769D730012A730 /* JSONModelError.m */; };
+		2B204CC929769D730012A730 /* JSONModelClassProperty.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C5C29769D730012A730 /* JSONModelClassProperty.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CCA29769D730012A730 /* JSONModel.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C5D29769D730012A730 /* JSONModel.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CCB29769D730012A730 /* JSONModelClassProperty.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C5E29769D730012A730 /* JSONModelClassProperty.m */; };
+		2B204CCC29769D730012A730 /* JSONModelError.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C5F29769D730012A730 /* JSONModelError.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CCE29769D730012A730 /* JSONModelLib.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C6229769D730012A730 /* JSONModelLib.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CCF29769D730012A730 /* JSONHTTPClient.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C6429769D730012A730 /* JSONHTTPClient.m */; };
+		2B204CD029769D730012A730 /* JSONAPI.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C6529769D730012A730 /* JSONAPI.m */; };
+		2B204CD129769D730012A730 /* JSONModel+networking.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C6629769D730012A730 /* JSONModel+networking.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CD229769D730012A730 /* JSONHTTPClient.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C6729769D730012A730 /* JSONHTTPClient.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CD329769D730012A730 /* JSONAPI.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204C6829769D730012A730 /* JSONAPI.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CD429769D730012A730 /* JSONModel+networking.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C6929769D730012A730 /* JSONModel+networking.m */; };
+		2B204CD529769D730012A730 /* TLSClient.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C6A29769D730012A730 /* TLSClient.m */; };
+		2B204CD629769D730012A730 /* TLSRequest.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204C6B29769D730012A730 /* TLSRequest.m */; };
+		2B204CE8297925BE0012A730 /* lz4hc.c in Sources */ = {isa = PBXBuildFile; fileRef = 2B204CE1297925BE0012A730 /* lz4hc.c */; };
+		2B204CE9297925BE0012A730 /* lz4.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204CE2297925BE0012A730 /* lz4.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CEA297925BE0012A730 /* lz4hc.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204CE3297925BE0012A730 /* lz4hc.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B204CEB297925BE0012A730 /* lz4.c in Sources */ = {isa = PBXBuildFile; fileRef = 2B204CE4297925BE0012A730 /* lz4.c */; };
+		2B204CEC297925BE0012A730 /* NSData+lz4.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B204CE6297925BE0012A730 /* NSData+lz4.m */; };
+		2B204CED297925BE0012A730 /* NSData+lz4.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B204CE7297925BE0012A730 /* NSData+lz4.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9B7A296D51F5005ADA84 /* VeTLSiOSSDK.docc in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9B79296D51F5005ADA84 /* VeTLSiOSSDK.docc */; };
+		2B7D9B85296D51F5005ADA84 /* VeTLSiOSSDKTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9B84296D51F5005ADA84 /* VeTLSiOSSDKTests.m */; };
+		2B7D9B86296D51F5005ADA84 /* VeTLSiOSSDK.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9B78296D51F5005ADA84 /* VeTLSiOSSDK.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C07296D579B005ADA84 /* VeCredential.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C05296D579B005ADA84 /* VeCredential.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C08296D579B005ADA84 /* VeCredential.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C06296D579B005ADA84 /* VeCredential.m */; };
+		2B7D9C0C296D5C9A005ADA84 /* VeNetworking.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C0A296D5C9A005ADA84 /* VeNetworking.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C0D296D5C9A005ADA84 /* VeNetworking.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C0B296D5C9A005ADA84 /* VeNetworking.m */; };
+		2B7D9C10296D5EA1005ADA84 /* VeNetworkingConfiguration.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C0E296D5EA1005ADA84 /* VeNetworkingConfiguration.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C11296D5EA1005ADA84 /* VeNetworkingConfiguration.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C0F296D5EA1005ADA84 /* VeNetworkingConfiguration.m */; };
+		2B7D9C15296D6754005ADA84 /* VeSign.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C13296D6754005ADA84 /* VeSign.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C16296D6754005ADA84 /* VeSign.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C14296D6754005ADA84 /* VeSign.m */; };
+		2B7D9C1E296E5C37005ADA84 /* NSDate+Ve.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C1C296E5C37005ADA84 /* NSDate+Ve.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C1F296E5C37005ADA84 /* NSDate+Ve.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C1D296E5C37005ADA84 /* NSDate+Ve.m */; };
+		2B7D9C22296E628F005ADA84 /* VeSignUtil.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C20296E628F005ADA84 /* VeSignUtil.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C23296E628F005ADA84 /* VeSignUtil.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C21296E628F005ADA84 /* VeSignUtil.m */; };
+		2B7D9C37296E9A7C005ADA84 /* VeCancellationTokenSource.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C28296E9A7C005ADA84 /* VeCancellationTokenSource.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C38296E9A7C005ADA84 /* VeExecutor.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C29296E9A7C005ADA84 /* VeExecutor.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C39296E9A7C005ADA84 /* VeCancellationToken.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C2A296E9A7C005ADA84 /* VeCancellationToken.m */; };
+		2B7D9C3A296E9A7C005ADA84 /* VeTask.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C2B296E9A7C005ADA84 /* VeTask.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C3B296E9A7C005ADA84 /* VeBolts.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C2C296E9A7C005ADA84 /* VeBolts.m */; };
+		2B7D9C3C296E9A7C005ADA84 /* VeCancellationTokenRegistration.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C2D296E9A7C005ADA84 /* VeCancellationTokenRegistration.m */; };
+		2B7D9C3D296E9A7C005ADA84 /* VeTaskCompletionSource.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C2E296E9A7C005ADA84 /* VeTaskCompletionSource.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C3E296E9A7C005ADA84 /* VeGeneric.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C2F296E9A7C005ADA84 /* VeGeneric.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C3F296E9A7C005ADA84 /* VeCancellationToken.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C30296E9A7C005ADA84 /* VeCancellationToken.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C40296E9A7C005ADA84 /* VeExecutor.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C31296E9A7C005ADA84 /* VeExecutor.m */; };
+		2B7D9C41296E9A7C005ADA84 /* VeCancellationTokenSource.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C32296E9A7C005ADA84 /* VeCancellationTokenSource.m */; };
+		2B7D9C42296E9A7C005ADA84 /* VeCancellationTokenRegistration.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C33296E9A7C005ADA84 /* VeCancellationTokenRegistration.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C43296E9A7C005ADA84 /* VeTask.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C34296E9A7C005ADA84 /* VeTask.m */; };
+		2B7D9C44296E9A7C005ADA84 /* VeBolts.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C35296E9A7C005ADA84 /* VeBolts.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C45296E9A7C005ADA84 /* VeTaskCompletionSource.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C36296E9A7C005ADA84 /* VeTaskCompletionSource.m */; };
+		2B7D9C47296E9AFF005ADA84 /* VeCore.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C46296E9AFF005ADA84 /* VeCore.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C4A296E9E9E005ADA84 /* VeNetworkingDelegate.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C48296E9E9E005ADA84 /* VeNetworkingDelegate.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C4B296E9E9E005ADA84 /* VeNetworkingDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C49296E9E9E005ADA84 /* VeNetworkingDelegate.m */; };
+		2B7D9C4E296EA02A005ADA84 /* VeSynchronizedMutableDictionary.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C4C296EA02A005ADA84 /* VeSynchronizedMutableDictionary.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C4F296EA02A005ADA84 /* VeSynchronizedMutableDictionary.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C4D296EA02A005ADA84 /* VeSynchronizedMutableDictionary.m */; };
+		2B7D9C5B296EA988005ADA84 /* VeRequest.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C59296EA988005ADA84 /* VeRequest.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C5C296EA988005ADA84 /* VeRequest.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C5A296EA988005ADA84 /* VeRequest.m */; };
+		2B7D9C63296EAA31005ADA84 /* VeNetworkingConstants.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C61296EAA31005ADA84 /* VeNetworkingConstants.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C64296EAA31005ADA84 /* VeNetworkingConstants.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C62296EAA31005ADA84 /* VeNetworkingConstants.m */; };
+		2B7D9C67296EAE0A005ADA84 /* VeEndpoint.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C65296EAE0A005ADA84 /* VeEndpoint.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C68296EAE0A005ADA84 /* VeEndpoint.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C66296EAE0A005ADA84 /* VeEndpoint.m */; };
+		2B7D9C9629702E88005ADA84 /* VeNetworkingRequest.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B7D9C9429702E88005ADA84 /* VeNetworkingRequest.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		2B7D9C9729702E88005ADA84 /* VeNetworkingRequest.m in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D9C9529702E88005ADA84 /* VeNetworkingRequest.m */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2B7D9B81296D51F5005ADA84 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2B7D9B6C296D51F5005ADA84 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2B7D9B74296D51F5005ADA84;
+			remoteInfo = VeTLSiOSSDK;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		2B204BFA29769D720012A730 /* TLSClientConfig.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TLSClientConfig.h; sourceTree = "<group>"; };
+		2B204BFC29769D720012A730 /* GPBType.pbobjc.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBType.pbobjc.m; sourceTree = "<group>"; };
+		2B204BFD29769D720012A730 /* GPBCodedOutputStream_PackagePrivate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBCodedOutputStream_PackagePrivate.h; sourceTree = "<group>"; };
+		2B204BFE29769D720012A730 /* GPBArray.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBArray.h; sourceTree = "<group>"; };
+		2B204BFF29769D720012A730 /* GPBAny.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBAny.pbobjc.h; sourceTree = "<group>"; };
+		2B204C0029769D720012A730 /* GPBExtensionRegistry.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBExtensionRegistry.m; sourceTree = "<group>"; };
+		2B204C0129769D720012A730 /* GPBRootObject.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBRootObject.m; sourceTree = "<group>"; };
+		2B204C0229769D720012A730 /* GPBDescriptor.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBDescriptor.m; sourceTree = "<group>"; };
+		2B204C0329769D720012A730 /* GPBMessage.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBMessage.m; sourceTree = "<group>"; };
+		2B204C0429769D720012A730 /* GPBEmpty.pbobjc.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBEmpty.pbobjc.m; sourceTree = "<group>"; };
+		2B204C0529769D720012A730 /* GPBProtocolBuffers.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBProtocolBuffers.h; sourceTree = "<group>"; };
+		2B204C0629769D720012A730 /* GPBWireFormat.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBWireFormat.m; sourceTree = "<group>"; };
+		2B204C0729769D720012A730 /* GPBFieldMask.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBFieldMask.pbobjc.h; sourceTree = "<group>"; };
+		2B204C0829769D720012A730 /* GPBUtilities.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBUtilities.m; sourceTree = "<group>"; };
+		2B204C0929769D720012A730 /* GPBDuration.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBDuration.pbobjc.h; sourceTree = "<group>"; };
+		2B204C0A29769D720012A730 /* GPBExtensionInternals.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBExtensionInternals.m; sourceTree = "<group>"; };
+		2B204C0B29769D720012A730 /* GPBUnknownFieldSet.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBUnknownFieldSet.m; sourceTree = "<group>"; };
+		2B204C0C29769D720012A730 /* GPBDictionary.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBDictionary.h; sourceTree = "<group>"; };
+		2B204C0D29769D720012A730 /* GPBCodedOutputStream.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBCodedOutputStream.h; sourceTree = "<group>"; };
+		2B204C0E29769D720012A730 /* GPBStruct.pbobjc.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBStruct.pbobjc.m; sourceTree = "<group>"; };
+		2B204C0F29769D720012A730 /* GPBRootObject_PackagePrivate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBRootObject_PackagePrivate.h; sourceTree = "<group>"; };
+		2B204C1229769D720012A730 /* Api.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Api.pbobjc.h; sourceTree = "<group>"; };
+		2B204C1329769D720012A730 /* SourceContext.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SourceContext.pbobjc.h; sourceTree = "<group>"; };
+		2B204C1429769D720012A730 /* Duration.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Duration.pbobjc.h; sourceTree = "<group>"; };
+		2B204C1529769D720012A730 /* Empty.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Empty.pbobjc.h; sourceTree = "<group>"; };
+		2B204C1629769D720012A730 /* Wrappers.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Wrappers.pbobjc.h; sourceTree = "<group>"; };
+		2B204C1729769D720012A730 /* Struct.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Struct.pbobjc.h; sourceTree = "<group>"; };
+		2B204C1829769D720012A730 /* FieldMask.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FieldMask.pbobjc.h; sourceTree = "<group>"; };
+		2B204C1929769D720012A730 /* Timestamp.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Timestamp.pbobjc.h; sourceTree = "<group>"; };
+		2B204C1A29769D720012A730 /* Type.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Type.pbobjc.h; sourceTree = "<group>"; };
+		2B204C1B29769D720012A730 /* Any.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Any.pbobjc.h; sourceTree = "<group>"; };
+		2B204C1C29769D720012A730 /* GPBUtilities_PackagePrivate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBUtilities_PackagePrivate.h; sourceTree = "<group>"; };
+		2B204C1D29769D720012A730 /* GPBTimestamp.pbobjc.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBTimestamp.pbobjc.m; sourceTree = "<group>"; };
+		2B204C1E29769D720012A730 /* GPBCodedInputStream.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBCodedInputStream.m; sourceTree = "<group>"; };
+		2B204C1F29769D720012A730 /* GPBWrappers.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBWrappers.pbobjc.h; sourceTree = "<group>"; };
+		2B204C2029769D720012A730 /* GPBApi.pbobjc.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBApi.pbobjc.m; sourceTree = "<group>"; };
+		2B204C2129769D720012A730 /* GPBWellKnownTypes.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBWellKnownTypes.m; sourceTree = "<group>"; };
+		2B204C2229769D720012A730 /* GPBUnknownField.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBUnknownField.m; sourceTree = "<group>"; };
+		2B204C2329769D720012A730 /* GPBSourceContext.pbobjc.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBSourceContext.pbobjc.m; sourceTree = "<group>"; };
+		2B204C2429769D720012A730 /* GPBDescriptor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBDescriptor.h; sourceTree = "<group>"; };
+		2B204C2529769D720012A730 /* GPBCodedInputStream_PackagePrivate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBCodedInputStream_PackagePrivate.h; sourceTree = "<group>"; };
+		2B204C2629769D720012A730 /* GPBRootObject.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBRootObject.h; sourceTree = "<group>"; };
+		2B204C2729769D720012A730 /* GPBBootstrap.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBBootstrap.h; sourceTree = "<group>"; };
+		2B204C2829769D720012A730 /* GPBExtensionRegistry.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBExtensionRegistry.h; sourceTree = "<group>"; };
+		2B204C2929769D720012A730 /* GPBArray.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBArray.m; sourceTree = "<group>"; };
+		2B204C2A29769D720012A730 /* GPBAny.pbobjc.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBAny.pbobjc.m; sourceTree = "<group>"; };
+		2B204C2B29769D720012A730 /* GPBType.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBType.pbobjc.h; sourceTree = "<group>"; };
+		2B204C2C29769D720012A730 /* GPBRuntimeTypes.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBRuntimeTypes.h; sourceTree = "<group>"; };
+		2B204C2D29769D720012A730 /* GPBFieldMask.pbobjc.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBFieldMask.pbobjc.m; sourceTree = "<group>"; };
+		2B204C2E29769D720012A730 /* GPBUtilities.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBUtilities.h; sourceTree = "<group>"; };
+		2B204C2F29769D720012A730 /* GPBDuration.pbobjc.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBDuration.pbobjc.m; sourceTree = "<group>"; };
+		2B204C3029769D720012A730 /* GPBMessage_PackagePrivate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBMessage_PackagePrivate.h; sourceTree = "<group>"; };
+		2B204C3129769D720012A730 /* GPBWireFormat.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBWireFormat.h; sourceTree = "<group>"; };
+		2B204C3229769D720012A730 /* GPBArray_PackagePrivate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBArray_PackagePrivate.h; sourceTree = "<group>"; };
+		2B204C3329769D720012A730 /* GPBEmpty.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBEmpty.pbobjc.h; sourceTree = "<group>"; };
+		2B204C3429769D720012A730 /* GPBMessage.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBMessage.h; sourceTree = "<group>"; };
+		2B204C3529769D720012A730 /* GPBProtocolBuffers_RuntimeSupport.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBProtocolBuffers_RuntimeSupport.h; sourceTree = "<group>"; };
+		2B204C3629769D720012A730 /* GPBApi.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBApi.pbobjc.h; sourceTree = "<group>"; };
+		2B204C3729769D720012A730 /* GPBWrappers.pbobjc.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBWrappers.pbobjc.m; sourceTree = "<group>"; };
+		2B204C3829769D720012A730 /* GPBCodedInputStream.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBCodedInputStream.h; sourceTree = "<group>"; };
+		2B204C3929769D720012A730 /* GPBDescriptor_PackagePrivate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBDescriptor_PackagePrivate.h; sourceTree = "<group>"; };
+		2B204C3A29769D720012A730 /* GPBTimestamp.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBTimestamp.pbobjc.h; sourceTree = "<group>"; };
+		2B204C3B29769D720012A730 /* GPBStruct.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBStruct.pbobjc.h; sourceTree = "<group>"; };
+		2B204C3C29769D720012A730 /* GPBCodedOutputStream.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBCodedOutputStream.m; sourceTree = "<group>"; };
+		2B204C3D29769D720012A730 /* GPBDictionary.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GPBDictionary.m; sourceTree = "<group>"; };
+		2B204C3E29769D720012A730 /* GPBUnknownFieldSet.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBUnknownFieldSet.h; sourceTree = "<group>"; };
+		2B204C3F29769D720012A730 /* GPBExtensionInternals.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBExtensionInternals.h; sourceTree = "<group>"; };
+		2B204C4029769D720012A730 /* GPBSourceContext.pbobjc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBSourceContext.pbobjc.h; sourceTree = "<group>"; };
+		2B204C4129769D720012A730 /* GPBUnknownField.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBUnknownField.h; sourceTree = "<group>"; };
+		2B204C4229769D720012A730 /* GPBUnknownFieldSet_PackagePrivate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBUnknownFieldSet_PackagePrivate.h; sourceTree = "<group>"; };
+		2B204C4329769D720012A730 /* GPBWellKnownTypes.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBWellKnownTypes.h; sourceTree = "<group>"; };
+		2B204C4429769D720012A730 /* GPBUnknownField_PackagePrivate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBUnknownField_PackagePrivate.h; sourceTree = "<group>"; };
+		2B204C4529769D720012A730 /* GPBDictionary_PackagePrivate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GPBDictionary_PackagePrivate.h; sourceTree = "<group>"; };
+		2B204C4629769D720012A730 /* TLSClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TLSClient.h; sourceTree = "<group>"; };
+		2B204C4729769D720012A730 /* TLSProtobuf.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = TLSProtobuf.m; sourceTree = "<group>"; };
+		2B204C4829769D720012A730 /* TLSModel.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TLSModel.h; sourceTree = "<group>"; };
+		2B204C4929769D720012A730 /* TLSResponse.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TLSResponse.h; sourceTree = "<group>"; };
+		2B204C4B29769D730012A730 /* TLSModel.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = TLSModel.m; sourceTree = "<group>"; };
+		2B204C4C29769D730012A730 /* TLSResponse.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = TLSResponse.m; sourceTree = "<group>"; };
+		2B204C4D29769D730012A730 /* TLSProtobuf.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TLSProtobuf.h; sourceTree = "<group>"; };
+		2B204C5029769D730012A730 /* TLSClientConfig.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = TLSClientConfig.m; sourceTree = "<group>"; };
+		2B204C5129769D730012A730 /* TLSRequest.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TLSRequest.h; sourceTree = "<group>"; };
+		2B204C5529769D730012A730 /* JSONValueTransformer.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = JSONValueTransformer.m; sourceTree = "<group>"; };
+		2B204C5629769D730012A730 /* JSONKeyMapper.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSONKeyMapper.h; sourceTree = "<group>"; };
+		2B204C5729769D730012A730 /* JSONValueTransformer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSONValueTransformer.h; sourceTree = "<group>"; };
+		2B204C5829769D730012A730 /* JSONKeyMapper.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = JSONKeyMapper.m; sourceTree = "<group>"; };
+		2B204C5A29769D730012A730 /* JSONModel.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = JSONModel.m; sourceTree = "<group>"; };
+		2B204C5B29769D730012A730 /* JSONModelError.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = JSONModelError.m; sourceTree = "<group>"; };
+		2B204C5C29769D730012A730 /* JSONModelClassProperty.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSONModelClassProperty.h; sourceTree = "<group>"; };
+		2B204C5D29769D730012A730 /* JSONModel.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSONModel.h; sourceTree = "<group>"; };
+		2B204C5E29769D730012A730 /* JSONModelClassProperty.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = JSONModelClassProperty.m; sourceTree = "<group>"; };
+		2B204C5F29769D730012A730 /* JSONModelError.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSONModelError.h; sourceTree = "<group>"; };
+		2B204C6029769D730012A730 /* JSONModel.modulemap */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = "sourcecode.module-map"; path = JSONModel.modulemap; sourceTree = "<group>"; };
+		2B204C6129769D730012A730 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		2B204C6229769D730012A730 /* JSONModelLib.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSONModelLib.h; sourceTree = "<group>"; };
+		2B204C6429769D730012A730 /* JSONHTTPClient.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = JSONHTTPClient.m; sourceTree = "<group>"; };
+		2B204C6529769D730012A730 /* JSONAPI.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = JSONAPI.m; sourceTree = "<group>"; };
+		2B204C6629769D730012A730 /* JSONModel+networking.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "JSONModel+networking.h"; sourceTree = "<group>"; };
+		2B204C6729769D730012A730 /* JSONHTTPClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSONHTTPClient.h; sourceTree = "<group>"; };
+		2B204C6829769D730012A730 /* JSONAPI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JSONAPI.h; sourceTree = "<group>"; };
+		2B204C6929769D730012A730 /* JSONModel+networking.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "JSONModel+networking.m"; sourceTree = "<group>"; };
+		2B204C6A29769D730012A730 /* TLSClient.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = TLSClient.m; sourceTree = "<group>"; };
+		2B204C6B29769D730012A730 /* TLSRequest.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = TLSRequest.m; sourceTree = "<group>"; };
+		2B204CE1297925BE0012A730 /* lz4hc.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = lz4hc.c; sourceTree = "<group>"; };
+		2B204CE2297925BE0012A730 /* lz4.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = lz4.h; sourceTree = "<group>"; };
+		2B204CE3297925BE0012A730 /* lz4hc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = lz4hc.h; sourceTree = "<group>"; };
+		2B204CE4297925BE0012A730 /* lz4.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = lz4.c; sourceTree = "<group>"; };
+		2B204CE6297925BE0012A730 /* NSData+lz4.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "NSData+lz4.m"; sourceTree = "<group>"; };
+		2B204CE7297925BE0012A730 /* NSData+lz4.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "NSData+lz4.h"; sourceTree = "<group>"; };
+		2B7D9B75296D51F5005ADA84 /* VeTLSiOSSDK.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = VeTLSiOSSDK.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		2B7D9B78296D51F5005ADA84 /* VeTLSiOSSDK.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VeTLSiOSSDK.h; sourceTree = "<group>"; };
+		2B7D9B79296D51F5005ADA84 /* VeTLSiOSSDK.docc */ = {isa = PBXFileReference; lastKnownFileType = folder.documentationcatalog; path = VeTLSiOSSDK.docc; sourceTree = "<group>"; };
+		2B7D9B7F296D51F5005ADA84 /* VeTLSiOSSDKTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VeTLSiOSSDKTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		2B7D9B84296D51F5005ADA84 /* VeTLSiOSSDKTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VeTLSiOSSDKTests.m; sourceTree = "<group>"; };
+		2B7D9C05296D579B005ADA84 /* VeCredential.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VeCredential.h; sourceTree = "<group>"; };
+		2B7D9C06296D579B005ADA84 /* VeCredential.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VeCredential.m; sourceTree = "<group>"; };
+		2B7D9C0A296D5C9A005ADA84 /* VeNetworking.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VeNetworking.h; sourceTree = "<group>"; };
+		2B7D9C0B296D5C9A005ADA84 /* VeNetworking.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VeNetworking.m; sourceTree = "<group>"; };
+		2B7D9C0E296D5EA1005ADA84 /* VeNetworkingConfiguration.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VeNetworkingConfiguration.h; sourceTree = "<group>"; };
+		2B7D9C0F296D5EA1005ADA84 /* VeNetworkingConfiguration.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VeNetworkingConfiguration.m; sourceTree = "<group>"; };
+		2B7D9C13296D6754005ADA84 /* VeSign.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VeSign.h; sourceTree = "<group>"; };
+		2B7D9C14296D6754005ADA84 /* VeSign.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VeSign.m; sourceTree = "<group>"; };
+		2B7D9C1C296E5C37005ADA84 /* NSDate+Ve.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "NSDate+Ve.h"; sourceTree = "<group>"; };
+		2B7D9C1D296E5C37005ADA84 /* NSDate+Ve.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "NSDate+Ve.m"; sourceTree = "<group>"; };
+		2B7D9C20296E628F005ADA84 /* VeSignUtil.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VeSignUtil.h; sourceTree = "<group>"; };
+		2B7D9C21296E628F005ADA84 /* VeSignUtil.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VeSignUtil.m; sourceTree = "<group>"; };
+		2B7D9C28296E9A7C005ADA84 /* VeCancellationTokenSource.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VeCancellationTokenSource.h; sourceTree = "<group>"; };
+		2B7D9C29296E9A7C005ADA84 /* VeExecutor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VeExecutor.h; sourceTree = "<group>"; };
+		2B7D9C2A296E9A7C005ADA84 /* VeCancellationToken.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = VeCancellationToken.m; sourceTree = "<group>"; };
+		2B7D9C2B296E9A7C005ADA84 /* VeTask.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VeTask.h; sourceTree = "<group>"; };
+		2B7D9C2C296E9A7C005ADA84 /* VeBolts.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = VeBolts.m; sourceTree = "<group>"; };
+		2B7D9C2D296E9A7C005ADA84 /* VeCancellationTokenRegistration.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = VeCancellationTokenRegistration.m; sourceTree = "<group>"; };
+		2B7D9C2E296E9A7C005ADA84 /* VeTaskCompletionSource.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VeTaskCompletionSource.h; sourceTree = "<group>"; };
+		2B7D9C2F296E9A7C005ADA84 /* VeGeneric.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VeGeneric.h; sourceTree = "<group>"; };
+		2B7D9C30296E9A7C005ADA84 /* VeCancellationToken.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VeCancellationToken.h; sourceTree = "<group>"; };
+		2B7D9C31296E9A7C005ADA84 /* VeExecutor.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = VeExecutor.m; sourceTree = "<group>"; };
+		2B7D9C32296E9A7C005ADA84 /* VeCancellationTokenSource.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = VeCancellationTokenSource.m; sourceTree = "<group>"; };
+		2B7D9C33296E9A7C005ADA84 /* VeCancellationTokenRegistration.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VeCancellationTokenRegistration.h; sourceTree = "<group>"; };
+		2B7D9C34296E9A7C005ADA84 /* VeTask.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = VeTask.m; sourceTree = "<group>"; };
+		2B7D9C35296E9A7C005ADA84 /* VeBolts.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VeBolts.h; sourceTree = "<group>"; };
+		2B7D9C36296E9A7C005ADA84 /* VeTaskCompletionSource.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = VeTaskCompletionSource.m; sourceTree = "<group>"; };
+		2B7D9C46296E9AFF005ADA84 /* VeCore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VeCore.h; sourceTree = "<group>"; };
+		2B7D9C48296E9E9E005ADA84 /* VeNetworkingDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VeNetworkingDelegate.h; sourceTree = "<group>"; };
+		2B7D9C49296E9E9E005ADA84 /* VeNetworkingDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VeNetworkingDelegate.m; sourceTree = "<group>"; };
+		2B7D9C4C296EA02A005ADA84 /* VeSynchronizedMutableDictionary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VeSynchronizedMutableDictionary.h; sourceTree = "<group>"; };
+		2B7D9C4D296EA02A005ADA84 /* VeSynchronizedMutableDictionary.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VeSynchronizedMutableDictionary.m; sourceTree = "<group>"; };
+		2B7D9C59296EA988005ADA84 /* VeRequest.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VeRequest.h; sourceTree = "<group>"; };
+		2B7D9C5A296EA988005ADA84 /* VeRequest.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VeRequest.m; sourceTree = "<group>"; };
+		2B7D9C61296EAA31005ADA84 /* VeNetworkingConstants.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VeNetworkingConstants.h; sourceTree = "<group>"; };
+		2B7D9C62296EAA31005ADA84 /* VeNetworkingConstants.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VeNetworkingConstants.m; sourceTree = "<group>"; };
+		2B7D9C65296EAE0A005ADA84 /* VeEndpoint.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VeEndpoint.h; sourceTree = "<group>"; };
+		2B7D9C66296EAE0A005ADA84 /* VeEndpoint.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VeEndpoint.m; sourceTree = "<group>"; };
+		2B7D9C9429702E88005ADA84 /* VeNetworkingRequest.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VeNetworkingRequest.h; sourceTree = "<group>"; };
+		2B7D9C9529702E88005ADA84 /* VeNetworkingRequest.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VeNetworkingRequest.m; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		2B7D9B72296D51F5005ADA84 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2B00A00629B9F7DA00045FA4 /* VeTLSiOSSDK.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2B7D9B7C296D51F5005ADA84 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		2B204BFB29769D720012A730 /* Protobuf */ = {
+			isa = PBXGroup;
+			children = (
+				2B204BFC29769D720012A730 /* GPBType.pbobjc.m */,
+				2B204BFD29769D720012A730 /* GPBCodedOutputStream_PackagePrivate.h */,
+				2B204BFE29769D720012A730 /* GPBArray.h */,
+				2B204BFF29769D720012A730 /* GPBAny.pbobjc.h */,
+				2B204C0029769D720012A730 /* GPBExtensionRegistry.m */,
+				2B204C0129769D720012A730 /* GPBRootObject.m */,
+				2B204C0229769D720012A730 /* GPBDescriptor.m */,
+				2B204C0329769D720012A730 /* GPBMessage.m */,
+				2B204C0429769D720012A730 /* GPBEmpty.pbobjc.m */,
+				2B204C0529769D720012A730 /* GPBProtocolBuffers.h */,
+				2B204C0629769D720012A730 /* GPBWireFormat.m */,
+				2B204C0729769D720012A730 /* GPBFieldMask.pbobjc.h */,
+				2B204C0829769D720012A730 /* GPBUtilities.m */,
+				2B204C0929769D720012A730 /* GPBDuration.pbobjc.h */,
+				2B204C0A29769D720012A730 /* GPBExtensionInternals.m */,
+				2B204C0B29769D720012A730 /* GPBUnknownFieldSet.m */,
+				2B204C0C29769D720012A730 /* GPBDictionary.h */,
+				2B204C0D29769D720012A730 /* GPBCodedOutputStream.h */,
+				2B204C0E29769D720012A730 /* GPBStruct.pbobjc.m */,
+				2B204C0F29769D720012A730 /* GPBRootObject_PackagePrivate.h */,
+				2B204C1029769D720012A730 /* google */,
+				2B204C1C29769D720012A730 /* GPBUtilities_PackagePrivate.h */,
+				2B204C1D29769D720012A730 /* GPBTimestamp.pbobjc.m */,
+				2B204C1E29769D720012A730 /* GPBCodedInputStream.m */,
+				2B204C1F29769D720012A730 /* GPBWrappers.pbobjc.h */,
+				2B204C2029769D720012A730 /* GPBApi.pbobjc.m */,
+				2B204C2129769D720012A730 /* GPBWellKnownTypes.m */,
+				2B204C2229769D720012A730 /* GPBUnknownField.m */,
+				2B204C2329769D720012A730 /* GPBSourceContext.pbobjc.m */,
+				2B204C2429769D720012A730 /* GPBDescriptor.h */,
+				2B204C2529769D720012A730 /* GPBCodedInputStream_PackagePrivate.h */,
+				2B204C2629769D720012A730 /* GPBRootObject.h */,
+				2B204C2729769D720012A730 /* GPBBootstrap.h */,
+				2B204C2829769D720012A730 /* GPBExtensionRegistry.h */,
+				2B204C2929769D720012A730 /* GPBArray.m */,
+				2B204C2A29769D720012A730 /* GPBAny.pbobjc.m */,
+				2B204C2B29769D720012A730 /* GPBType.pbobjc.h */,
+				2B204C2C29769D720012A730 /* GPBRuntimeTypes.h */,
+				2B204C2D29769D720012A730 /* GPBFieldMask.pbobjc.m */,
+				2B204C2E29769D720012A730 /* GPBUtilities.h */,
+				2B204C2F29769D720012A730 /* GPBDuration.pbobjc.m */,
+				2B204C3029769D720012A730 /* GPBMessage_PackagePrivate.h */,
+				2B204C3129769D720012A730 /* GPBWireFormat.h */,
+				2B204C3229769D720012A730 /* GPBArray_PackagePrivate.h */,
+				2B204C3329769D720012A730 /* GPBEmpty.pbobjc.h */,
+				2B204C3429769D720012A730 /* GPBMessage.h */,
+				2B204C3529769D720012A730 /* GPBProtocolBuffers_RuntimeSupport.h */,
+				2B204C3629769D720012A730 /* GPBApi.pbobjc.h */,
+				2B204C3729769D720012A730 /* GPBWrappers.pbobjc.m */,
+				2B204C3829769D720012A730 /* GPBCodedInputStream.h */,
+				2B204C3929769D720012A730 /* GPBDescriptor_PackagePrivate.h */,
+				2B204C3A29769D720012A730 /* GPBTimestamp.pbobjc.h */,
+				2B204C3B29769D720012A730 /* GPBStruct.pbobjc.h */,
+				2B204C3C29769D720012A730 /* GPBCodedOutputStream.m */,
+				2B204C3D29769D720012A730 /* GPBDictionary.m */,
+				2B204C3E29769D720012A730 /* GPBUnknownFieldSet.h */,
+				2B204C3F29769D720012A730 /* GPBExtensionInternals.h */,
+				2B204C4029769D720012A730 /* GPBSourceContext.pbobjc.h */,
+				2B204C4129769D720012A730 /* GPBUnknownField.h */,
+				2B204C4229769D720012A730 /* GPBUnknownFieldSet_PackagePrivate.h */,
+				2B204C4329769D720012A730 /* GPBWellKnownTypes.h */,
+				2B204C4429769D720012A730 /* GPBUnknownField_PackagePrivate.h */,
+				2B204C4529769D720012A730 /* GPBDictionary_PackagePrivate.h */,
+			);
+			path = Protobuf;
+			sourceTree = "<group>";
+		};
+		2B204C1029769D720012A730 /* google */ = {
+			isa = PBXGroup;
+			children = (
+				2B204C1129769D720012A730 /* protobuf */,
+			);
+			path = google;
+			sourceTree = "<group>";
+		};
+		2B204C1129769D720012A730 /* protobuf */ = {
+			isa = PBXGroup;
+			children = (
+				2B204C1229769D720012A730 /* Api.pbobjc.h */,
+				2B204C1329769D720012A730 /* SourceContext.pbobjc.h */,
+				2B204C1429769D720012A730 /* Duration.pbobjc.h */,
+				2B204C1529769D720012A730 /* Empty.pbobjc.h */,
+				2B204C1629769D720012A730 /* Wrappers.pbobjc.h */,
+				2B204C1729769D720012A730 /* Struct.pbobjc.h */,
+				2B204C1829769D720012A730 /* FieldMask.pbobjc.h */,
+				2B204C1929769D720012A730 /* Timestamp.pbobjc.h */,
+				2B204C1A29769D720012A730 /* Type.pbobjc.h */,
+				2B204C1B29769D720012A730 /* Any.pbobjc.h */,
+			);
+			path = protobuf;
+			sourceTree = "<group>";
+		};
+		2B204C5329769D730012A730 /* JSONModel */ = {
+			isa = PBXGroup;
+			children = (
+				2B204C5429769D730012A730 /* JSONModelTransformations */,
+				2B204C5929769D730012A730 /* JSONModel */,
+				2B204C6029769D730012A730 /* JSONModel.modulemap */,
+				2B204C6129769D730012A730 /* Info.plist */,
+				2B204C6229769D730012A730 /* JSONModelLib.h */,
+				2B204C6329769D730012A730 /* JSONModelNetworking */,
+			);
+			path = JSONModel;
+			sourceTree = "<group>";
+		};
+		2B204C5429769D730012A730 /* JSONModelTransformations */ = {
+			isa = PBXGroup;
+			children = (
+				2B204C5529769D730012A730 /* JSONValueTransformer.m */,
+				2B204C5629769D730012A730 /* JSONKeyMapper.h */,
+				2B204C5729769D730012A730 /* JSONValueTransformer.h */,
+				2B204C5829769D730012A730 /* JSONKeyMapper.m */,
+			);
+			path = JSONModelTransformations;
+			sourceTree = "<group>";
+		};
+		2B204C5929769D730012A730 /* JSONModel */ = {
+			isa = PBXGroup;
+			children = (
+				2B204C5A29769D730012A730 /* JSONModel.m */,
+				2B204C5B29769D730012A730 /* JSONModelError.m */,
+				2B204C5C29769D730012A730 /* JSONModelClassProperty.h */,
+				2B204C5D29769D730012A730 /* JSONModel.h */,
+				2B204C5E29769D730012A730 /* JSONModelClassProperty.m */,
+				2B204C5F29769D730012A730 /* JSONModelError.h */,
+			);
+			path = JSONModel;
+			sourceTree = "<group>";
+		};
+		2B204C6329769D730012A730 /* JSONModelNetworking */ = {
+			isa = PBXGroup;
+			children = (
+				2B204C6429769D730012A730 /* JSONHTTPClient.m */,
+				2B204C6529769D730012A730 /* JSONAPI.m */,
+				2B204C6629769D730012A730 /* JSONModel+networking.h */,
+				2B204C6729769D730012A730 /* JSONHTTPClient.h */,
+				2B204C6829769D730012A730 /* JSONAPI.h */,
+				2B204C6929769D730012A730 /* JSONModel+networking.m */,
+			);
+			path = JSONModelNetworking;
+			sourceTree = "<group>";
+		};
+		2B204CE0297925BE0012A730 /* lz4 */ = {
+			isa = PBXGroup;
+			children = (
+				2B204CE1297925BE0012A730 /* lz4hc.c */,
+				2B204CE2297925BE0012A730 /* lz4.h */,
+				2B204CE3297925BE0012A730 /* lz4hc.h */,
+				2B204CE4297925BE0012A730 /* lz4.c */,
+			);
+			path = lz4;
+			sourceTree = "<group>";
+		};
+		2B204CE5297925BE0012A730 /* lz4-objc */ = {
+			isa = PBXGroup;
+			children = (
+				2B204CE6297925BE0012A730 /* NSData+lz4.m */,
+				2B204CE7297925BE0012A730 /* NSData+lz4.h */,
+			);
+			path = "lz4-objc";
+			sourceTree = "<group>";
+		};
+		2B7D9B6B296D51F5005ADA84 = {
+			isa = PBXGroup;
+			children = (
+				2B7D9B77296D51F5005ADA84 /* VeTLSiOSSDK */,
+				2B7D9B83296D51F5005ADA84 /* VeTLSiOSSDKTests */,
+				2B7D9B76296D51F5005ADA84 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		2B7D9B76296D51F5005ADA84 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				2B7D9B75296D51F5005ADA84 /* VeTLSiOSSDK.framework */,
+				2B7D9B7F296D51F5005ADA84 /* VeTLSiOSSDKTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		2B7D9B77296D51F5005ADA84 /* VeTLSiOSSDK */ = {
+			isa = PBXGroup;
+			children = (
+				2B204CE0297925BE0012A730 /* lz4 */,
+				2B204CE5297925BE0012A730 /* lz4-objc */,
+				2B204C5329769D730012A730 /* JSONModel */,
+				2B204BFB29769D720012A730 /* Protobuf */,
+				2B204C4629769D720012A730 /* TLSClient.h */,
+				2B204C6A29769D730012A730 /* TLSClient.m */,
+				2B204BFA29769D720012A730 /* TLSClientConfig.h */,
+				2B204C5029769D730012A730 /* TLSClientConfig.m */,
+				2B204C4829769D720012A730 /* TLSModel.h */,
+				2B204C4B29769D730012A730 /* TLSModel.m */,
+				2B204C4D29769D730012A730 /* TLSProtobuf.h */,
+				2B204C4729769D720012A730 /* TLSProtobuf.m */,
+				2B204C5129769D730012A730 /* TLSRequest.h */,
+				2B204C6B29769D730012A730 /* TLSRequest.m */,
+				2B204C4929769D720012A730 /* TLSResponse.h */,
+				2B204C4C29769D730012A730 /* TLSResponse.m */,
+				2B7D9C24296E930D005ADA84 /* VeCore */,
+				2B7D9B78296D51F5005ADA84 /* VeTLSiOSSDK.h */,
+				2B7D9B79296D51F5005ADA84 /* VeTLSiOSSDK.docc */,
+			);
+			path = VeTLSiOSSDK;
+			sourceTree = "<group>";
+		};
+		2B7D9B83296D51F5005ADA84 /* VeTLSiOSSDKTests */ = {
+			isa = PBXGroup;
+			children = (
+				2B7D9B84296D51F5005ADA84 /* VeTLSiOSSDKTests.m */,
+			);
+			path = VeTLSiOSSDKTests;
+			sourceTree = "<group>";
+		};
+		2B7D9C04296D575C005ADA84 /* VeSign */ = {
+			isa = PBXGroup;
+			children = (
+				2B7D9C05296D579B005ADA84 /* VeCredential.h */,
+				2B7D9C06296D579B005ADA84 /* VeCredential.m */,
+				2B7D9C13296D6754005ADA84 /* VeSign.h */,
+				2B7D9C14296D6754005ADA84 /* VeSign.m */,
+				2B7D9C20296E628F005ADA84 /* VeSignUtil.h */,
+				2B7D9C21296E628F005ADA84 /* VeSignUtil.m */,
+			);
+			path = VeSign;
+			sourceTree = "<group>";
+		};
+		2B7D9C09296D5C41005ADA84 /* VeNetworking */ = {
+			isa = PBXGroup;
+			children = (
+				2B7D9C0A296D5C9A005ADA84 /* VeNetworking.h */,
+				2B7D9C0B296D5C9A005ADA84 /* VeNetworking.m */,
+				2B7D9C9429702E88005ADA84 /* VeNetworkingRequest.h */,
+				2B7D9C9529702E88005ADA84 /* VeNetworkingRequest.m */,
+				2B7D9C0E296D5EA1005ADA84 /* VeNetworkingConfiguration.h */,
+				2B7D9C0F296D5EA1005ADA84 /* VeNetworkingConfiguration.m */,
+				2B7D9C48296E9E9E005ADA84 /* VeNetworkingDelegate.h */,
+				2B7D9C49296E9E9E005ADA84 /* VeNetworkingDelegate.m */,
+				2B7D9C59296EA988005ADA84 /* VeRequest.h */,
+				2B7D9C5A296EA988005ADA84 /* VeRequest.m */,
+				2B7D9C61296EAA31005ADA84 /* VeNetworkingConstants.h */,
+				2B7D9C62296EAA31005ADA84 /* VeNetworkingConstants.m */,
+				2B7D9C65296EAE0A005ADA84 /* VeEndpoint.h */,
+				2B7D9C66296EAE0A005ADA84 /* VeEndpoint.m */,
+			);
+			path = VeNetworking;
+			sourceTree = "<group>";
+		};
+		2B7D9C17296E5BC7005ADA84 /* Utiliity */ = {
+			isa = PBXGroup;
+			children = (
+				2B7D9C1C296E5C37005ADA84 /* NSDate+Ve.h */,
+				2B7D9C1D296E5C37005ADA84 /* NSDate+Ve.m */,
+				2B7D9C4C296EA02A005ADA84 /* VeSynchronizedMutableDictionary.h */,
+				2B7D9C4D296EA02A005ADA84 /* VeSynchronizedMutableDictionary.m */,
+			);
+			path = Utiliity;
+			sourceTree = "<group>";
+		};
+		2B7D9C24296E930D005ADA84 /* VeCore */ = {
+			isa = PBXGroup;
+			children = (
+				2B7D9C46296E9AFF005ADA84 /* VeCore.h */,
+				2B7D9C09296D5C41005ADA84 /* VeNetworking */,
+				2B7D9C27296E9A7C005ADA84 /* Bolts */,
+				2B7D9C17296E5BC7005ADA84 /* Utiliity */,
+				2B7D9C04296D575C005ADA84 /* VeSign */,
+			);
+			path = VeCore;
+			sourceTree = "<group>";
+		};
+		2B7D9C27296E9A7C005ADA84 /* Bolts */ = {
+			isa = PBXGroup;
+			children = (
+				2B7D9C28296E9A7C005ADA84 /* VeCancellationTokenSource.h */,
+				2B7D9C29296E9A7C005ADA84 /* VeExecutor.h */,
+				2B7D9C2A296E9A7C005ADA84 /* VeCancellationToken.m */,
+				2B7D9C2B296E9A7C005ADA84 /* VeTask.h */,
+				2B7D9C2C296E9A7C005ADA84 /* VeBolts.m */,
+				2B7D9C2D296E9A7C005ADA84 /* VeCancellationTokenRegistration.m */,
+				2B7D9C2E296E9A7C005ADA84 /* VeTaskCompletionSource.h */,
+				2B7D9C2F296E9A7C005ADA84 /* VeGeneric.h */,
+				2B7D9C30296E9A7C005ADA84 /* VeCancellationToken.h */,
+				2B7D9C31296E9A7C005ADA84 /* VeExecutor.m */,
+				2B7D9C32296E9A7C005ADA84 /* VeCancellationTokenSource.m */,
+				2B7D9C33296E9A7C005ADA84 /* VeCancellationTokenRegistration.h */,
+				2B7D9C34296E9A7C005ADA84 /* VeTask.m */,
+				2B7D9C35296E9A7C005ADA84 /* VeBolts.h */,
+				2B7D9C36296E9A7C005ADA84 /* VeTaskCompletionSource.m */,
+			);
+			path = Bolts;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXHeadersBuildPhase section */
+		2B7D9B70296D51F5005ADA84 /* Headers */ = {
+			isa = PBXHeadersBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2B204CC129769D730012A730 /* TLSRequest.h in Headers */,
+				2B204CB929769D730012A730 /* TLSResponse.h in Headers */,
+				2B204CB829769D730012A730 /* TLSModel.h in Headers */,
+				2B204C6D29769D730012A730 /* TLSClientConfig.h in Headers */,
+				2B7D9C4A296E9E9E005ADA84 /* VeNetworkingDelegate.h in Headers */,
+				2B7D9C15296D6754005ADA84 /* VeSign.h in Headers */,
+				2B7D9C4E296EA02A005ADA84 /* VeSynchronizedMutableDictionary.h in Headers */,
+				2B7D9C3E296E9A7C005ADA84 /* VeGeneric.h in Headers */,
+				2B7D9C63296EAA31005ADA84 /* VeNetworkingConstants.h in Headers */,
+				2B7D9C44296E9A7C005ADA84 /* VeBolts.h in Headers */,
+				2B7D9C10296D5EA1005ADA84 /* VeNetworkingConfiguration.h in Headers */,
+				2B204CB629769D730012A730 /* TLSClient.h in Headers */,
+				2B7D9C07296D579B005ADA84 /* VeCredential.h in Headers */,
+				2B204C9C29769D730012A730 /* GPBRuntimeTypes.h in Headers */,
+				2B204CAF29769D730012A730 /* GPBExtensionInternals.h in Headers */,
+				2B204CD229769D730012A730 /* JSONHTTPClient.h in Headers */,
+				2B204CC429769D730012A730 /* JSONKeyMapper.h in Headers */,
+				2B204CAE29769D730012A730 /* GPBUnknownFieldSet.h in Headers */,
+				2B204C9629769D730012A730 /* GPBRootObject.h in Headers */,
+				2B204C8929769D730012A730 /* Timestamp.pbobjc.h in Headers */,
+				2B204C7929769D730012A730 /* GPBFieldMask.pbobjc.h in Headers */,
+				2B204CBD29769D730012A730 /* TLSProtobuf.h in Headers */,
+				2B204CA229769D730012A730 /* GPBArray_PackagePrivate.h in Headers */,
+				2B204CB229769D730012A730 /* GPBUnknownFieldSet_PackagePrivate.h in Headers */,
+				2B204CD129769D730012A730 /* JSONModel+networking.h in Headers */,
+				2B204C6F29769D730012A730 /* GPBCodedOutputStream_PackagePrivate.h in Headers */,
+				2B204CA329769D730012A730 /* GPBEmpty.pbobjc.h in Headers */,
+				2B204C8329769D730012A730 /* SourceContext.pbobjc.h in Headers */,
+				2B204CA129769D730012A730 /* GPBWireFormat.h in Headers */,
+				2B204CA029769D730012A730 /* GPBMessage_PackagePrivate.h in Headers */,
+				2B204CAB29769D730012A730 /* GPBStruct.pbobjc.h in Headers */,
+				2B204C9B29769D730012A730 /* GPBType.pbobjc.h in Headers */,
+				2B204CD329769D730012A730 /* JSONAPI.h in Headers */,
+				2B204C8629769D730012A730 /* Wrappers.pbobjc.h in Headers */,
+				2B204C7E29769D730012A730 /* GPBDictionary.h in Headers */,
+				2B204CA529769D730012A730 /* GPBProtocolBuffers_RuntimeSupport.h in Headers */,
+				2B204CA429769D730012A730 /* GPBMessage.h in Headers */,
+				2B204CA829769D730012A730 /* GPBCodedInputStream.h in Headers */,
+				2B204CCC29769D730012A730 /* JSONModelError.h in Headers */,
+				2B204C8A29769D730012A730 /* Type.pbobjc.h in Headers */,
+				2B204C8529769D730012A730 /* Empty.pbobjc.h in Headers */,
+				2B204CC529769D730012A730 /* JSONValueTransformer.h in Headers */,
+				2B204C7F29769D730012A730 /* GPBCodedOutputStream.h in Headers */,
+				2B204CB429769D730012A730 /* GPBUnknownField_PackagePrivate.h in Headers */,
+				2B204CCE29769D730012A730 /* JSONModelLib.h in Headers */,
+				2B204CB529769D730012A730 /* GPBDictionary_PackagePrivate.h in Headers */,
+				2B204C8129769D730012A730 /* GPBRootObject_PackagePrivate.h in Headers */,
+				2B204C8729769D730012A730 /* Struct.pbobjc.h in Headers */,
+				2B204CC929769D730012A730 /* JSONModelClassProperty.h in Headers */,
+				2B204C9829769D730012A730 /* GPBExtensionRegistry.h in Headers */,
+				2B204C8429769D730012A730 /* Duration.pbobjc.h in Headers */,
+				2B204C7029769D730012A730 /* GPBArray.h in Headers */,
+				2B204CA629769D730012A730 /* GPBApi.pbobjc.h in Headers */,
+				2B204CCA29769D730012A730 /* JSONModel.h in Headers */,
+				2B204C7B29769D730012A730 /* GPBDuration.pbobjc.h in Headers */,
+				2B204CA929769D730012A730 /* GPBDescriptor_PackagePrivate.h in Headers */,
+				2B204CB329769D730012A730 /* GPBWellKnownTypes.h in Headers */,
+				2B204C7729769D730012A730 /* GPBProtocolBuffers.h in Headers */,
+				2B204CB029769D730012A730 /* GPBSourceContext.pbobjc.h in Headers */,
+				2B204C8F29769D730012A730 /* GPBWrappers.pbobjc.h in Headers */,
+				2B204C7129769D730012A730 /* GPBAny.pbobjc.h in Headers */,
+				2B204C8B29769D730012A730 /* Any.pbobjc.h in Headers */,
+				2B204C8829769D730012A730 /* FieldMask.pbobjc.h in Headers */,
+				2B204CAA29769D730012A730 /* GPBTimestamp.pbobjc.h in Headers */,
+				2B204CB129769D730012A730 /* GPBUnknownField.h in Headers */,
+				2B204C9529769D730012A730 /* GPBCodedInputStream_PackagePrivate.h in Headers */,
+				2B204C9E29769D730012A730 /* GPBUtilities.h in Headers */,
+				2B204C8229769D730012A730 /* Api.pbobjc.h in Headers */,
+				2B204C9729769D730012A730 /* GPBBootstrap.h in Headers */,
+				2B204C8C29769D730012A730 /* GPBUtilities_PackagePrivate.h in Headers */,
+				2B204C9429769D730012A730 /* GPBDescriptor.h in Headers */,
+				2B7D9C37296E9A7C005ADA84 /* VeCancellationTokenSource.h in Headers */,
+				2B7D9C47296E9AFF005ADA84 /* VeCore.h in Headers */,
+				2B7D9C3A296E9A7C005ADA84 /* VeTask.h in Headers */,
+				2B7D9C3D296E9A7C005ADA84 /* VeTaskCompletionSource.h in Headers */,
+				2B7D9C38296E9A7C005ADA84 /* VeExecutor.h in Headers */,
+				2B7D9C1E296E5C37005ADA84 /* NSDate+Ve.h in Headers */,
+				2B7D9C67296EAE0A005ADA84 /* VeEndpoint.h in Headers */,
+				2B7D9C5B296EA988005ADA84 /* VeRequest.h in Headers */,
+				2B7D9C42296E9A7C005ADA84 /* VeCancellationTokenRegistration.h in Headers */,
+				2B7D9C3F296E9A7C005ADA84 /* VeCancellationToken.h in Headers */,
+				2B7D9C0C296D5C9A005ADA84 /* VeNetworking.h in Headers */,
+				2B204CEA297925BE0012A730 /* lz4hc.h in Headers */,
+				2B7D9C22296E628F005ADA84 /* VeSignUtil.h in Headers */,
+				2B204CE9297925BE0012A730 /* lz4.h in Headers */,
+				2B7D9C9629702E88005ADA84 /* VeNetworkingRequest.h in Headers */,
+				2B204CED297925BE0012A730 /* NSData+lz4.h in Headers */,
+				2B7D9B86296D51F5005ADA84 /* VeTLSiOSSDK.h in Headers */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXHeadersBuildPhase section */
+
+/* Begin PBXNativeTarget section */
+		2B7D9B74296D51F5005ADA84 /* VeTLSiOSSDK */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2B7D9B89296D51F5005ADA84 /* Build configuration list for PBXNativeTarget "VeTLSiOSSDK" */;
+			buildPhases = (
+				2B7D9B70296D51F5005ADA84 /* Headers */,
+				2B7D9B71296D51F5005ADA84 /* Sources */,
+				2B7D9B72296D51F5005ADA84 /* Frameworks */,
+				2B7D9B73296D51F5005ADA84 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = VeTLSiOSSDK;
+			productName = VeTLSiOSSDK;
+			productReference = 2B7D9B75296D51F5005ADA84 /* VeTLSiOSSDK.framework */;
+			productType = "com.apple.product-type.framework";
+		};
+		2B7D9B7E296D51F5005ADA84 /* VeTLSiOSSDKTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2B7D9B8C296D51F5005ADA84 /* Build configuration list for PBXNativeTarget "VeTLSiOSSDKTests" */;
+			buildPhases = (
+				2B7D9B7B296D51F5005ADA84 /* Sources */,
+				2B7D9B7C296D51F5005ADA84 /* Frameworks */,
+				2B7D9B7D296D51F5005ADA84 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				2B7D9B82296D51F5005ADA84 /* PBXTargetDependency */,
+			);
+			name = VeTLSiOSSDKTests;
+			productName = VeTLSiOSSDKTests;
+			productReference = 2B7D9B7F296D51F5005ADA84 /* VeTLSiOSSDKTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		2B7D9B6C296D51F5005ADA84 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1340;
+				TargetAttributes = {
+					2B7D9B74296D51F5005ADA84 = {
+						CreatedOnToolsVersion = 13.4.1;
+					};
+					2B7D9B7E296D51F5005ADA84 = {
+						CreatedOnToolsVersion = 13.4.1;
+					};
+				};
+			};
+			buildConfigurationList = 2B7D9B6F296D51F5005ADA84 /* Build configuration list for PBXProject "VeTLSiOSSDK" */;
+			compatibilityVersion = "Xcode 13.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 2B7D9B6B296D51F5005ADA84;
+			productRefGroup = 2B7D9B6B296D51F5005ADA84;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				2B7D9B74296D51F5005ADA84 /* VeTLSiOSSDK */,
+				2B7D9B7E296D51F5005ADA84 /* VeTLSiOSSDKTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2B7D9B73296D51F5005ADA84 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2B7D9B7D296D51F5005ADA84 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2B7D9B71296D51F5005ADA84 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2B7D9C16296D6754005ADA84 /* VeSign.m in Sources */,
+				2B7D9C41296E9A7C005ADA84 /* VeCancellationTokenSource.m in Sources */,
+				2B204C7C29769D730012A730 /* GPBExtensionInternals.m in Sources */,
+				2B7D9C9729702E88005ADA84 /* VeNetworkingRequest.m in Sources */,
+				2B204C7D29769D730012A730 /* GPBUnknownFieldSet.m in Sources */,
+				2B204C7629769D730012A730 /* GPBEmpty.pbobjc.m in Sources */,
+				2B7D9C1F296E5C37005ADA84 /* NSDate+Ve.m in Sources */,
+				2B7D9C39296E9A7C005ADA84 /* VeCancellationToken.m in Sources */,
+				2B204CBB29769D730012A730 /* TLSModel.m in Sources */,
+				2B204C8E29769D730012A730 /* GPBCodedInputStream.m in Sources */,
+				2B7D9C3C296E9A7C005ADA84 /* VeCancellationTokenRegistration.m in Sources */,
+				2B204CAD29769D730012A730 /* GPBDictionary.m in Sources */,
+				2B204C8029769D730012A730 /* GPBStruct.pbobjc.m in Sources */,
+				2B204CBC29769D730012A730 /* TLSResponse.m in Sources */,
+				2B204C8D29769D730012A730 /* GPBTimestamp.pbobjc.m in Sources */,
+				2B204C9929769D730012A730 /* GPBArray.m in Sources */,
+				2B204C7829769D730012A730 /* GPBWireFormat.m in Sources */,
+				2B204CC629769D730012A730 /* JSONKeyMapper.m in Sources */,
+				2B204C6E29769D730012A730 /* GPBType.pbobjc.m in Sources */,
+				2B204C7A29769D730012A730 /* GPBUtilities.m in Sources */,
+				2B7D9C64296EAA31005ADA84 /* VeNetworkingConstants.m in Sources */,
+				2B204C7229769D730012A730 /* GPBExtensionRegistry.m in Sources */,
+				2B204C9D29769D730012A730 /* GPBFieldMask.pbobjc.m in Sources */,
+				2B7D9C4F296EA02A005ADA84 /* VeSynchronizedMutableDictionary.m in Sources */,
+				2B204CEB297925BE0012A730 /* lz4.c in Sources */,
+				2B7D9C68296EAE0A005ADA84 /* VeEndpoint.m in Sources */,
+				2B7D9C23296E628F005ADA84 /* VeSignUtil.m in Sources */,
+				2B7D9C08296D579B005ADA84 /* VeCredential.m in Sources */,
+				2B204C7329769D730012A730 /* GPBRootObject.m in Sources */,
+				2B204CCF29769D730012A730 /* JSONHTTPClient.m in Sources */,
+				2B204C9029769D730012A730 /* GPBApi.pbobjc.m in Sources */,
+				2B204C9A29769D730012A730 /* GPBAny.pbobjc.m in Sources */,
+				2B7D9C4B296E9E9E005ADA84 /* VeNetworkingDelegate.m in Sources */,
+				2B204C9129769D730012A730 /* GPBWellKnownTypes.m in Sources */,
+				2B204C9229769D730012A730 /* GPBUnknownField.m in Sources */,
+				2B204CD529769D730012A730 /* TLSClient.m in Sources */,
+				2B7D9C45296E9A7C005ADA84 /* VeTaskCompletionSource.m in Sources */,
+				2B204C7529769D730012A730 /* GPBMessage.m in Sources */,
+				2B204CC029769D730012A730 /* TLSClientConfig.m in Sources */,
+				2B204CC829769D730012A730 /* JSONModelError.m in Sources */,
+				2B204C7429769D730012A730 /* GPBDescriptor.m in Sources */,
+				2B204CB729769D730012A730 /* TLSProtobuf.m in Sources */,
+				2B204CD029769D730012A730 /* JSONAPI.m in Sources */,
+				2B7D9B7A296D51F5005ADA84 /* VeTLSiOSSDK.docc in Sources */,
+				2B204C9F29769D730012A730 /* GPBDuration.pbobjc.m in Sources */,
+				2B7D9C11296D5EA1005ADA84 /* VeNetworkingConfiguration.m in Sources */,
+				2B204CC329769D730012A730 /* JSONValueTransformer.m in Sources */,
+				2B7D9C3B296E9A7C005ADA84 /* VeBolts.m in Sources */,
+				2B204CA729769D730012A730 /* GPBWrappers.pbobjc.m in Sources */,
+				2B7D9C5C296EA988005ADA84 /* VeRequest.m in Sources */,
+				2B204CCB29769D730012A730 /* JSONModelClassProperty.m in Sources */,
+				2B204CEC297925BE0012A730 /* NSData+lz4.m in Sources */,
+				2B7D9C43296E9A7C005ADA84 /* VeTask.m in Sources */,
+				2B204CD629769D730012A730 /* TLSRequest.m in Sources */,
+				2B204CD429769D730012A730 /* JSONModel+networking.m in Sources */,
+				2B204C9329769D730012A730 /* GPBSourceContext.pbobjc.m in Sources */,
+				2B7D9C40296E9A7C005ADA84 /* VeExecutor.m in Sources */,
+				2B204CE8297925BE0012A730 /* lz4hc.c in Sources */,
+				2B204CC729769D730012A730 /* JSONModel.m in Sources */,
+				2B204CAC29769D730012A730 /* GPBCodedOutputStream.m in Sources */,
+				2B7D9C0D296D5C9A005ADA84 /* VeNetworking.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2B7D9B7B296D51F5005ADA84 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2B7D9B85296D51F5005ADA84 /* VeTLSiOSSDKTests.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		2B7D9B82296D51F5005ADA84 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2B7D9B74296D51F5005ADA84 /* VeTLSiOSSDK */;
+			targetProxy = 2B7D9B81296D51F5005ADA84 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2B7D9B87296D51F5005ADA84 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				VERSIONING_SYSTEM = "apple-generic";
+				VERSION_INFO_PREFIX = "";
+			};
+			name = Debug;
+		};
+		2B7D9B88296D51F5005ADA84 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				VALIDATE_PRODUCT = YES;
+				VERSIONING_SYSTEM = "apple-generic";
+				VERSION_INFO_PREFIX = "";
+			};
+			name = Release;
+		};
+		2B7D9B8A296D51F5005ADA84 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MACH_O_TYPE = staticlib;
+				MARKETING_VERSION = 1.0;
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_LDFLAGS = "-ObjC";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ve.tos.VeTLSiOSSDK;
+				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2B7D9B8B296D51F5005ADA84 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MACH_O_TYPE = staticlib;
+				MARKETING_VERSION = 1.0;
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_LDFLAGS = "-ObjC";
+				PRODUCT_BUNDLE_IDENTIFIER = com.ve.tos.VeTLSiOSSDK;
+				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		2B7D9B8D296D51F5005ADA84 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ve.tos.VeTLSiOSSDKTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2B7D9B8E296D51F5005ADA84 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ve.tos.VeTLSiOSSDKTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2B7D9B6F296D51F5005ADA84 /* Build configuration list for PBXProject "VeTLSiOSSDK" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2B7D9B87296D51F5005ADA84 /* Debug */,
+				2B7D9B88296D51F5005ADA84 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2B7D9B89296D51F5005ADA84 /* Build configuration list for PBXNativeTarget "VeTLSiOSSDK" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2B7D9B8A296D51F5005ADA84 /* Debug */,
+				2B7D9B8B296D51F5005ADA84 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2B7D9B8C296D51F5005ADA84 /* Build configuration list for PBXNativeTarget "VeTLSiOSSDKTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2B7D9B8D296D51F5005ADA84 /* Debug */,
+				2B7D9B8E296D51F5005ADA84 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 2B7D9B6C296D51F5005ADA84 /* Project object */;
+}
