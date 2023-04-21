@@ -273,7 +273,7 @@
 @interface DescribeHostGroupRulesRequest : TLSRequest
 @property (nonatomic, copy) NSString *hostGroupId;
 @property (nonatomic, copy) NSNumber *pageNumber;
-@property (nonatomic, copy) NSNumber *pageSiez;
+@property (nonatomic, copy) NSNumber *pageSize;
 @end
 
 @interface ModifyHostGroupsAutoUpdateRequest : TLSRequest
