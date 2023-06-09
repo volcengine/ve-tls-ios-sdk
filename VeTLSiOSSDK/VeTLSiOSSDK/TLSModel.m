@@ -146,11 +146,176 @@ GENERAL_KEY_MAPPER
 @end
 
 @implementation PutLogsV2LogItem
-- (instancetype)initWithKeyValueAndTime:(NSDictionary *)keyValue timeStamp:(NSNumber*)timeStamp {
+
+- (instancetype)initWithCurrentTime {
     if (self = [super init]) {
-        _contents = keyValue;
-        _time = timeStamp;
+        _contents = [NSMutableDictionary dictionary];
+        _time = 0;
     }
     return self;
 }
+
+- (instancetype)initWithKeyValueAndTime:(NSDictionary *)keyValue timeStamp:(NSNumber*)timeStamp {
+    if (self = [super init]) {
+        _contents = [NSMutableDictionary dictionary];
+        _time = 0;
+        [self putContents:keyValue];
+    }
+    return self;
+}
+
+- (BOOL) checkValue:(NSString *)value {
+    return value && [value isKindOfClass:[NSString class]];
+}
+
+- (void) putContent: (NSString *) key value: (NSString *) value {
+    if ([self checkValue:key] && [self checkValue:value]) {
+        [_contents setObject:value forKey:key];
+    }
+}
+
+- (void) putContent: (NSString *) key intValue: (int) value {
+    if ([self checkValue:key]) {
+        [_contents setObject:[NSString stringWithFormat:@"%d", value] forKey:key];
+    }
+}
+
+- (void) putContent: (NSString *) key longValue: (long) value {
+    if ([self checkValue:key]) {
+        [_contents setObject:[NSString stringWithFormat:@"%ld", value] forKey:key];
+    }
+}
+
+- (void) putContent: (NSString *) key longlongValue: (long long) value {
+    if ([self checkValue:key]) {
+        [_contents setObject:[NSString stringWithFormat:@"%lld", value] forKey:key];
+    }
+}
+
+- (void) putContent: (NSString *) key floatValue: (float) value {
+    if ([self checkValue:key]) {
+        [_contents setObject:[NSString stringWithFormat:@"%f", value] forKey:key];
+    }
+}
+
+- (void) putContent: (NSString *) key doubleValue: (double) value {
+    if ([self checkValue:key]) {
+        [_contents setObject:[NSString stringWithFormat:@"%f", value] forKey:key];
+    }
+}
+
+- (void) putContent: (NSString *) key boolValue: (BOOL) value {
+    if ([self checkValue:key]) {
+        [NSNumber numberWithBool:YES];
+        [_contents setObject:(YES == value ? @"YES" : @"NO") forKey:key];
+    }
+}
+
+- (BOOL) putContent: (NSData *) value {
+    if (!value) {
+        return NO;
+    }
+    
+    if ([value isKindOfClass:[NSNull class]]) {
+        [self putContent:@"data" value:@"null"];
+        return YES;
+    }
+    
+    NSError *error = nil;
+    id data = [NSJSONSerialization JSONObjectWithData:value
+                                              options:kNilOptions
+                                                error:&error
+    ];
+    
+    if (nil != error) {
+        NSString *string = [[NSString alloc] initWithData:value encoding:NSUTF8StringEncoding];
+        [self putContent:@"data" value:string];
+        return YES;
+    }
+    
+    if ([data isKindOfClass:[NSDictionary class]]) {
+        [self putContents:data];
+    } else if ([data isKindOfClass:[NSArray class]]) {
+        [self putContent:@"data" arrayValue:data];
+    } else {
+        return NO;
+    }
+    
+    return YES;
+}
+
+- (BOOL) putContent: (NSString *) key dataValue: (NSData *) value {
+    if ([self checkValue:key] && value && ![value isKindOfClass:[NSNull class]]) {
+        [_contents setObject:[[NSString alloc] initWithData:value encoding:NSUTF8StringEncoding] forKey:key];
+        return YES;
+    }
+    return NO;
+}
+
+- (BOOL) putContent: (NSString *) key arrayValue: (NSArray *) value {
+    if ([self checkValue:key] && value && [NSJSONSerialization isValidJSONObject:value]) {
+        NSError *error = nil;
+        NSData *data = [NSJSONSerialization dataWithJSONObject:value options:kNilOptions error:&error];
+        if (nil != error) {
+            return NO;
+        }
+        [_contents setObject:[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] forKey:key];
+        return YES;
+    }
+    return NO;
+}
+
+- (BOOL) putContent: (NSString *) key dictValue: (NSDictionary *) value {
+    if ([self checkValue:key] && value && [NSJSONSerialization isValidJSONObject:value]) {
+        NSError *error = nil;
+        NSData *data = [NSJSONSerialization dataWithJSONObject:value options:kNilOptions error:&error];
+        if (nil != error) {
+            return NO;
+        }
+        [_contents setObject:[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] forKey:key];
+        return YES;
+    }
+    return NO;
+}
+
+- (BOOL) putContents: (NSDictionary *) dict {
+    if (!dict) {
+        return NO;
+    }
+    
+    NSDictionary *tmp = [NSDictionary dictionaryWithDictionary:dict];
+    NSMutableDictionary *newDict = [NSMutableDictionary dictionary];
+    
+    BOOL error = NO;
+    id value = nil;
+    for (id key in tmp.allKeys) {
+        if (![key isKindOfClass:[NSString class]]) {
+            error = YES;
+            break;
+        }
+        
+        value = [tmp objectForKey:key];
+        if ([value isKindOfClass:[NSString class]]) {
+            [newDict setObject:value forKey:key];
+        } else if ([value isKindOfClass:[NSNumber class]]) {
+            [newDict setObject:[value stringValue] forKey:key];
+        } else if ([value isKindOfClass:[NSNull class]]) {
+            [newDict setObject:@"null" forKey:key];
+        } else if (([value isKindOfClass:[NSDictionary class]] || [value isKindOfClass:[NSArray class]])
+                   && [NSJSONSerialization isValidJSONObject:value]) {
+            [newDict setObject:[[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:value options:kNilOptions error:nil] encoding:NSUTF8StringEncoding] forKey:key];
+        } else {
+            error = YES;
+            break;
+        }
+    }
+    
+    if (!error) {
+        [_contents addEntriesFromDictionary:newDict];
+    }
+    
+    return error;
+}
+
+
 @end
