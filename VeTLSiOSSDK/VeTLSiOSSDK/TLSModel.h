@@ -50,6 +50,15 @@
 @property (nonatomic, copy) NSString *hashKey;
 @end
 
+/**
+ * @param parsePathRule 解析采集路径的规则
+ * @param shardHashKey 路由日志分区的规则
+ * @param enableRawLog 是否上传原始日志
+ * @param fields 为日志添加常量字段
+ * @param plugin LogCollector 插件配置
+ * @param advanced LogCollector 扩展配置
+ * @param tailFiles LogCollector 采集策略
+ */
 @protocol UserDefineRule @end
 @interface UserDefineRule : TLSObject
 @property (nonatomic, copy) ParsePathRule *parsePathRule;
@@ -61,24 +70,42 @@
 @property (nonatomic, assign) BOOL tailFiles;
 @end
 
+/**
+ * @param type 采集路径类型
+ * @param value 采集路径
+ */
 @protocol ExcludePath @end
 @interface ExcludePath : TLSObject
 @property (nonatomic, copy) NSString *type;
 @property (nonatomic, copy) NSString *value;
 @end
 
+/**
+ * @param type 日志模板的类型
+ * @param format 日志模板内容
+ */
 @protocol LogTemplate @end
 @interface LogTemplate : TLSObject
 @property (nonatomic, copy) NSString *type;
 @property (nonatomic, copy) NSString *format;
 @end
 
+/**
+ * @param key 过滤字段的名称
+ * @param regex 过滤字段的日志内容需要匹配的正则表达式
+ */
 @protocol FilterKeyRegex @end
 @interface FilterKeyRegex : TLSObject
 @property (nonatomic, copy) NSString *key;
 @property (nonatomic, copy) NSString *regex;
 @end
-
+/**
+ * @param receiverType 接受者类型
+ * @param receiverNames 接收者的名字
+ * @param receiverChannels 通知接收渠道，支持Email、Sms、Phone
+ * @param startTime 可接收信息的时段中，开始的时间
+ * @param endTime 可接收信息的时段中，结束的时间
+ */
 @protocol Receiver @end
 @interface Receiver : TLSObject
 @property (nonatomic, copy) NSString *receiverType;
@@ -98,6 +125,18 @@
 @property (nonatomic, copy) NSString *modifyTime;
 @end
 
+/**
+ * @param delimiter 日志分隔符
+ * @param beginRegex 第一行日志需要匹配的正则表达式
+ * @param logRegex 整条日志需要匹配的正则表达式
+ * @param keys 日志字段名称（Key）列表
+ * @param timeKey 日志时间字段的字段名称
+ * @param timeFormat 时间字段的解析格式
+ * @param filterKeyRegex 过滤规则列表
+ * @param unMatchUpLoadSwitch 是否上传解析失败的日志
+ * @param unMatchLogKey 当上传解析失败的日志时，解析失败的日志的 key 名称
+ * @param logTemplate 根据指定的日志模板自动提取日志字段
+ */
 @protocol ExtractRule @end
 @interface ExtractRule : TLSObject
 @property (nonatomic, copy) NSString *delimiter;
@@ -112,6 +151,15 @@
 @property (nonatomic, copy) LogTemplate *logTemplate;
 @end
 
+/**
+ * @param namespaceNameRegex 待采集的 Kubernetes Namespace 名称，不指定 Namespace 名称时表示采集全部容器
+ * @param workloadType 通过工作负载的类型指定采集的容器，仅支持选择一种类型
+ * @param workloadNameRegex 通过工作负载的名称指定待采集的容器
+ * @param includePodLabelRegex Pod Label 白名单用于指定待采集的容器
+ * @param excludePodLabelRegex 通过 Pod Label 黑名单指定不采集的容器，不启用表示采集全部容器
+ * @param podNameRegex Pod名称用于指定待采集的容器
+ * @param labelTag 是否将 Kubernetes Label 作为日志标签
+ */
 @protocol KubernetesRule @end
 @interface KubernetesRule : TLSObject
 @property (nonatomic, copy) NSString *namespaceNameRegex;
@@ -123,6 +171,16 @@
 @property (nonatomic, copy) NSDictionary<NSString*, NSString*> *labelTag;
 @end
 
+/**
+ * @param stream 采集模式
+ * @param containerNameRegex 待采集的容器名称
+ * @param includeContainerLabelRegex 容器 Label 白名单通过容器 Label 指定待采集的容器
+ * @param excludeContainerLabelRegex 容器 Label 黑名单用于指定不采集的容器范围
+ * @param includeContainerEnvRegex 容器环境变量白名单通过容器环境变量指定待采集的容器
+ * @param excludeContainerEnvRegex 容器环境变量黑名单用于指定不采集的容器范围
+ * @param envTag 是否将环境变量作为日志标签，添加到原始日志数据中
+ * @param kubernetesRule Kubernetes 容器的采集规则
+ */
 @protocol ContainerRule @end
 @interface ContainerRule : TLSObject
 @property (nonatomic, copy) NSString *stream;
@@ -163,6 +221,10 @@
 @property (nonatomic, copy) NSNumber *endTimeOffset;
 @end
 
+/**
+ * @param type 执行周期类型
+ * @param time 告警任务执行的周期，或者定期执行的时间点
+ */
 @protocol RequestCycle @end
 @interface RequestCycle : TLSObject
 @property (nonatomic, copy) NSString *type;
@@ -192,7 +254,11 @@
 @property (nonatomic, copy) NSDictionary<NSString*, NSObject*> *type;
 @property (nonatomic, copy) NSArray<NSDictionary<NSString*, NSObject*>*> *data;
 @end
-
+/**
+ * @param caseSensitive 是否大小写敏感。
+ * @param delimiter 全文索引的分词符。
+ * @param includeChinese 是否包含中文。默认为 false
+ */
 @protocol FullTextInfo @end
 @interface FullTextInfo : TLSObject
 @property (nonatomic, assign) BOOL caseSensitive;
@@ -248,7 +314,10 @@
 @property (nonatomic, assign) BOOL sqlFlag;
 @property (nonatomic, copy) NSArray<KeyValueInfo*>* jsonKeys;
 @end
-
+/**
+ * @param key 需要配置键值索引的字段名称。
+ * @param value 需要配置键值索引的字段描述信息。
+ */
 @protocol KeyValueInfo @end
 @interface KeyValueInfo : TLSObject
 @property (nonatomic, copy) NSString *key;
@@ -308,6 +377,10 @@
 @property (nonatomic, copy) NSString *timeFormat;
 @end
 
+/**
+ * @param time 时间戳
+ * @param contents 日志内容dict
+ */
 @protocol PutLogsV2LogItem @end
 @interface PutLogsV2LogItem : TLSObject
 @property (nonatomic, copy) NSNumber *time;

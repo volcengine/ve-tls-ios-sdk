@@ -133,6 +133,18 @@
 @property (nonatomic, copy) AnalysisResult *analysisResult;
 @end
 
+@interface SearchLogsV2Response : CommonResponse
+@property (nonatomic, copy) NSString *resultStatus;
+@property (nonatomic, copy) NSNumber *hitCount;
+@property (nonatomic, assign) BOOL listOver;
+@property (nonatomic, assign) BOOL analysis;
+@property (nonatomic, copy) NSNumber *count;
+@property (nonatomic, copy) NSNumber *limit;
+@property (nonatomic, copy) NSString *context;
+@property (nonatomic, copy) NSArray<NSDictionary<NSString*, NSObject*>*> *logs;
+@property (nonatomic, copy) AnalysisResult *analysisResult;
+@end
+
 @interface DescribeLogContextResponse : CommonResponse
 @property (nonatomic, copy) NSArray<NSDictionary<NSString*, NSObject*>*> *logContextInfos;
 @end
