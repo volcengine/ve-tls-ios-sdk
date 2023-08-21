@@ -323,7 +323,17 @@ int main(int argc, char * argv[]) {
             }
             NSLog(@"Response: %@", [[client SearchLogs:request] toJSONString]);
         }
-        
+        // SearchLogsV2，api version 0.3.0
+        if (CHECK_NEED_TEST("SearchLogsV2")) {
+            SearchLogsV2Request *request = [SearchLogsV2Request alloc]; {
+                request.topicId = @"XXX";
+                request.query = @"*";
+                request.startTime = [[NSNumber alloc] initWithLong:1689407257];
+                request.endTime = [[NSNumber alloc] initWithLong:1691999257];
+                request.limit = [[NSNumber alloc] initWithLong:30];
+            }
+            NSLog(@"Response: %@", [[client SearchLogsV2:request] toJSONString]);
+        }
         // Hostgroup interfaces
         NSString *hostGroupId = @"";
         // CreateHostGroup

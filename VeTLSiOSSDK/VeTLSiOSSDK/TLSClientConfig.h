@@ -22,6 +22,7 @@
 @property (nonatomic, copy) NSString *accessKeySecret;
 @property (nonatomic, copy) NSString *region;
 @property (nonatomic, copy) NSNumber *timeoutMillisecond;
+@property (nonatomic, copy) NSString *apiVersion;
 @property (nonatomic, assign) bool disableRetry;
 @end
 

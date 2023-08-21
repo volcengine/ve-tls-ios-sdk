@@ -158,7 +158,13 @@ static int sRetryIntervalMs;
     @autoreleasepool {
         VeNetworkingRequest *networkingRequest = [VeNetworkingRequest alloc]; {
             networkingRequest.requstBody = [request requestBody];
-            networkingRequest.headers = [request headerParamsDict];
+            NSString *urlPath=[request urlPath];
+            NSString *version=_config.apiVersion;
+            if (urlPath == @"SearchLogsV2"){
+                urlPath = @"SearchLogs";
+                version = @"0.3.0";
+            }
+            networkingRequest.headers = [request headerParamsDict:version];
             NSString *strMethod = [request httpMethod];
             // Set http method
             if ([strMethod isEqualToString:@"GET"]) {
@@ -178,7 +184,7 @@ static int sRetryIntervalMs;
             networkingRequest.requestSerializer = nil;
             networkingRequest.responseSerializer = nil;
             
-            networkingRequest.url = [request urlWithVeEndpoint:_networkingConfiguration.endpoint path:[request urlPath]];
+            networkingRequest.url = [request urlWithVeEndpoint:_networkingConfiguration.endpoint path:urlPath];
         }
         return [self.networking sendRequest: networkingRequest];
     }
@@ -203,13 +209,13 @@ TLS_CLIENT_INTERFACE_IMPLEMENTION(DescribeShards)
 TLS_CLIENT_INTERFACE_IMPLEMENTION(CreateIndex)
 TLS_CLIENT_INTERFACE_IMPLEMENTION(DeleteIndex)
 TLS_CLIENT_INTERFACE_IMPLEMENTION(ModifyIndex)
-TLS_CLIENT_INTERFACE_IMPLEMENTION(DescribeIndex)
 // Log below
 TLS_CLIENT_INTERFACE_IMPLEMENTION(PutLogs)
 // 因为IOS环境限制, 这两个方法暂时无法提供
 //TLS_CLIENT_INTERFACE_IMPLEMENTION(DescribeCursor)
 //TLS_CLIENT_INTERFACE_IMPLEMENTION(ConsumeLogs)
 TLS_CLIENT_INTERFACE_IMPLEMENTION(SearchLogs)
+TLS_CLIENT_INTERFACE_IMPLEMENTION(SearchLogsV2)
 TLS_CLIENT_INTERFACE_IMPLEMENTION(DescribeLogContext)
 TLS_CLIENT_INTERFACE_IMPLEMENTION(DescribeHistogram)
 TLS_CLIENT_INTERFACE_IMPLEMENTION(WebTracks)
@@ -278,6 +284,8 @@ TLS_CLIENT_INTERFACE_IMPLEMENTION(DescribeKafkaConsumer)
     return (PutLogsV2Response*)[self PutLogs: realRequest];
 }
 
+
+
 // PutLogsAsync
 - (VeTask*) PutLogsAsync: (PutLogsRequest*)request; {
     @try {
@@ -322,5 +330,97 @@ TLS_CLIENT_INTERFACE_IMPLEMENTION(DescribeKafkaConsumer)
     }
     return [self PutLogsAsync: realRequest];
 }
+
+- (VeTask*) DescribeIndex: (DescribeIndexRequest*)request; {
+    @try {
+        long long quitTimestamp = (long long)([[NSDate date] timeIntervalSince1970] * 1000.0);
+        if (_config.timeoutMillisecond != nil && [_config.timeoutMillisecond intValue] > 0) {
+            quitTimestamp += [_config.timeoutMillisecond intValue];
+        } else {
+            quitTimestamp += 10 * 1000;
+        }
+        if ([request checkValidation] == false) {
+            DescribeIndexResponse *response = [DescribeIndexResponse alloc]; {
+                response.errorCode = @"InvalidArguments";
+                response.errorMessage = @"Lack necessary arguments, please check request";
+            }
+            return response;
+        }
+        __block DescribeIndexResponse *resp = nil;
+        while(true) {
+            resp = nil;
+            VeTask *innerResponse = [self invokeRequest:request];
+            __block dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+            [innerResponse continueWithBlock:^id _Nullable(VeTask * _Nonnull t) {
+                if (!t.error) {
+                    NSError *err = nil;
+                    GeneralHttpResponse *innerResp = t.result;
+                    resp = [[DescribeIndexResponse alloc] initWithData:innerResp.responseBody error:&err];
+                    resp.statusCode = innerResp.httpStatusCode;
+                    resp.requestId = innerResp.requestId;
+                }
+                dispatch_semaphore_signal(semaphore);
+                return nil;
+            }];
+            if (_config.timeoutMillisecond != nil && [_config.timeoutMillisecond intValue] > 0) {
+                dispatch_semaphore_wait(semaphore, [_config.timeoutMillisecond intValue] * NSEC_PER_MSEC);
+            } else dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+            if (resp == nil || sRetryCodeList == nil) {
+                break;
+            }
+            int needRetry = 0;
+            for (int i=0; i<sRetryCodeList.count; i++) {
+                if ([sRetryCodeList[i] intValue] == [resp.statusCode intValue]) {
+                    needRetry = 1;
+                }
+            }
+            if (needRetry == 0 || _config.disableRetry == true) {
+                [self decreaseRetryCounter];
+                break;
+            }
+            [self increaseRetryCounter];
+            long long curMs = (long long)([[NSDate date] timeIntervalSince1970] * 1000.0);
+            long long sleepMs = [self calculateRetrySleepMs:curMs quitTimestamp:quitTimestamp];
+            if (sleepMs > 0) {
+                [NSThread sleepForTimeInterval:((double)sleepMs)/1000];
+            }
+            if (curMs >= quitTimestamp) {
+                break;
+            }
+        }
+        if(resp!=nil ){
+            NSDictionary *repalce = [NSDictionary dictionaryWithObjectsAndKeys:@"\\n",@"\n",@"\\r",@"\r",@"\\t",@"\t",  nil];
+            if (resp.fullText!=nil && resp.fullText.delimiter) {
+                NSString *result=resp.fullText.delimiter;
+                for (NSString *key in repalce) {
+                    result =  [result stringByReplacingOccurrencesOfString:key withString:[repalce objectForKey:key]];
+                }
+                resp.fullText.delimiter = result;
+            }
+            if (resp.keyValue !=nil ){
+                for (KeyValueInfo *info in resp.keyValue) {
+                    if ( info.value!=nil&& info.value.delimiter!=nil){
+                        NSString *result=resp.fullText.delimiter;
+                        for (NSString *key in repalce) {
+                            result =  [result stringByReplacingOccurrencesOfString:key withString:[repalce objectForKey:key]];
+                        }
+                        info.value.delimiter = result;
+                    }
+                }
+            }
+            
+        }
+        return resp;
+    }
+    @catch (NSException *exception) {
+        DescribeIndexResponse *response = [DescribeIndexResponse alloc]; {
+            response.errorCode = @"CaughtException";
+            response.errorMessage = [NSString stringWithFormat:@"Exception: %@ Reason: %@", exception.name, exception.reason];
+        }
+        return response;
+    }
+}
+
+
 
 @end
