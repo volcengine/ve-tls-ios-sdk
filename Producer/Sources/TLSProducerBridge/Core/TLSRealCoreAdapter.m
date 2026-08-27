@@ -11,6 +11,9 @@
 
 NSErrorDomain const TLSRealCoreAdapterErrorDomain = @"com.volcengine.tls.producer.realcore";
 
+// Test-only session configuration override (see header).
+static NSURLSessionConfiguration *_testSessionConfiguration = nil;
+
 // MARK: - Class extension (must be visible before the C callback)
 
 @interface TLSRealCoreAdapter ()
@@ -71,8 +74,10 @@ static int tls_http_do_request(ve_tls_http_client *client,
         }
     }
 
-    // Use a dedicated ephemeral session (no cache/cookies)
-    NSURLSessionConfiguration *config = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+    // Use the test session configuration if provided (for HTTP stubbing),
+    // otherwise a dedicated ephemeral session (no cache/cookies).
+    NSURLSessionConfiguration *config = TLSRealCoreAdapter.testSessionConfiguration
+        ?: [NSURLSessionConfiguration ephemeralSessionConfiguration];
     config.timeoutIntervalForRequest = (NSTimeInterval)(req->timeout_ms > 0 ? req->timeout_ms : 30000) / 1000.0;
     config.URLCache = nil;
     config.HTTPCookieStorage = nil;
@@ -183,6 +188,14 @@ static void tls_send_done_v2(ve_tls_result result,
 // MARK: - Adapter implementation
 
 @implementation TLSRealCoreAdapter
+
++ (NSURLSessionConfiguration *)testSessionConfiguration {
+    return _testSessionConfiguration;
+}
+
++ (void)setTestSessionConfiguration:(NSURLSessionConfiguration *)config {
+    _testSessionConfiguration = config;
+}
 
 - (nullable instancetype)initWithEndpoint:(NSString *)endpoint
                                     region:(NSString *)region

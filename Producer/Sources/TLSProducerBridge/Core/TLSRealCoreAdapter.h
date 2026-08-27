@@ -40,6 +40,11 @@ typedef NS_ENUM(NSInteger, TLSRealCoreAdapterErrorCode) {
 /// linking issues across SwiftPM target boundaries.
 @interface TLSRealCoreAdapter : NSObject
 
+/// Optional session configuration override for testing. When set, the HTTP
+/// bridge uses this configuration instead of the default ephemeral one.
+/// This allows tests to inject custom NSURLProtocol stubs.
+@property (class, nonatomic, strong, nullable) NSURLSessionConfiguration *testSessionConfiguration;
+
 /// Creates a real core adapter.
 /// Returns nil and sets `error` if the C Core producer could not be created.
 - (nullable instancetype)initWithEndpoint:(NSString *)endpoint
