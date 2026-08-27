@@ -7,6 +7,7 @@
 
 import XCTest
 import TLSProducerBridge
+import CTLSProducerCore
 
 final class BridgeObjCHelpersTests: XCTestCase {
 
@@ -59,15 +60,10 @@ final class BridgeObjCHelpersTests: XCTestCase {
         wait(for: [done], timeout: 2)
     }
 
-    func testRealCoreAdapterPlaceholderIsBlocked() {
-        XCTAssertFalse(TLSRealCoreAdapter.isCoreIntegrationGateSatisfied)
-        // Swift imports the ObjC NSError* return as `any Error`; cast to
-        // NSError to reach domain/code/userInfo.
-        let error = TLSRealCoreAdapter.integrationGateError() as NSError
-        XCTAssertEqual(error.domain, "com.volcengine.tls.producer")
-        XCTAssertEqual(error.code, 1000)
-        let gates = error.userInfo[TLSRealCoreAdapterUnsatisfiedGatesKey]
-            as? [String]
-        XCTAssertEqual(gates?.count, 11, "all 11 Core gates must be listed")
+    func testRealCoreAdapterVersion() {
+        // The C Core is now integrated (v0.3.1); verify the version probe
+        // returns a non-empty string.
+        let version = String(cString: ve_tls_iosp_core_version())
+        XCTAssertFalse(version.isEmpty, "C Core version must be non-empty")
     }
 }

@@ -2,26 +2,40 @@
 //  CTLSProducerCore.h
 //  CTLSProducerCore
 //
-//  PLACEHOLDER — the real C Core has NOT passed the release gate (see
-//  Producer/CORE_VERSION). This header exists only so the SwiftPM/CocoaPods
-//  skeleton has a complete C target. It implements NO queue/retry/WAL/signing/
-//  compression. Remove when the real Core is vendored.
+//  Umbrella header for the vendored C Core (ve-tls-c-sdk v0.3.1).
+//
+//  The C Core is a pure C library providing the persistent producer engine
+//  (WAL, retry, batching, signing, compression). This umbrella re-exports
+//  the public C headers so the ObjC Bridge layer (TLSRealCoreAdapter) can
+//  consume them.
+//
+//  C Core version: v0.3.1 (tag), commit 08f33affc2f346f92dc0734cbb92330dd272156c
+//  See Producer/CORE_VERSION for the frozen release record.
 //
 
 #ifndef CTLSProducerCore_h
 #define CTLSProducerCore_h
 
+// C Core public headers (vendored from ve-tls-c-sdk v0.3.1 core/include/)
+#include "ve_tls_version.h"
+#include "ve_tls_export.h"
+#include "ve_tls_error.h"
+#include "ve_tls_http.h"
+#include "ve_tls_retry.h"
+#include "ve_tls_platform.h"
+#include "ve_tls_producer.h"
+#include "ve_tls_alloc.h"
+#include "ve_tls_compress.h"
+#include "ve_tls_env.h"
+#include "ve_tls_hash.h"
+#include "ve_tls_proto.h"
+#include "ve_tls_sign.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/**
- * Placeholder version probe.
- *
- * Returns a static placeholder string. The real Core provides its own
- * versioned ABI; this symbol exists only to validate the C target toolchain
- * and the symbol namespace (ve_tls_iosp_* prefix).
- */
+// Version probe — returns the C Core version string.
 const char *ve_tls_iosp_core_version(void);
 
 #ifdef __cplusplus

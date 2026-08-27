@@ -70,18 +70,26 @@ public final class Producer {
         }
     }
 
-    /// Opens a producer with the bundled in-memory adapter.
+    /// Opens a producer with the real C Core adapter (ve-tls-c-sdk v0.3.1).
     ///
-    /// NOTE: the bundled adapter is a PROVISIONAL placeholder until the
-    /// RealCoreAdapter gate; it performs no network/persistence. Do not
-    /// read its behavior as a release claim.
+    /// The C Core provides persistent WAL, retry, batching, LZ4 compression,
+    /// and signing. When `configuration.destination` is nil, the in-memory
+    /// `BundledCoreAdapter` is used instead (no network/persistence).
     public static func open(
         configuration: ProducerConfiguration,
         credentials: Credentials,
         onSendResult: (@Sendable (SendResult) -> Void)? = nil
     ) async throws -> Producer {
+        let adapter: CoreAdapter
+        if configuration.destination != nil {
+            adapter = try RealCoreAdapter(
+                configuration: configuration,
+                credentials: credentials)
+        } else {
+            adapter = BundledCoreAdapter()
+        }
         let producer = Producer(
-            adapter: BundledCoreAdapter(),
+            adapter: adapter,
             configuration: configuration,
             credentials: credentials,
             onSendResult: onSendResult)

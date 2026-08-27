@@ -29,14 +29,25 @@ let package = Package(
         .library(name: "VolcengineTLSProducer", targets: ["VolcengineTLSProducer"]),
     ],
     targets: [
-        // C Core placeholder. The real C Core has NOT passed the release gate
-        // (see Producer/CORE_VERSION). This target exists only so the skeleton
-        // is consumable by SwiftPM/CocoaPods; it implements no queue/retry/WAL/
-        // signing/compression. Remove the placeholder when the real Core lands.
+        // C Core (ve-tls-c-sdk v0.3.1, vendored). Provides the persistent
+        // producer engine: WAL, retry, batching, signing, LZ4 compression.
+        // The real Core has passed the release gate (tag v0.3.1, commit
+        // 08f33af, CI asan-ubsan/shared-abi/static-release green).
+        // See Producer/CORE_VERSION for the frozen release record.
         .target(
             name: "CTLSProducerCore",
             path: "Producer/Sources/CTLSProducerCore",
-            publicHeadersPath: "include"
+            publicHeadersPath: "include",
+            cSettings: [
+                // Internal C Core headers (core/src/ and core/src/producer/)
+                // and the vendored LZ4 namespace header.
+                .headerSearchPath("core/src"),
+                .headerSearchPath("core/src/producer"),
+                .headerSearchPath("third_party/lz4"),
+                // No curl on iOS; the C Core's curl adapter is guarded by
+                // VE_TLS_HAVE_CURL and is not compiled.
+                .define("VE_TLS_NO_CURL", to: "1"),
+            ]
         ),
 
         // Objective-C bridge (package-internal). Wraps the C Core for the Swift
@@ -80,7 +91,7 @@ let package = Package(
         ),
         .testTarget(
             name: "BridgeTests",
-            dependencies: ["VolcengineTLSProducer", "TLSProducerBridge", "ProducerTestSupport"],
+            dependencies: ["VolcengineTLSProducer", "TLSProducerBridge", "ProducerTestSupport", "CTLSProducerCore"],
             path: "Producer/Tests/BridgeTests"
         ),
         .testTarget(
@@ -95,7 +106,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ConsumerIntegrationTests",
-            dependencies: ["VolcengineTLSProducer"],
+            dependencies: ["VolcengineTLSProducer", "TLSProducerBridge"],
             path: "Producer/Tests/ConsumerIntegrationTests"
         ),
     ]

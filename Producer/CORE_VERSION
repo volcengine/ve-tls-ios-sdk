@@ -4,16 +4,15 @@
 # 门禁依据：Producer/DECISIONS.md 与
 # docs/research/tls-ios-producer-sdk-implementation-decision-ledger.md §1。
 #
-# 当前为骨架占位：真实 C Core 未通过发布门禁，RealCoreAdapter blocked。
-# 所有 <pending> 字段必须在真实 Core release 通过门禁后逐项填写。
+# 2026-08-27：C Core v0.3.1 通过全部 11 项发布门禁，RealCoreAdapter 解除 blocked。
 
-status: BLOCKED — 未接受任何 C Core release
-gate: 见 Producer/DECISIONS.md 与 implementation-decision-ledger.md §1
-core_tag: <pending>
-core_full_sha: <pending>
-source_bundle_sha256: <pending>
-abi_version: <pending>
-symbol_allowlist: <pending>
-ownership_contract: <pending>
-core_test_evidence: <pending>
-integrated_at: <pending>
+status: ACCEPTED — C Core v0.3.1 已通过发布门禁
+gate: 11 项全部满足（见 docs/research/tls-ios-producer-sdk-real-core-integration-log.md §1）
+core_tag: v0.3.1
+core_full_sha: 08f33affc2f346f92dc0734cbb92330dd272156c
+source_bundle_sha256: 478887acaf51f004d0bd1e2ba40e666848f02ebad238de16863abb8d06d853cc
+abi_version: 2 (VE_TLS_CONFIG_VERSION_2)
+symbol_allowlist: ve_tls_* (public ABI), VE_TLS_LZ4_* (namespaced LZ4)
+ownership_contract: C Core 管理所有 buffer/string 生命周期；iOS 层通过 ve_tls_*_free / ve_tls_error_free_fields 释放
+core_test_evidence: CI asan-ubsan 5/5 pass (44s), shared-abi pass, static-release pass (2026-08-27)
+integrated_at: 2026-08-27

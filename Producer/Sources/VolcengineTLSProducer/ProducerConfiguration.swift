@@ -124,6 +124,11 @@ public struct ProducerConfiguration {
     /// .disabled`. Allowed characters: `[A-Za-z0-9._-]`, max 64 UTF-8 bytes.
     public var producerID: String?
 
+    /// The send target (endpoint/region/project/topic). Required when using
+    /// the real C Core adapter; the bundled in-memory adapter ignores it.
+    /// Use `updateDestination` to change it after `open`.
+    public var destination: Destination?
+
     public init(
         batch: BatchConfiguration = BatchConfiguration(),
         buffer: BufferConfiguration = BufferConfiguration(),
@@ -141,7 +146,8 @@ public struct ProducerConfiguration {
             qos: .utility),
         urlSessionConfiguration: URLSessionConfiguration = .ephemeral,
         automaticLifecycleHandling: Bool = ProducerConfiguration.defaultAutomaticLifecycleHandling(),
-        producerID: String? = nil
+        producerID: String? = nil,
+        destination: Destination? = nil
     ) throws {
         // --- validation -------------------------------------------------
         guard batch.maxLogCount > 0 else {
@@ -222,6 +228,7 @@ public struct ProducerConfiguration {
         self.urlSessionConfiguration = sanitizedSessionConfiguration
         self.automaticLifecycleHandling = automaticLifecycleHandling
         self.producerID = producerID
+        self.destination = destination
     }
 
     /// Runtime detection: app extensions carry an `NSExtension` key in their
@@ -249,6 +256,7 @@ internal struct ConfigurationSnapshot {
     let urlSessionConfiguration: URLSessionConfiguration
     let automaticLifecycleHandling: Bool
     let producerID: String?
+    let destination: Destination?
 
     init(_ configuration: ProducerConfiguration) {
         self.batch = configuration.batch
@@ -266,5 +274,6 @@ internal struct ConfigurationSnapshot {
         self.urlSessionConfiguration = configuration.urlSessionConfiguration
         self.automaticLifecycleHandling = configuration.automaticLifecycleHandling
         self.producerID = configuration.producerID
+        self.destination = configuration.destination
     }
 }

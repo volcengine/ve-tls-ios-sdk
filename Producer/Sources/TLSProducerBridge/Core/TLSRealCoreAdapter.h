@@ -1,79 +1,117 @@
 // TLSRealCoreAdapter.h
 // TLSProducerBridge/Core
 //
-// BLOCKED — do not wire into release behavior.
+// Real C Core adapter — wraps ve-tls-c-sdk v0.3.1.
 //
-// Placeholder for the real C Core adapter. Every entry point returns a
-// well-formed "C Core integration gate not met" error until the frozen
-// C Mobile Core release passes ALL of the following gates:
+// This is the ObjC bridge between the Swift CoreAdapter protocol and the C
+// Core ABI. It owns the ve_tls_producer lifecycle, the NSURLSession HTTP
+// client bridge, and the send-done callback → Swift SendResult mapping.
 //
-//   1. Immutable Core release tag/SHA pinned (no floating branches).
-//   2. Public C headers + ABI version/size contract; Bridge fail-fasts on
-//      incompatible versions; all public headers compile under
-//      Objective-C++ with extern "C".
-//   3. Ownership contract: buffer/string lifetimes across the Swift/ObjC/C
-//      boundary, explicit retain/release pairs for callback user contexts
-//      (covering create failure, open failure, close timeout and callback
-//      reentry), no double-free.
-//   4. Threading/lifecycle contract: worker/sender never on the main thread;
-//      close ordering (block new callbacks, cancel/drain in-flight, confirm
-//      stopped before destroying C producer/session); no UAF on late
-//      URLSession/C callbacks.
-//   5. WAL contract: memory/buffered/sync durability semantics, recovery,
-//      checkpoint/ACK ordering, at-least-once boundary documented.
-//   6. Transactional updates: whole-group atomic credential replacement;
-//      current-target destination semantics for unfinished batches.
-//   7. Credential scrubbing: credentials never appear in logs, WAL,
-//      manifests, file names, extended attributes or NSError userInfo.
-//   8. 504/auth behavior: 401/403 suspension and 504 retry mapping
-//      contract frozen; no fake terminal states.
-//   9. max-age/drop/rewrite policy contract (expiredLogPolicy,
-//      unauthorizedPolicy) with public-config-only drops.
-//  10. LZ4 symbol namespacing: vendored Core uses the private
-//      `ve_tls_iosp_*` prefix; `ve_tls_*` and LZ4 symbols are not exposed
-//      to the host app.
-//  11. Core test evidence: frozen-Core test suite (batch/retry/order/
-//      backpressure/metrics, crash harness) passing on the pinned release.
-//
-// Pure Objective-C; iOS 13.0+ safe APIs only.
+// Threading: the C Core creates its own sender/packer threads via the
+// platform abstraction. All public methods are safe to call from any thread;
+// the C Core serializes internally.
 //
 
 #import <Foundation/Foundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Error domain for TLSRealCoreAdapter placeholder errors.
+/// Error domain for TLSRealCoreAdapter errors.
 FOUNDATION_EXPORT NSErrorDomain const TLSRealCoreAdapterErrorDomain;
 
-/// Error code: the C Core integration gate is not met. All placeholder
-/// entry points return this code until the 11 gates above are satisfied.
-FOUNDATION_EXPORT const NSInteger TLSRealCoreAdapterErrorCodeIntegrationGateNotMet;
+/// Error codes for TLSRealCoreAdapter.
+typedef NS_ENUM(NSInteger, TLSRealCoreAdapterErrorCode) {
+    /// The C Core producer could not be created.
+    TLSRealCoreAdapterErrorCodeCreateFailed = 3001,
+    /// A log could not be added (queue full / buffer full / invalid).
+    TLSRealCoreAdapterErrorCodeAddFailed = 3002,
+    /// Credentials update failed.
+    TLSRealCoreAdapterErrorCodeCredentialsUpdateFailed = 3003,
+    /// Destination update failed.
+    TLSRealCoreAdapterErrorCodeDestinationUpdateFailed = 3004,
+    /// The adapter is closed.
+    TLSRealCoreAdapterErrorCodeClosed = 3005,
+};
 
-/// userInfo key whose value is an NSArray<NSString *> listing the
-/// unsatisfied integration gates.
-FOUNDATION_EXPORT NSString *const TLSRealCoreAdapterUnsatisfiedGatesKey;
-
-/// Placeholder adapter for the real C Core.
+/// Real C Core adapter.
 ///
-/// BLOCKED — do not wire into release behavior.
+/// One instance per Producer. Wraps a ve_tls_producer from the C Core.
+/// Configuration is passed as individual parameters to avoid ObjC class
+/// linking issues across SwiftPM target boundaries.
 @interface TLSRealCoreAdapter : NSObject
 
-/// Plain `init`/`new` are unavailable: construction must go through
-/// `initWithError:` so callers always receive the integration-gate error.
+/// Creates a real core adapter.
+/// Returns nil and sets `error` if the C Core producer could not be created.
+- (nullable instancetype)initWithEndpoint:(NSString *)endpoint
+                                    region:(NSString *)region
+                                  projectID:(NSString *)projectID
+                                    topicID:(NSString *)topicID
+                                accessKeyID:(NSString *)accessKeyID
+                            accessKeySecret:(NSString *)accessKeySecret
+                             securityToken:(nullable NSString *)securityToken
+                                    source:(NSString *)source
+                                  fileName:(nullable NSString *)fileName
+                                      tags:(nullable NSDictionary<NSString *, NSString *> *)tags
+                               maxLogCount:(NSInteger)maxLogCount
+                               maxRawBytes:(NSInteger)maxRawBytes
+                                    linger:(NSTimeInterval)linger
+                            maxBufferBytes:(NSInteger)maxBufferBytes
+                            connectTimeout:(NSTimeInterval)connectTimeout
+                            requestTimeout:(NSTimeInterval)requestTimeout
+                                lz4Enabled:(BOOL)lz4Enabled
+                         persistenceEnabled:(BOOL)persistenceEnabled
+                       persistentDirectory:(nullable NSString *)persistentDirectory
+                           maxLogAgeSeconds:(NSInteger)maxLogAgeSeconds
+                          expiredLogPolicy:(NSInteger)expiredLogPolicy
+                         authFailurePolicy:(NSInteger)authFailurePolicy
+                             callbackQueue:(dispatch_queue_t)callbackQueue
+                                      error:(NSError * _Nullable * _Nullable)error
+    NS_DESIGNATED_INITIALIZER;
+
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
 
-/// NO until the frozen C Core release passes every integration gate.
-@property (class, nonatomic, readonly) BOOL isCoreIntegrationGateSatisfied;
+/// Adds a log event. The event is converted to C key-value pairs and
+/// passed to the C Core. `flush` corresponds to AddMode.immediate.
+/// Returns YES on success, NO and sets `error` on failure.
+- (BOOL)addLogWithTimestamp:(int64_t)timestampMs
+                    hashKey:(nullable NSString *)hashKey
+                   contents:(NSDictionary<NSString *, NSString *> *)contents
+                      flush:(BOOL)flush
+                      error:(NSError * _Nullable * _Nullable)error;
 
-/// Always fails with the integration-gate error.
-- (nullable instancetype)initWithError:(NSError * _Nullable * _Nullable)error;
+/// Updates credentials (whole-group atomic replacement).
+- (BOOL)updateCredentials:(NSString *)accessKeyID
+           accessKeySecret:(NSString *)accessKeySecret
+            securityToken:(nullable NSString *)securityToken
+                    error:(NSError * _Nullable * _Nullable)error;
 
-/// Always fails with the integration-gate error.
-- (BOOL)openWithError:(NSError * _Nullable * _Nullable)error;
+/// Updates the destination (endpoint/region/topicID).
+- (BOOL)updateDestination:(NSString *)endpoint
+                   region:(NSString *)region
+                  topicID:(NSString *)topicID
+                    error:(NSError * _Nullable * _Nullable)error;
 
-/// The canonical integration-gate error (domain/code/userInfo contract).
-+ (NSError *)integrationGateError;
+/// Closes the producer. Bounded local shutdown; does not promise remote
+/// delivery of accepted logs.
+- (void)closeWithTimeout:(NSTimeInterval)timeout;
+
+/// Flushes pending batches (best-effort).
+- (void)flush;
+
+/// The send-result callback. Set by the Swift layer before open.
+/// Delivered on the configured callback queue.
+@property (nonatomic, copy, nullable) void (^onSendResult)(
+    int32_t result,
+    NSUInteger rawBytes,
+    NSUInteger compressedBytes,
+    NSString * _Nullable requestID,
+    NSString * _Nullable errorMessage,
+    int64_t startID,
+    int64_t endID);
+
+/// YES until close is called.
+@property (nonatomic, readonly) BOOL isClosed;
 
 @end
 
