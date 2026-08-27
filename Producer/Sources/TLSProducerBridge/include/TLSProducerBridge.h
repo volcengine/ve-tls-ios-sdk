@@ -14,7 +14,18 @@
 
 #import <Foundation/Foundation.h>
 
-#import "TLSRedactingLogger.h"
-#import "TLSThreadAssertions.h"
-#import "TLSSerialQueueFactory.h"
-#import "TLSRealCoreAdapter.h"
+// Path-qualified imports: SwiftPM's headerSearchPath(".") makes the
+// TLSProducerBridge directory a header search path (not its subdirectories),
+// so flat filenames would fail to resolve. The qualified form also resolves
+// under CocoaPods (HEADER_SEARCH_PATHS includes the source directory).
+#import "Bridge/TLSRedactingLogger.h"
+#import "Bridge/TLSThreadAssertions.h"
+#import "Bridge/TLSSerialQueueFactory.h"
+#import "Core/TLSRealCoreAdapter.h"
+#import "Storage/TLSProducerDirectory.h"
+#import "Lifecycle/TLSLifecycleManager.h"
+
+// Wave 2 Worker D — NSURLSession transport (package-internal).
+#import "Transport/TLSHTTPRequest.h"
+#import "Transport/TLSHTTPResponse.h"
+#import "Transport/TLSTransport.h"

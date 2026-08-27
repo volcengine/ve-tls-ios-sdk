@@ -40,9 +40,10 @@ let package = Package(
         ),
 
         // Objective-C bridge (package-internal). Wraps the C Core for the Swift
-        // layer. Internal headers live in Bridge/Transport/Storage/Lifecycle
-        // subdirectories and are intentionally NOT exported by the minimal
-        // umbrella header in include/ (consumers must not see bare C types).
+        // layer. Internal headers (Core/Bridge/Transport/Storage/Lifecycle) are
+        // exported by the umbrella header so package test targets can exercise
+        // them; the Bridge is not a public product, and the Swift target does
+        // not re-export the Clang module, so consumers never see bare C types.
         .target(
             name: "TLSProducerBridge",
             dependencies: ["CTLSProducerCore"],
@@ -84,12 +85,12 @@ let package = Package(
         ),
         .testTarget(
             name: "TransportTests",
-            dependencies: ["TLSProducerBridge", "ProducerTestSupport"],
+            dependencies: ["TLSProducerBridge", "ProducerTestSupport", "VolcengineTLSProducer"],
             path: "Producer/Tests/TransportTests"
         ),
         .testTarget(
             name: "PersistenceTests",
-            dependencies: ["TLSProducerBridge", "ProducerTestSupport"],
+            dependencies: ["TLSProducerBridge", "ProducerTestSupport", "VolcengineTLSProducer"],
             path: "Producer/Tests/PersistenceTests"
         ),
         .testTarget(
