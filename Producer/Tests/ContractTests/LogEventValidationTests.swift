@@ -12,7 +12,7 @@ final class LogEventValidationTests: XCTestCase {
 
     // MARK: - Whole-event rejection
 
-    func testOneInvalidFieldRejectsWholeEvent() throws {
+    func testOneInvalidFieldRejectsWholeEvent() async throws {
         let recording = RecordingAdapter()
         let producer = try await Producer.open(
             adapter: recording,
@@ -103,7 +103,7 @@ final class LogEventValidationTests: XCTestCase {
 
     // MARK: - Snapshot semantics
 
-    func testAddSnapshotsValue() throws {
+    func testAddSnapshotsValue() async throws {
         let recording = RecordingAdapter()
         let producer = try await Producer.open(
             adapter: recording,

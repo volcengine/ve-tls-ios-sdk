@@ -128,7 +128,10 @@ public final class Producer {
         }
 
         do {
-            try await withCheckedThrowingContinuation { (cont: CheckedThrowingContinuation<Void, Error>) in
+            // NOTE: no explicit closure type annotation — Swift 6 removed the
+            // `CheckedThrowingContinuation` type name (now `CheckedContinuation<T,
+            // any Error>`); inference works on both Swift 5.8 and 6.x.
+            try await withCheckedThrowingContinuation { cont in
                 DispatchQueue.global(qos: .utility).async {
                     do {
                         try self.adapter.open(
@@ -242,7 +245,7 @@ public final class Producer {
         case .closing:
             // Join the in-flight shutdown.
             lock.unlock()
-            try await withCheckedThrowingContinuation { (cont: CheckedThrowingContinuation<Void, Error>) in
+            try await withCheckedThrowingContinuation { cont in
                 self.lock.lock()
                 if let finished = self.closeResult {
                     self.lock.unlock()

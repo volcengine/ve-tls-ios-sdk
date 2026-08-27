@@ -23,10 +23,11 @@ final class ProducerDirectoryValidationTests: XCTestCase {
         XCTAssertNoThrow(try TLSProducerDirectory.validateProducerID("ABC123"))
         XCTAssertNoThrow(try TLSProducerDirectory.validateProducerID("a.b-c_d"))
         XCTAssertNoThrow(try TLSProducerDirectory.validateProducerID("0"))
-        // Every allowed character.
+        // Every allowed character class (64 chars == 64 bytes, the exact
+        // upper bound; '-' is already covered by "a.b-c_d" above).
         XCTAssertNoThrow(
             try TLSProducerDirectory.validateProducerID(
-                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"))
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._"))
     }
 
     func testValidProducerIDAt64UTF8Bytes() {

@@ -41,7 +41,7 @@ final class BridgeObjCHelpersTests: XCTestCase {
     func testSerialQueueFactoryLabelAndQoS() {
         let queue = TLSSerialQueueFactory.serialQueue(withSuffix: "test")
         XCTAssertEqual(
-            dispatch_queue_get_label(queue),
+            queue.label,
             "com.volcengine.tls.producer.test")
         XCTAssertEqual(queue.qos, .utility)
     }
@@ -61,7 +61,9 @@ final class BridgeObjCHelpersTests: XCTestCase {
 
     func testRealCoreAdapterPlaceholderIsBlocked() {
         XCTAssertFalse(TLSRealCoreAdapter.isCoreIntegrationGateSatisfied)
-        let error = TLSRealCoreAdapter.integrationGateError()
+        // Swift imports the ObjC NSError* return as `any Error`; cast to
+        // NSError to reach domain/code/userInfo.
+        let error = TLSRealCoreAdapter.integrationGateError() as NSError
         XCTAssertEqual(error.domain, "com.volcengine.tls.producer")
         XCTAssertEqual(error.code, 1000)
         let gates = error.userInfo[TLSRealCoreAdapterUnsatisfiedGatesKey]

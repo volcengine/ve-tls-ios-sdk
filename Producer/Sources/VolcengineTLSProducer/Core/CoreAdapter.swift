@@ -31,7 +31,7 @@ public protocol CoreAdapter: AnyObject {
 
     /// Terminal-result handler for batches. Set by the `Producer` before
     /// `open` is called; must not be replaced at runtime.
-    var onSendResult: (@Sendable (SendResult) -> Void)? { get }
+    var onSendResult: (@Sendable (SendResult) -> Void)? { get set }
 
     /// Opens the adapter with the frozen configuration and the first
     /// credentials group. Throws on configuration/state failures.

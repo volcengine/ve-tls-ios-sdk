@@ -78,7 +78,7 @@ final class ProducerLifecycleTests: XCTestCase {
 
     func testAddAfterFailedOpenThrowsInvalidState() async throws {
         let recording = RecordingAdapter()
-        recording.openError = ProducerError.internal("simulated")
+        recording.openError = ProducerError.`internal`("simulated")
 
         let producer = Producer(
             adapter: recording,
@@ -90,7 +90,7 @@ final class ProducerLifecycleTests: XCTestCase {
             try await producer.performOpen()
             XCTFail("expected open to throw")
         } catch {
-            XCTAssertEqual(error as? ProducerError, .internal("simulated"))
+            XCTAssertEqual(error as? ProducerError, .`internal`("simulated"))
         }
 
         XCTAssertThrowsError(
@@ -256,8 +256,9 @@ final class ProducerLifecycleTests: XCTestCase {
     func testSendResultDeliveredOnCallbackQueue() async throws {
         let recording = RecordingAdapter()
         let config = try ProducerConfiguration()
-        let labelChecker = CallbackQueueLabelCollector(expectedLabel:
-            "com.volcengine.tls.producer.callback")
+        let callbackKey = DispatchSpecificKey<UInt8>()
+        config.callbackQueue.setSpecific(key: callbackKey, value: 1)
+        let labelChecker = CallbackQueueLabelCollector(key: callbackKey)
         let producer = try await Producer.open(
             adapter: recording,
             configuration: config,
@@ -291,12 +292,12 @@ private final class ResultCollector: @unchecked Sendable {
 
 private final class CallbackQueueLabelCollector: @unchecked Sendable {
     private let lock = NSLock()
-    private let expectedLabel: String
+    private let key: DispatchSpecificKey<UInt8>
     private var _recordedCount = 0
     private var _allMatch = true
 
-    init(expectedLabel: String) {
-        self.expectedLabel = expectedLabel
+    init(key: DispatchSpecificKey<UInt8>) {
+        self.key = key
     }
 
     var recordedCount: Int {
@@ -310,10 +311,12 @@ private final class CallbackQueueLabelCollector: @unchecked Sendable {
     }
 
     func record() {
-        let label = dispatch_queue_get_label(DispatchQueue.current)
+        // Swift 6 has no DispatchQueue.current; verify the callback runs on
+        // the tagged queue via the current-queue specific.
+        let onCallbackQueue = DispatchQueue.getSpecific(key: key) != nil
         lock.lock()
         _recordedCount += 1
-        if label != expectedLabel {
+        if !onCallbackQueue {
             _allMatch = false
         }
         lock.unlock()

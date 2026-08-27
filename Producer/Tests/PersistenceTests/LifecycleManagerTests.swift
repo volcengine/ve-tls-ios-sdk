@@ -60,9 +60,9 @@ final class LifecycleManagerTests: XCTestCase {
             extensionCheck: { true })
 
         NotificationCenter.default.post(
-            name: TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+            name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
         NotificationCenter.default.post(
-            name: TLSLifecycleWillEnterForegroundNotificationName, object: nil)
+            name: NSNotification.Name.TLSLifecycleWillEnterForegroundNotificationName, object: nil)
 
         XCTAssertEqual(flushCount, 0, "extension process must not flush")
         XCTAssertEqual(wakeCount, 0, "extension process must not wake")
@@ -84,7 +84,7 @@ final class LifecycleManagerTests: XCTestCase {
             extensionCheck: { false })
 
         NotificationCenter.default.post(
-            name: TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+            name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
 
         XCTAssertEqual(flushCount, 1)
         XCTAssertEqual(host.beginCalls.count, 1)
@@ -106,7 +106,7 @@ final class LifecycleManagerTests: XCTestCase {
             extensionCheck: { false })
 
         NotificationCenter.default.post(
-            name: TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+            name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
         XCTAssertEqual(host.beginCalls.count, 1)
 
         // Fire the system expiration: the task must be ended immediately
@@ -127,8 +127,8 @@ final class LifecycleManagerTests: XCTestCase {
             extensionCheck: { false })
         let center = NotificationCenter.default
 
-        center.post(name: TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
-        center.post(name: TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+        center.post(name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+        center.post(name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
 
         XCTAssertEqual(host.beginCalls.count, 2)
         XCTAssertEqual(host.endCalls, [1],
@@ -148,7 +148,7 @@ final class LifecycleManagerTests: XCTestCase {
             extensionCheck: { false })
 
         NotificationCenter.default.post(
-            name: TLSLifecycleWillEnterForegroundNotificationName, object: nil)
+            name: NSNotification.Name.TLSLifecycleWillEnterForegroundNotificationName, object: nil)
 
         XCTAssertEqual(wakeCount, 1)
         _ = manager
@@ -163,11 +163,11 @@ final class LifecycleManagerTests: XCTestCase {
             extensionCheck: { false })
         let center = NotificationCenter.default
 
-        center.post(name: TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+        center.post(name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
         XCTAssertEqual(host.beginCalls.count, 1)
         XCTAssertTrue(host.endCalls.isEmpty)
 
-        center.post(name: TLSLifecycleWillEnterForegroundNotificationName, object: nil)
+        center.post(name: NSNotification.Name.TLSLifecycleWillEnterForegroundNotificationName, object: nil)
         XCTAssertEqual(host.endCalls, [1],
                        "returning to foreground must release the wrap-up task")
         _ = manager
@@ -185,9 +185,9 @@ final class LifecycleManagerTests: XCTestCase {
             extensionCheck: { false })
 
         NotificationCenter.default.post(
-            name: TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+            name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
         NotificationCenter.default.post(
-            name: TLSLifecycleWillEnterForegroundNotificationName, object: nil)
+            name: NSNotification.Name.TLSLifecycleWillEnterForegroundNotificationName, object: nil)
 
         XCTAssertEqual(flushCount, 1, "flush must still run without a host")
         XCTAssertEqual(wakeCount, 1, "wake must still run without a host")
@@ -206,7 +206,7 @@ final class LifecycleManagerTests: XCTestCase {
             extensionCheck: { false })
         let center = NotificationCenter.default
 
-        center.post(name: TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+        center.post(name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
         XCTAssertEqual(flushCount, 1)
         XCTAssertEqual(host.beginCalls.count, 1)
         XCTAssertTrue(host.endCalls.isEmpty)
@@ -218,8 +218,8 @@ final class LifecycleManagerTests: XCTestCase {
         XCTAssertEqual(host.endCalls, [1])
 
         // Must not crash, and must not invoke the released handler.
-        center.post(name: TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
-        center.post(name: TLSLifecycleWillEnterForegroundNotificationName, object: nil)
+        center.post(name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+        center.post(name: NSNotification.Name.TLSLifecycleWillEnterForegroundNotificationName, object: nil)
         XCTAssertEqual(flushCount, 1, "no handler calls after dealloc")
     }
 
@@ -236,7 +236,7 @@ final class LifecycleManagerTests: XCTestCase {
             extensionCheck: { false })
 
         NotificationCenter.default.post(
-            name: TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+            name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
         XCTAssertEqual(host.beginCalls.count, 1)
         let expirationHandler = host.beginCalls[0].expirationHandler
         XCTAssertNotNil(expirationHandler)
@@ -267,7 +267,7 @@ final class LifecycleManagerTests: XCTestCase {
             wakeHandler: { wakeCount += 1 })
 
         NotificationCenter.default.post(
-            name: TLSLifecycleWillEnterForegroundNotificationName, object: nil)
+            name: NSNotification.Name.TLSLifecycleWillEnterForegroundNotificationName, object: nil)
         XCTAssertEqual(wakeCount, 1)
         _ = manager
     }

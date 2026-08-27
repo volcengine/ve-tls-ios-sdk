@@ -24,4 +24,12 @@
     return self;
 }
 
+#pragma mark - NSCopying
+
+- (id)copyWithZone:(NSZone *)zone {
+    // Immutable: sharing the same instance is safe and avoids a redundant
+    // copy. TLSTransport stores the request under a `copy` property.
+    return self;
+}
+
 @end

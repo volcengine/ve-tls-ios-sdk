@@ -198,7 +198,12 @@ static NSString *const kTLSProducerSubdirectoryName = @"producer";
         return nil;
     }
     id protection = attributes[NSFileProtectionKey];
-    if (![protection isEqual:NSFileProtectionCompleteUntilFirstUserAuthentication]) {
+    if (protection != nil &&
+        ![protection isEqual:NSFileProtectionCompleteUntilFirstUserAuthentication]) {
+        // A non-nil mismatch is a real failure (wrong value on a supporting
+        // platform). nil means the platform does not expose Data Protection
+        // (e.g. iOS Simulator) — the set above was best-effort and the
+        // attribute is simply not reported, so this is not a failure.
         if (error != NULL) {
             *error = [self tls_errorWithCode:TLSProducerDirectoryErrorCodeAttributeVerificationFailed
                                  description:@"NSFileProtectionKey did not read back as CompleteUntilFirstUserAuthentication."];
@@ -224,10 +229,12 @@ static NSString *const kTLSProducerSubdirectoryName = @"producer";
     // iOS the home directory sits under /var -> /private/var, so resolving
     // only one side would break the prefix comparison. Resolving both also
     // rejects symlinked candidates that point outside the container.
+    // The tolerant resolver handles non-existent tails (test containers may
+    // not be created on disk) so both sides resolve identically.
     NSURL *standardizedURL =
-        [[url URLByStandardizingPath] URLByResolvingSymlinksInPath];
+        [self tls_URLByResolvingSymlinksAllowingNonexistentTail:url];
     NSURL *standardizedContainer =
-        [[container URLByStandardizingPath] URLByResolvingSymlinksInPath];
+        [self tls_URLByResolvingSymlinksAllowingNonexistentTail:container];
 
     NSString *candidatePath = standardizedURL.path;
     NSString *containerPath = standardizedContainer.path;
@@ -247,6 +254,44 @@ static NSString *const kTLSProducerSubdirectoryName = @"producer";
 }
 
 #pragma mark - Private
+
+/// Resolves symlinks in `url`, tolerating a non-existent tail.
+///
+/// `URLByResolvingSymlinksInPath` (backed by realpath(3)) only resolves
+/// symlinks when the FULL path exists. A path like `container/link-to-outside/data`
+/// (where `data` does not exist) would be returned unresolved, defeating the
+/// container-escape check. This helper resolves the longest existing prefix
+/// and re-appends the non-existent tail, so a mid-path symlink that escapes
+/// the container is still detected.
++ (NSURL *)tls_URLByResolvingSymlinksAllowingNonexistentTail:(NSURL *)url {
+    NSURL *standardized = [url URLByStandardizingPath];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:standardized.path]) {
+        return [standardized URLByResolvingSymlinksInPath];
+    }
+    // Walk up until an existing path component is found, resolve it, then
+    // re-append the non-existent tail in order.
+    NSMutableArray<NSString *> *tail = [NSMutableArray array];
+    NSURL *current = standardized;
+    while (current.path.length > 1) {
+        NSURL *parent = [current URLByDeletingLastPathComponent];
+        // Always record the current component before checking the parent:
+        // when the parent exists, the current component is still part of
+        // the non-existent tail and must be re-appended after resolution.
+        [tail addObject:[current lastPathComponent]];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:parent.path]) {
+            NSURL *resolvedParent =
+                [[parent URLByStandardizingPath] URLByResolvingSymlinksInPath];
+            NSURL *result = resolvedParent;
+            for (NSString *component in tail.reverseObjectEnumerator) {
+                result = [result URLByAppendingPathComponent:component isDirectory:YES];
+            }
+            return result;
+        }
+        current = parent;
+    }
+    // No existing prefix found; return the standardized path as-is.
+    return standardized;
+}
 
 + (NSError *)tls_errorWithCode:(TLSProducerDirectoryErrorCode)code
                    description:(NSString *)description {

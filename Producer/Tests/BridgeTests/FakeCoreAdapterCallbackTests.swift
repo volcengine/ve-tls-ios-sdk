@@ -13,16 +13,17 @@ final class FakeCoreAdapterCallbackTests: XCTestCase {
 
     /// Queue-identity marker used to assert the callback runs on the exact
     /// queue the test configured (not the main thread).
-    private static let queueMarkerKey = UnsafeMutableRawPointer.allocate(
-        byteCount: 1, alignment: 1)
+    private static let queueMarkerKey = DispatchSpecificKey<UInt8>()
+    private static let queueMarkerValue: UInt8 = 1
 
     private func makeFake(callbackQueue: DispatchQueue) -> FakeCoreAdapter {
         let fake = FakeCoreAdapter()
-        // Tag the queue with a pointer-identity marker (global C API; the
-        // Swift overlay's setSpecific uses DispatchSpecificKey which cannot
-        // be read back for the *current* queue).
-        dispatch_queue_set_specific(
-            callbackQueue, Self.queueMarkerKey, Self.queueMarkerKey, nil)
+        // Tag the queue with a marker via the Swift overlay. The static
+        // DispatchQueue.getSpecific(key:) reads the CURRENT queue's value
+        // (it wraps dispatch_get_specific), so the callback can verify it
+        // runs on this exact queue.
+        callbackQueue.setSpecific(
+            key: Self.queueMarkerKey, value: Self.queueMarkerValue)
         return fake
     }
 
@@ -38,7 +39,7 @@ final class FakeCoreAdapterCallbackTests: XCTestCase {
             XCTAssertFalse(Thread.isMainThread,
                            "send-result callback must not run on the main thread")
             XCTAssertNotNil(
-                dispatch_get_specific(Self.queueMarkerKey),
+                DispatchQueue.getSpecific(key: Self.queueMarkerKey),
                 "callback must run on configuration.callbackQueue")
             delivered.fulfill()
         }

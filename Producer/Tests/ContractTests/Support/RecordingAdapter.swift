@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import XCTest
 @testable import VolcengineTLSProducer
 
 /// Thread-safe `CoreAdapter` spy recording every call and allowing error

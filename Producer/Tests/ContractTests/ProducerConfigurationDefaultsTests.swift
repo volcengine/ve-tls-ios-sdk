@@ -48,7 +48,7 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
     func testDefaultCallbackQueueIsSDKOwnedSerialUtilityQueue() throws {
         let config = try ProducerConfiguration()
         XCTAssertNotIdentical(config.callbackQueue, DispatchQueue.main)
-        let label = dispatch_queue_get_label(config.callbackQueue)
+        let label = config.callbackQueue.label
         XCTAssertEqual(label, "com.volcengine.tls.producer.callback")
         XCTAssertEqual(
             config.callbackQueue.qos.qosClass.rawValue,

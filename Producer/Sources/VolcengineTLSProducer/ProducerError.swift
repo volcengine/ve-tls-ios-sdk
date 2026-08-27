@@ -62,7 +62,8 @@ public enum ProducerError: Error, Equatable, Sendable {
     case closed
 
     /// Internal invariant failure (human-readable reason).
-    case internal(String)
+    /// Backticked because `internal` is a Swift keyword.
+    case `internal`(String)
 
     /// Stable error code string. Never change these values.
     public var errorCode: String {
@@ -81,7 +82,7 @@ public enum ProducerError: Error, Equatable, Sendable {
         case .timeout: return "timeout"
         case .cancelled: return "cancelled"
         case .closed: return "closed"
-        case .internal: return "internal"
+        case .`internal`: return "internal"
         }
     }
 }
@@ -120,7 +121,7 @@ extension ProducerError: LocalizedError {
             return "cancelled"
         case .closed:
             return "closed"
-        case .internal(let reason):
+        case .`internal`(let reason):
             return "internal: \(reason)"
         }
     }

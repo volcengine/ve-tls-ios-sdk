@@ -9,7 +9,7 @@
 //   - CoreAdapter: public protocol; open(configuration:credentials:) throws /
 //     add(_:mode:) throws / updateCredentials(_:) throws /
 //     updateDestination(_:) throws / close(timeout:) async /
-//     var onSendResult: (@Sendable (SendResult) -> Void)? { get }
+//     var onSendResult: (@Sendable (SendResult) -> Void)? { get set }
 //   - ProducerConfiguration has NO destination field; the initial destination
 //     is not part of open. The adapter learns destinations only via
 //     updateDestination, so `destination` is optional here and starts nil.
@@ -68,10 +68,13 @@ public final class FakeCoreAdapter: CoreAdapter, @unchecked Sendable {
         public let compressedBytes: Int
         public let requestID: String
         public let credentials: Credentials
-        public private(set) var destination: Destination?
+        // internal(set), not private(set): the enclosing FakeCoreAdapter
+        // (parent type) must be able to rewrite these, and Swift `private`
+        // is scoped to SealedBatch itself, not its enclosing type.
+        public internal(set) var destination: Destination?
         public let sealedAt: Date
         public let sealReason: SealReason
-        public private(set) var deliveredAt: Date?
+        public internal(set) var deliveredAt: Date?
 
         public init(id: Int,
                     events: [LogEvent],

@@ -61,7 +61,7 @@ extension LogValue {
     ///   sorted for deterministic output.
     /// - `utf8Data` is decoded as UTF-8 text; invalid UTF-8 throws.
     internal func encodedString() throws -> String {
-        try encode(remainingDepth: LogValue.maxNestingDepth)
+        try encode(remainingDepth: LogValue.maxNestingDepth, quoteStrings: false)
     }
 
     /// Validates the value without producing the encoded string.
@@ -71,10 +71,13 @@ extension LogValue {
 
     // MARK: - Encoding internals
 
-    private func encode(remainingDepth: Int) throws -> String {
+    /// - Parameter quoteStrings: When true (collection elements), `.string`
+    ///   values are emitted as compact JSON string literals (quoted + escaped);
+    ///   when false (top-level), strings are verbatim per the P0 contract.
+    private func encode(remainingDepth: Int, quoteStrings: Bool) throws -> String {
         switch self {
         case .string(let value):
-            return value
+            return quoteStrings ? LogValue.encodeJSONString(value) : value
         case .signedInt(let value):
             return String(value)
         case .unsignedInt(let value):
@@ -88,12 +91,12 @@ extension LogValue {
             return "null"
         case .array(let values):
             guard remainingDepth > 0 else { throw LogValueEncodingError.nestingDepthExceeded }
-            let parts = try values.map { try $0.encode(remainingDepth: remainingDepth - 1) }
+            let parts = try values.map { try $0.encode(remainingDepth: remainingDepth - 1, quoteStrings: true) }
             return "[" + parts.joined(separator: ",") + "]"
         case .dictionary(let dict):
             guard remainingDepth > 0 else { throw LogValueEncodingError.nestingDepthExceeded }
             let parts = try dict.keys.sorted().map { key -> String in
-                let encodedValue = try dict[key]!.encode(remainingDepth: remainingDepth - 1)
+                let encodedValue = try dict[key]!.encode(remainingDepth: remainingDepth - 1, quoteStrings: true)
                 return LogValue.encodeJSONString(key) + ":" + encodedValue
             }
             return "{" + parts.joined(separator: ",") + "}"

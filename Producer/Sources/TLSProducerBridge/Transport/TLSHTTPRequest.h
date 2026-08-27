@@ -13,7 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// Immutable HTTP request consumed by `TLSTransport`.
 ///
 /// Thread safety: immutable after construction; safe to share across threads.
-@interface TLSHTTPRequest : NSObject
+@interface TLSHTTPRequest : NSObject <NSCopying>
 
 /// HTTP method (e.g. "POST"). Must not be empty.
 @property (nonatomic, readonly, copy) NSString *method;
