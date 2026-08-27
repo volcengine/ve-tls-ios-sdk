@@ -1,0 +1,19 @@
+# VolcengineTLSProducer C Core 版本登记
+#
+# 本文件登记 C Core 的固定版本与集成门禁状态。Owner 审核。
+# 门禁依据：Producer/DECISIONS.md 与
+# docs/research/tls-ios-producer-sdk-implementation-decision-ledger.md §1。
+#
+# 当前为骨架占位：真实 C Core 未通过发布门禁，RealCoreAdapter blocked。
+# 所有 <pending> 字段必须在真实 Core release 通过门禁后逐项填写。
+
+status: BLOCKED — 未接受任何 C Core release
+gate: 见 Producer/DECISIONS.md 与 implementation-decision-ledger.md §1
+core_tag: <pending>
+core_full_sha: <pending>
+source_bundle_sha256: <pending>
+abi_version: <pending>
+symbol_allowlist: <pending>
+ownership_contract: <pending>
+core_test_evidence: <pending>
+integrated_at: <pending>

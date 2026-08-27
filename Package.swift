@@ -1,0 +1,101 @@
+// swift-tools-version: 5.8
+//
+// VolcengineTLSProducer — SwiftPM package manifest (Development Preview).
+//
+// Frozen decisions: see Producer/DECISIONS.md and the implementation decision
+// ledger (docs/research/tls-ios-producer-sdk-implementation-decision-ledger.md).
+//
+// Structure:
+//   CTLSProducerCore      — C placeholder target (real Core blocked on release gate)
+//   TLSProducerBridge     — Objective-C internal bridge (not a public product)
+//   VolcengineTLSProducer — Swift public API (the ONLY public product)
+//   ProducerTestSupport   — shared test support (FakeCoreAdapter; tests only)
+//   5 test targets        — Contract/Bridge/Transport/Persistence/ConsumerIntegration
+//
+// Evidence boundary: this manifest is only validated on macOS with a Swift 5.8
+// toolchain. The Linux dev machine has no Swift toolchain; compilation/test
+// evidence is pending (see ledger §4). Do not claim Beta from this file alone.
+//
+// Swift 5.8 manifest syntax only — no Swift 5.9+ features (e.g. `traits`).
+
+import PackageDescription
+
+let package = Package(
+    name: "VolcengineTLSProducer",
+    platforms: [.iOS(.v13)],
+    products: [
+        // The single public product. TLSProducerBridge and CTLSProducerCore are
+        // internal implementation details and are NOT published as products.
+        .library(name: "VolcengineTLSProducer", targets: ["VolcengineTLSProducer"]),
+    ],
+    targets: [
+        // C Core placeholder. The real C Core has NOT passed the release gate
+        // (see Producer/CORE_VERSION). This target exists only so the skeleton
+        // is consumable by SwiftPM/CocoaPods; it implements no queue/retry/WAL/
+        // signing/compression. Remove the placeholder when the real Core lands.
+        .target(
+            name: "CTLSProducerCore",
+            path: "Producer/Sources/CTLSProducerCore",
+            publicHeadersPath: "include"
+        ),
+
+        // Objective-C bridge (package-internal). Wraps the C Core for the Swift
+        // layer. Internal headers live in Bridge/Transport/Storage/Lifecycle
+        // subdirectories and are intentionally NOT exported by the minimal
+        // umbrella header in include/ (consumers must not see bare C types).
+        .target(
+            name: "TLSProducerBridge",
+            dependencies: ["CTLSProducerCore"],
+            path: "Producer/Sources/TLSProducerBridge",
+            publicHeadersPath: "include",
+            cSettings: [
+                // Allow cross-directory quoted imports of internal bridge headers,
+                // e.g. #import "Bridge/TLSBridgeFoo.h".
+                .headerSearchPath("."),
+            ]
+        ),
+
+        // Swift public API — the only consumer-facing surface.
+        .target(
+            name: "VolcengineTLSProducer",
+            dependencies: ["TLSProducerBridge"],
+            path: "Producer/Sources/VolcengineTLSProducer",
+            resources: [.process("Resources/PrivacyInfo.xcprivacy")]
+        ),
+
+        // Shared test support (FakeCoreAdapter etc.). Regular (non-test) target
+        // so it can be linked into multiple test targets. Lives under
+        // Producer/Tests but is never shipped (excluded from the podspec).
+        .target(
+            name: "ProducerTestSupport",
+            dependencies: ["VolcengineTLSProducer"],
+            path: "Producer/Tests/ProducerTestSupport"
+        ),
+
+        .testTarget(
+            name: "ContractTests",
+            dependencies: ["VolcengineTLSProducer"],
+            path: "Producer/Tests/ContractTests"
+        ),
+        .testTarget(
+            name: "BridgeTests",
+            dependencies: ["VolcengineTLSProducer", "TLSProducerBridge", "ProducerTestSupport"],
+            path: "Producer/Tests/BridgeTests"
+        ),
+        .testTarget(
+            name: "TransportTests",
+            dependencies: ["TLSProducerBridge", "ProducerTestSupport"],
+            path: "Producer/Tests/TransportTests"
+        ),
+        .testTarget(
+            name: "PersistenceTests",
+            dependencies: ["TLSProducerBridge", "ProducerTestSupport"],
+            path: "Producer/Tests/PersistenceTests"
+        ),
+        .testTarget(
+            name: "ConsumerIntegrationTests",
+            dependencies: ["VolcengineTLSProducer"],
+            path: "Producer/Tests/ConsumerIntegrationTests"
+        ),
+    ]
+)

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  PrivacyInfo.xcprivacy — VolcengineTLSProducer (Development Preview).
+
+  Minimal and accurate:
+    - The SDK does not track users (NSPrivacyTracking = false).
+    - The SDK does not collect user data (NSPrivacyCollectedDataTypes empty).
+    - NSPrivacyAccessedAPITypes is intentionally empty for now. Required
+      Reason APIs (e.g. file timestamp / disk space APIs that the WAL storage
+      layer may use) are to be finalized in the Wave 2 storage/lifecycle
+      review, once the Storage/Lifecycle implementation lands.
+-->
+<plist version="1.0">
+<dict>
+    <key>NSPrivacyTracking</key>
+    <false/>
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array/>
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array/>
+</dict>
+</plist>
