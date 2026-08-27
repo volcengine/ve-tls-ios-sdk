@@ -38,4 +38,6 @@
 - `Producer` 无 `deinit`：memory 模式未显式 close 的 best-effort 取消与 persistent closing registry 随 RealCoreAdapter 落地（设计 §5.4）。
 - `close` 从 `.failed` 状态抛 `.invalidState`：公共 API 不可达（open 失败不返回 Producer）；RealCoreAdapter 接入后 failed-open 可能有部分初始化资源，需评估幂等清理路径（设计 §6.1）。
 - `BufferFullPolicy.block` 在 BundledCoreAdapter 降级为 `.reject`，RealCoreAdapter 实现。
+- `TLSProducerDirectory.isURL:insideContainerBaseURL:` 的 `baseURL` 当前标注 TESTING ONLY；设计 §9.2 的 App Group 自定义目录（不在 NSHomeDirectory 下）需要 Wave 3 提供正式校验入口。
+- `TLSLifecycleManager` 必须在主线程使用（通知恒在主线程投递）。
 - `TLSRedactingLogger` 使用 `NSLog` 单一日志入口，无 debug/release 级别开关；Wave 3 评估接入统一日志门面（os_log / 可注入 logger）。脱敏合同（仅 method/脱敏URL/status/duration/requestID/字节数，mask authorization/x-tls-*）不受影响。

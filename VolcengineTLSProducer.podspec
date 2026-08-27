@@ -49,6 +49,9 @@ evidence is pending a macOS + Xcode toolchain.
   s.homepage         = 'https://github.com/volcengine/ve-tls-ios-sdk'
   s.license          = { :type => 'Apache License, Version 2.0', :file => 'LICENSE' }
   s.author           = { 'Volcengine TLS Team' => 'tls@volcengine.com' }
+  # TODO(pre-publish): this pin points at the master baseline (64ae030),
+  # which does not contain the Producer/ tree. Before publishing the pod,
+  # update it to the producer-branch tip commit (or switch to :tag).
   s.source           = { :git => 'https://github.com/volcengine/ve-tls-ios-sdk.git',
                          :commit => '64ae0302c613c5bd111cfe06d5a7652f974bf133' }
 
@@ -90,10 +93,15 @@ evidence is pending a macOS + Xcode toolchain.
     'HEADER_SEARCH_PATHS'  => '"$(PODS_TARGET_SRCROOT)/Producer/Sources/CTLSProducerCore/include" "$(PODS_TARGET_SRCROOT)/Producer/Sources/TLSProducerBridge"',
   }
 
-  # Minimal test spec (ContractTests). ProducerTestSupport sources are compiled
-  # directly into the test bundle (it is a test-only support target, not shipped).
+  # Minimal test specs (ContractTests + ConsumerIntegrationTests).
+  # ProducerTestSupport sources are compiled directly into the test bundles
+  # (it is a test-only support target, not shipped).
   s.test_spec 'ContractTests' do |test_spec|
     test_spec.source_files = 'Producer/Tests/ContractTests/**/*.swift',
                              'Producer/Tests/ProducerTestSupport/**/*.swift'
+  end
+
+  s.test_spec 'ConsumerIntegrationTests' do |test_spec|
+    test_spec.source_files = 'Producer/Tests/ConsumerIntegrationTests/**/*.swift'
   end
 end

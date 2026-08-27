@@ -1,0 +1,17 @@
+Third Party Notices — VolcengineTLSProducer
+============================================
+
+VolcengineTLSProducer 不包含任何第三方源码。
+
+本 SDK 的默认值与部分行为参考了阿里云日志服务 iOS SDK
+（aliyun-log-ios-sdk，Apache License 2.0）作为行为 Oracle（例如批量
+1024 条 / 1 MiB / 3s linger、64 MiB buffer、LZ4、超时默认值）。
+参考方式为**行为对齐与源码核验**，未复制其任何源码、二进制或资源文件。
+
+本 SDK 自身按 Apache License 2.0 发布，许可证全文见仓库根目录 LICENSE：
+https://github.com/volcengine/ve-tls-ios-sdk/blob/producer/LICENSE
+
+开发期使用的工具/依赖（不随 SDK 分发）：
+- Swift Package Manager / CocoaPods：包管理工具，其生成的工程文件不进入
+  SDK 发布源码。
+- XCTest：Apple 测试框架，仅测试期链接。
