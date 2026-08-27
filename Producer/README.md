@@ -2,15 +2,13 @@
 
 火山引擎日志服务（TLS）iOS Producer SDK——Swift-first 的日志采集与批量发送库。
 
-> **⚠️ Development Preview — 不是 Beta 发布。**
+> **Development Preview — 不是 Beta 发布。**
 >
-> - C Core 发布门禁未满足，`RealCoreAdapter` **blocked**；当前 `Producer.open`
->   接入的是 PROVISIONAL 内存实现 `BundledCoreAdapter`（无网络、无持久化、
->   无压缩、无签名、无重试）。
-> - 开发机无 macOS/Xcode 工具链，**编译与测试证据 pending**。
-> - 不承诺 persistent/retry/ACK/真实发送；不得用于生产关键路径。
+> - C Core v0.3.1 已集成（`RealCoreAdapter`），提供 persistent WAL、retry、LZ4、签名。
+> - 184 个测试在 iOS Simulator 26.5 全部通过（2026-08-27）。
+> - iOS 13 真机、BOE 真实发送、soak/recovery 证据 pending。
 > - 状态依据：`Producer/DECISIONS.md`、`Producer/CORE_VERSION`、
->   `docs/research/tls-ios-producer-sdk-implementation-decision-ledger.md`。
+>   `docs/research/tls-ios-producer-sdk-real-core-integration-log.md`。
 
 ## 需求
 

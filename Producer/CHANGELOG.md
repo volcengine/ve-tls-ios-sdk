@@ -5,6 +5,29 @@ All notable changes to VolcengineTLSProducer are documented in this file.
 本项目在离开 Development Preview 之前不承诺 Semantic Versioning 兼容性；
 `CoreAdapter` 等 PROVISIONAL seam 可能随时重塑。
 
+## 0.0.2 — Development Preview (2026-08-28)
+
+### Added
+
+- **Real C Core 集成**：vendor `ve-tls-c-sdk` v0.3.1（commit `08f33af`），
+  替换占位 target。提供 persistent WAL、retry、LZ4 压缩、签名、HTTP 发送。
+- **`RealCoreAdapter`**：Swift `CoreAdapter` 实现，桥接 C Core ABI。
+  `Producer.open` 在有 `destination` 时使用 RealCoreAdapter，否则用 BundledCoreAdapter。
+- **`TLSRealCoreAdapter`**（ObjC）：C Core 的 ObjC 包装，含 NSURLSession HTTP 桥接。
+- **`ProducerConfiguration.destination`**：新增可选字段，用于 RealCoreAdapter 的 endpoint/region/topic。
+- **集成测试**：7 个 RealCoreAdapter 端到端测试（创建/发送/更新/关闭）。
+
+### Fixed
+
+- 修复 8 个编译/运行时 bug（NSAssert、internal 关键字、CheckedContinuation、NSCopying、
+  LogValue 编码、符号链接容器逃逸等），全部 184 测试通过。
+
+### Evidence
+
+- iOS Simulator 26.5 (iPhone 17)：184/184 PASS
+- C Core CI：asan-ubsan/shared-abi/static-release PASS
+- 旧 SDK 零改动
+
 ## 0.0.1 — Development Preview (2026-08-27)
 
 首个 Development Preview 版本。**不是 Beta 发布**：C Core 发布门禁未满足，
