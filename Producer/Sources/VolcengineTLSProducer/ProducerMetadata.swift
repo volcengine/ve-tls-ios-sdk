@@ -29,4 +29,18 @@ public struct ProducerMetadata: Equatable, Sendable {
         self.fileName = fileName
         self.tags = tags
     }
+
+    internal func validate() throws {
+        guard !source.isEmpty else {
+            throw ProducerError.configuration("metadata.source must not be empty")
+        }
+        guard !source.contains("\0"), fileName?.contains("\0") != true else {
+            throw ProducerError.configuration(
+                "metadata source/fileName must not contain embedded NUL characters")
+        }
+        guard tags.allSatisfy({ !$0.key.contains("\0") && !$0.value.contains("\0") }) else {
+            throw ProducerError.configuration(
+                "metadata tags must not contain embedded NUL characters")
+        }
+    }
 }

@@ -1,24 +1,14 @@
 // FakeCoreAdapter.swift
-// ProducerTestSupport
+// BridgeTests/Support
 //
 // TEST-ONLY FAKE IMPLEMENTATION. NOT FOR RELEASE. Does not perform network,
 // persistence, signing, or real batching.
 //
-// CONTRACT ALIGNMENT (verified against Worker A's landed Sources on
-// 2026-08-27):
-//   - CoreAdapter: public protocol; open(configuration:credentials:) throws /
-//     add(_:mode:) throws / updateCredentials(_:) throws /
-//     updateDestination(_:) throws / close(timeout:) async /
-//     var onSendResult: (@Sendable (SendResult) -> Void)? { get set }
-//   - ProducerConfiguration has NO destination field; the initial destination
-//     is not part of open. The adapter learns destinations only via
-//     updateDestination, so `destination` is optional here and starts nil.
-//   - ProducerConfiguration(batch:callbackQueue:) is a throwing init;
-//     config.batch / config.callbackQueue are mutable vars.
-//   - LogEvent.estimatedRawBytes() is internal (visible via @testable) and is
-//     used for byte accounting so the Fake matches Producer bookkeeping.
-//   - SendResult(status:rawBytes:compressedBytes:requestID:error:) with
-//     SendResult.Status.success; ProducerError.closed/.invalidState exist.
+// CONTRACT ALIGNMENT:
+//   - CoreAdapter is an internal protocol visible here through @testable.
+//   - ProducerConfiguration carries an optional initial destination and is
+//     revalidated at open.
+//   - LogEvent.estimatedRawBytes() is used for facade-equivalent accounting.
 //
 // Semantics implemented here mirror the frozen P0 contracts:
 //   - add(.normal) enters the batch window; the batch seals when
@@ -273,36 +263,37 @@ public final class FakeCoreAdapter: CoreAdapter, @unchecked Sendable {
         }
     }
 
-    public func close(timeout: TimeInterval) async {
-        lock.lock()
-        if state == .closed {
-            // Idempotent fast path (not counted).
-            lock.unlock()
-            return
-        }
-        if state == .ready || state == .initialized {
-            // Only the entry that performs real shutdown is counted;
-            // concurrent .closing joins below are not.
-            closeCallCount += 1
-        }
-        if state == .initialized {
-            state = .closed
-            lock.unlock()
-            return
-        }
-        if state == .ready {
-            state = .closing
-            cancelLingerLocked()
-            // Bounded flush: seal the pending batch (if any) and let its
-            // delivery be awaited below.
-            sealCurrentBatchLocked(reason: .close)
-            if pendingDeliveries == 0 {
-                state = .closed
+    public func close(timeout: TimeInterval) async throws {
+        let shouldWait = withLock { () -> Bool in
+            if state == .closed {
+                // Idempotent fast path (not counted).
+                return false
             }
+            if state == .ready || state == .initialized {
+                // Only the entry that performs real shutdown is counted;
+                // concurrent .closing joins below are not.
+                closeCallCount += 1
+            }
+            if state == .initialized {
+                state = .closed
+                return false
+            }
+            if state == .ready {
+                state = .closing
+                cancelLingerLocked()
+                // Bounded flush: seal the pending batch (if any) and let its
+                // delivery be awaited below.
+                sealCurrentBatchLocked(reason: .close)
+                if pendingDeliveries == 0 {
+                    state = .closed
+                    return false
+                }
+            }
+            // If state == .closing (concurrent close), register a waiter
+            // without counting it.
+            return true
         }
-        // If state == .closing (concurrent close), register a waiter without
-        // counting it.
-        lock.unlock()
+        guard shouldWait else { return }
 
         if artificialCloseDelay > 0 {
             // Test hook; cancellation must not break finalization.
@@ -311,14 +302,17 @@ public final class FakeCoreAdapter: CoreAdapter, @unchecked Sendable {
         }
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            lock.lock()
-            if state == .closed {
-                lock.unlock()
+            let alreadyClosed = withLock { () -> Bool in
+                if state == .closed {
+                    return true
+                }
+                closeWaiters.append(continuation)
+                return false
+            }
+            if alreadyClosed {
                 continuation.resume()
                 return
             }
-            closeWaiters.append(continuation)
-            lock.unlock()
             scheduleCloseTimeout(timeout)
         }
     }
@@ -434,6 +428,12 @@ public final class FakeCoreAdapter: CoreAdapter, @unchecked Sendable {
                 waiter.resume()
             }
         }
+    }
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
     }
 
     deinit {

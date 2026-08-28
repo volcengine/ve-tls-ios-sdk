@@ -42,4 +42,12 @@ const char *ve_tls_iosp_core_version(void);
 }
 #endif
 
+// ve_tls_export.h starts a translation-unit-wide hidden-visibility scope for
+// embedded Core sources. Consumers of this umbrella (the Objective-C bridge
+// and package tests) restore their surrounding visibility after importing the
+// Core declarations.
+#if defined(VE_TLS_PACKAGE_INTERNAL) && (defined(__GNUC__) || defined(__clang__))
+#  pragma GCC visibility pop
+#endif
+
 #endif /* CTLSProducerCore_h */

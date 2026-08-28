@@ -7,14 +7,10 @@
 
 import Foundation
 
-/// PROVISIONAL — internal seam, not a public API contract; may change/remove
-/// without notice. 真实 Core 合同确认前不得冻结。
-///
 /// `CoreAdapter` is the boundary between the Swift `Producer` facade and the
 /// underlying Core engine (C Core via Bridge, or a bundled in-memory
-/// implementation). It is declared `public` only so that test-support
-/// targets (e.g. `ProducerTestSupport.FakeCoreAdapter`) can conform to it;
-/// it is **not** a stable public API and is not covered by SemVer promises.
+/// implementation). It is package-internal; tests access it through
+/// `@testable import` and it is not part of the consumer API or ABI.
 ///
 /// Conformance rules:
 /// - All methods must be safe to call from any thread; conformers serialize
@@ -24,10 +20,10 @@ import Foundation
 ///   and MUST NOT be invoked while holding any lock that `add`, `close`, or
 ///   `update*` may acquire (no deadlock, no reentrancy).
 /// - Each accepted batch produces exactly one terminal `SendResult`.
-/// - `close(timeout:)` is non-throwing and bounds local shutdown work
-///   (worker stop, local persistence flush); it must not promise remote
-///   delivery of accepted logs.
-public protocol CoreAdapter: AnyObject {
+/// - `close(timeout:)` bounds local shutdown work (worker stop, local
+///   persistence flush) and throws if the Core cannot complete that work; it
+///   must not promise remote delivery of accepted logs.
+protocol CoreAdapter: AnyObject {
 
     /// Terminal-result handler for batches. Set by the `Producer` before
     /// `open` is called; must not be replaced at runtime.
@@ -51,5 +47,5 @@ public protocol CoreAdapter: AnyObject {
 
     /// Bounded local shutdown. Idempotent from the `Producer`'s perspective;
     /// conformers may assume a single in-flight call.
-    func close(timeout: TimeInterval) async
+    func close(timeout: TimeInterval) async throws
 }

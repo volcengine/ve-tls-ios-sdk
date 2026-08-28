@@ -10,33 +10,58 @@ import XCTest
 import TLSProducerBridge
 
 /// Minimal HTTP stub that intercepts requests via URLProtocol.
-final class RealCoreStubURLProtocol: URLProtocol {
-    private static let lock = NSLock()
-    private static var stubbedResponses: [String: (HTTPURLResponse, Data)] = [:]
-    private static var requestLog: [(url: String, body: Data?)] = []
+final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
+    private final class Registry: @unchecked Sendable {
+        let lock = NSLock()
+        var stubbedResponses: [String: (HTTPURLResponse, Data)] = [:]
+        var hangingPaths: Set<String> = []
+        var requestLog: [(url: String, body: Data?)] = []
+        var requestExpectation: XCTestExpectation?
+    }
 
-    static func setResponse(statusCode: Int, body: Data = Data(), forPath path: String) {
-        lock.lock()
-        defer { lock.unlock() }
+    private static let registry = Registry()
+
+    static func setResponse(statusCode: Int,
+                            body: Data = Data(),
+                            requestID: String? = "stub-req-001",
+                            forPath path: String) {
+        registry.lock.lock()
+        defer { registry.lock.unlock() }
         let response = HTTPURLResponse(
             url: URL(string: "https://stub.local\(path)")!,
             statusCode: statusCode,
             httpVersion: "HTTP/1.1",
-            headerFields: ["x-tls-request-id": "stub-req-001"])!
-        stubbedResponses[path] = (response, body)
+            headerFields: requestID.map { ["x-tls-request-id": $0] })!
+        registry.stubbedResponses[path] = (response, body)
+        registry.hangingPaths.remove(path)
+    }
+
+    static func setHanging(forPath path: String) {
+        registry.lock.lock()
+        defer { registry.lock.unlock() }
+        registry.hangingPaths.insert(path)
+        registry.stubbedResponses.removeValue(forKey: path)
     }
 
     static func recordedRequests() -> [(url: String, body: Data?)] {
-        lock.lock()
-        defer { lock.unlock() }
-        return requestLog
+        registry.lock.lock()
+        defer { registry.lock.unlock() }
+        return registry.requestLog
+    }
+
+    static func expectNextRequest(_ expectation: XCTestExpectation) {
+        registry.lock.lock()
+        registry.requestExpectation = expectation
+        registry.lock.unlock()
     }
 
     static func reset() {
-        lock.lock()
-        defer { lock.unlock() }
-        stubbedResponses.removeAll()
-        requestLog.removeAll()
+        registry.lock.lock()
+        defer { registry.lock.unlock() }
+        registry.stubbedResponses.removeAll()
+        registry.hangingPaths.removeAll()
+        registry.requestLog.removeAll()
+        registry.requestExpectation = nil
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -49,10 +74,21 @@ final class RealCoreStubURLProtocol: URLProtocol {
 
     override func startLoading() {
         let path = request.url?.path ?? "/"
-        Self.lock.lock()
-        let stub = Self.stubbedResponses[path]
-        Self.requestLog.append((url: request.url?.absoluteString ?? "", body: request.httpBody))
-        Self.lock.unlock()
+        Self.registry.lock.lock()
+        let isHanging = Self.registry.hangingPaths.contains(path)
+        let stub = Self.registry.stubbedResponses[path]
+        Self.registry.requestLog.append((url: request.url?.absoluteString ?? "", body: request.httpBody))
+        let requestExpectation = Self.registry.requestExpectation
+        Self.registry.requestExpectation = nil
+        Self.registry.lock.unlock()
+        requestExpectation?.fulfill()
+
+        if isHanging {
+            // Deliberately do not call any URLProtocol client callback. The
+            // bridge's hard request deadline must cancel this task and turn
+            // it into a bounded transport failure.
+            return
+        }
 
         if let (response, body) = stub {
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -70,19 +106,74 @@ final class RealCoreStubURLProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
+private struct BridgeCallbackPayload: Sendable {
+    let result: Int32
+    let rawBytes: UInt
+    let compressedBytes: UInt
+    let httpCode: Int
+    let errorCode: String?
+    let errorMessage: String?
+    let requestID: String?
+    let transportKind: Int
+    let transportCode: Int
+    let retryable: Bool
+    let startID: Int64
+    let endID: Int64
+}
+
+private final class BridgeCallbackCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [BridgeCallbackPayload] = []
+    private var expectation: XCTestExpectation?
+    private var didFulfillExpectation = false
+
+    func waitFor(_ expectation: XCTestExpectation) {
+        lock.lock()
+        self.expectation = expectation
+        lock.unlock()
+    }
+
+    func append(_ value: BridgeCallbackPayload) {
+        lock.lock()
+        values.append(value)
+        let expectation = self.expectation
+        let shouldFulfill = !didFulfillExpectation
+        didFulfillExpectation = true
+        lock.unlock()
+        if shouldFulfill {
+            expectation?.fulfill()
+        }
+    }
+
+    var first: BridgeCallbackPayload? {
+        lock.lock()
+        defer { lock.unlock() }
+        return values.first
+    }
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return values.count
+    }
+}
+
 final class RealCoreAdapterIntegrationTests: XCTestCase {
+
+    private var sessionConfiguration: URLSessionConfiguration!
 
     override func setUp() async throws {
         try await super.setUp()
         RealCoreStubURLProtocol.reset()
-        // Inject a session configuration that uses our stub protocol.
-        let sessionConfig = URLSessionConfiguration.ephemeral
-        sessionConfig.protocolClasses = [RealCoreStubURLProtocol.self]
-        TLSRealCoreAdapter.testSessionConfiguration = sessionConfig
+        // Inject the stub protocol through each ProducerConfiguration. The
+        // bridge owns a copied, per-adapter session; no global mutable test
+        // override is used.
+        sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [RealCoreStubURLProtocol.self]
     }
 
     override func tearDown() async throws {
-        TLSRealCoreAdapter.testSessionConfiguration = nil
+        sessionConfiguration = nil
         try await super.tearDown()
     }
 
@@ -93,6 +184,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             region: "cn-beijing",
             projectID: "test-project",
             topicID: "test-topic")
+        config.urlSessionConfiguration = sessionConfiguration
         if persistent {
             config.producerID = "test-producer-\(UUID().uuidString.prefix(8))"
             config.persistence = .buffered
@@ -106,6 +198,81 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
                     securityToken: "test-token")
     }
 
+    private func makeBridgeAdapter(
+        endpoint: String = "https://stub.local",
+        requestTimeout: TimeInterval = 15,
+        lz4Enabled: Bool = true,
+        maxLogCount: Int = 1024,
+        maxRawBytes: Int = 1024 * 1024,
+        maxBufferBytes: Int = 64 * 1024 * 1024,
+        linger: TimeInterval = 0.05,
+        persistenceMode: TLSRealCoreAdapterPersistenceMode = .disabled,
+        persistentDirectory: String? = nil
+    ) throws -> TLSRealCoreAdapter {
+        try TLSRealCoreAdapter(
+            endpoint: endpoint,
+            region: "cn-beijing",
+            projectID: "test-project",
+            topicID: "test-topic",
+            accessKeyID: "test-ak",
+            accessKeySecret: "test-sk",
+            securityToken: "test-token",
+            source: "iOS",
+            fileName: nil,
+            tags: nil,
+            maxLogCount: maxLogCount,
+            maxRawBytes: maxRawBytes,
+            linger: linger,
+            maxBufferBytes: maxBufferBytes,
+            connectTimeout: 1,
+            requestTimeout: requestTimeout,
+            lz4Enabled: lz4Enabled,
+            sessionConfiguration: sessionConfiguration,
+            bufferFullPolicy: 0,
+            sendConcurrency: 1,
+            bufferFullBlockTimeout: 1,
+            persistenceMode: persistenceMode,
+            persistentDirectory: persistentDirectory,
+            maxLogAgeSeconds: 7 * 24 * 60 * 60,
+            expiredLogPolicy: 0,
+            authFailurePolicy: 0,
+            callbackQueue: DispatchQueue(label: "com.volcengine.tls.test.callback", qos: .utility))
+    }
+
+    private func installCallback(
+        on adapter: TLSRealCoreAdapter,
+        collector: BridgeCallbackCollector,
+        expectation: XCTestExpectation
+    ) {
+        collector.waitFor(expectation)
+        adapter.onSendResult = {
+            result, rawBytes, compressedBytes, httpCode, errorCode, errorMessage,
+            requestID, transportKind, transportCode, retryable, startID, endID in
+            collector.append(BridgeCallbackPayload(
+                result: result,
+                rawBytes: rawBytes,
+                compressedBytes: compressedBytes,
+                httpCode: httpCode,
+                errorCode: errorCode,
+                errorMessage: errorMessage,
+                requestID: requestID,
+                transportKind: transportKind,
+                transportCode: transportCode,
+                retryable: retryable,
+                startID: startID,
+                endID: endID))
+        }
+    }
+
+    private func addImmediateLog(to adapter: TLSRealCoreAdapter,
+                                 value: String = "integration-test") throws {
+        try adapter.addLog(
+            withTimestamp: Int64(Date().timeIntervalSince1970 * 1000),
+            hashKey: nil,
+            contents: ["message": value],
+            flush: true)
+    }
+
     // MARK: - Lifecycle
 
     func testRealCoreAdapterCreatesSuccessfully() throws {
@@ -114,11 +281,27 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         XCTAssertNotNil(adapter)
     }
 
+    func testBridgeRejectsInvalidExplicitEndpointPorts() {
+        for endpoint in [
+            "https://stub.local:0",
+            "https://stub.local:65536",
+            "https://stub.local:",
+        ] {
+            XCTAssertThrowsError(try makeBridgeAdapter(endpoint: endpoint)) { error in
+                let nsError = error as NSError
+                XCTAssertEqual(nsError.domain, TLSRealCoreAdapterErrorDomain)
+                XCTAssertEqual(
+                    nsError.code,
+                    TLSRealCoreAdapterErrorCode.invalidArgument.rawValue)
+            }
+        }
+    }
+
     func testRealCoreAdapterOpenClose() async throws {
         let config = try makeConfig()
         let adapter = try RealCoreAdapter(configuration: config, credentials: makeCredentials())
         try adapter.open(configuration: config, credentials: makeCredentials())
-        await adapter.close(timeout: 5)
+        try await adapter.close(timeout: 5)
     }
 
     // MARK: - Send
@@ -142,7 +325,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         try adapter.add(event, mode: .immediate)
 
         await fulfillment(of: [delivered], timeout: 10)
-        await adapter.close(timeout: 5)
+        try await adapter.close(timeout: 5)
     }
 
     // MARK: - Updates
@@ -158,7 +341,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             securityToken: "new-token")
         XCTAssertNoThrow(try adapter.updateCredentials(newCreds))
 
-        await adapter.close(timeout: 5)
+        try await adapter.close(timeout: 5)
     }
 
     func testUpdateDestinationSucceeds() async throws {
@@ -173,7 +356,57 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             topicID: "new-topic")
         XCTAssertNoThrow(try adapter.updateDestination(newDest))
 
-        await adapter.close(timeout: 5)
+        try await adapter.close(timeout: 5)
+    }
+
+    /// Releasing an unclosed adapter while its sender is blocked in the
+    /// transport must hand Core destruction to the utility queue and retain
+    /// the raw callback/HTTP contexts until that destroy finishes. Delivery
+    /// after release is intentionally not promised; this test guards only
+    /// against UAF, double completion, and a synchronous deallocation hang.
+    func testDeallocationDuringInflightRequestIsSafe() async throws {
+        RealCoreStubURLProtocol.setHanging(forPath: "/PutLogs")
+        let requestStarted = expectation(description: "request entered transport before release")
+        RealCoreStubURLProtocol.expectNextRequest(requestStarted)
+        let callback = BridgeCallbackCollector()
+
+        weak var releasedAdapter: TLSRealCoreAdapter?
+        var adapter: TLSRealCoreAdapter? = try makeBridgeAdapter(
+            requestTimeout: 0.1,
+            maxLogCount: 1)
+        releasedAdapter = adapter
+        adapter?.onSendResult = {
+            result, rawBytes, compressedBytes, httpCode, errorCode, errorMessage,
+            requestID, transportKind, transportCode, retryable, startID, endID in
+            callback.append(BridgeCallbackPayload(
+                result: result,
+                rawBytes: rawBytes,
+                compressedBytes: compressedBytes,
+                httpCode: httpCode,
+                errorCode: errorCode,
+                errorMessage: errorMessage,
+                requestID: requestID,
+                transportKind: transportKind,
+                transportCode: transportCode,
+                retryable: retryable,
+                startID: startID,
+                endID: endID))
+        }
+        try adapter?.open()
+        try addImmediateLog(to: try XCTUnwrap(adapter), value: "release-inflight")
+        await fulfillment(of: [requestStarted], timeout: 3)
+
+        adapter = nil
+        for _ in 0..<50 where releasedAdapter != nil {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertNil(releasedAdapter, "adapter deallocation must not wait for Core joins")
+
+        // The bridge's 100 ms request deadline plus its 1 s scheduling margin
+        // has elapsed. ASan/TSan execution of this interval is the UAF/race
+        // evidence; at most one callback may already have won before release.
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        XCTAssertLessThanOrEqual(callback.count, 1)
     }
 
     // MARK: - Close semantics
@@ -182,7 +415,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         let config = try makeConfig()
         let adapter = try RealCoreAdapter(configuration: config, credentials: makeCredentials())
         try adapter.open(configuration: config, credentials: makeCredentials())
-        await adapter.close(timeout: 5)
+        try await adapter.close(timeout: 5)
 
         let event = LogEvent(contents: ["k": .string("v")])
         XCTAssertThrowsError(try adapter.add(event, mode: .normal)) { error in
@@ -195,7 +428,406 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         let adapter = try RealCoreAdapter(configuration: config, credentials: makeCredentials())
         try adapter.open(configuration: config, credentials: makeCredentials())
 
-        await adapter.close(timeout: 5)
-        await adapter.close(timeout: 5) // should not crash
+        try await adapter.close(timeout: 5)
+        try await adapter.close(timeout: 5) // should not crash
+    }
+
+    // MARK: - Real bridge acceptance coverage
+
+    /// The persistent path is exercised through the ObjC bridge directly so
+    /// this test can inspect the actual Core files rather than only the Swift
+    /// facade's configuration values. The UUID keeps cleanup scoped to this
+    /// test and prevents an old lease from contaminating another run.
+    func testPersistentOpenRecoverCreatesProtectedCoreFiles() async throws {
+        let producerID = "bridge-it-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+
+        do {
+            let adapter = try makeBridgeAdapter(
+                requestTimeout: 0.2,
+                maxLogCount: 1,
+                linger: 60,
+                persistenceMode: .buffered,
+                persistentDirectory: directory.path)
+            adapter.onSendResult = { _, _, _, _, _, _, _, _, _, _, _, _ in }
+
+            // Recovery is intentionally explicit and happens only after the
+            // callback has been installed.
+            try adapter.open()
+            try adapter.addLog(
+                withTimestamp: Int64(Date().timeIntervalSince1970 * 1000),
+                hashKey: nil as String?,
+                contents: ["message": "persistent-recovery"],
+                flush: false)
+
+            let files = [".ios-producer.lock", "manifest", "checkpoint", "lease", "seg-000001.log"]
+                .map { directory.appendingPathComponent($0) }
+            for file in files {
+                XCTAssertTrue(
+                    FileManager.default.fileExists(atPath: file.path),
+                    "persistent Core file must exist: \(file.lastPathComponent)")
+                let resourceValues = try file.resourceValues(forKeys: [.isExcludedFromBackupKey])
+                XCTAssertEqual(
+                    resourceValues.isExcludedFromBackup,
+                    true,
+                    "Core-created file must be excluded from backup: \(file.lastPathComponent)")
+#if os(iOS)
+                let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+                if let protection = attributes[.protectionKey] {
+                    XCTAssertEqual(
+                        protection as? FileProtectionType,
+                        .completeUntilFirstUserAuthentication,
+                        "Core-created file has an unexpected protection class: \(file.lastPathComponent)")
+                }
+#endif
+            }
+
+            try adapter.close(withTimeout: 5)
+        }
+
+        // Re-open the same directory to exercise the explicit recover pass
+        // against the manifest/checkpoint/segment written by the first Core.
+        do {
+            let recovered = try makeBridgeAdapter(
+                requestTimeout: 0.2,
+                maxLogCount: 1,
+                persistenceMode: .buffered,
+                persistentDirectory: directory.path)
+            try recovered.open()
+            XCTAssertFalse(recovered.isClosed)
+            try recovered.close(withTimeout: 5)
+        }
+    }
+
+    /// The bridge lock is the live-process exclusion. A second adapter for
+    /// the same persistent directory must fail before it can unlink the first
+    /// adapter's Core lease, and the first adapter must remain usable.
+    func testPersistentDirectoryRejectsSecondLiveAdapter() throws {
+        let producerID = "bridge-live-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let first = try makeBridgeAdapter(
+            maxLogCount: 4,
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)
+        defer { try? first.close(withTimeout: 5) }
+        try first.open()
+
+        XCTAssertThrowsError(try makeBridgeAdapter(
+            maxLogCount: 4,
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)) { error in
+            let nsError = error as NSError
+            XCTAssertEqual(nsError.domain, TLSRealCoreAdapterErrorDomain)
+            XCTAssertEqual(nsError.code, TLSRealCoreAdapterErrorCode.createFailed.rawValue)
+            XCTAssertEqual(
+                (nsError.userInfo[TLSRealCoreAdapterErrorResultKey] as? NSNumber)?.intValue,
+                3,
+                "live-directory rejection must be a persistence error")
+        }
+
+        XCTAssertNoThrow(try first.addLog(
+            withTimestamp: Int64(Date().timeIntervalSince1970 * 1000),
+            hashKey: nil,
+            contents: ["message": "first-adapter-remains-usable"],
+            flush: false))
+    }
+
+    /// The C Core writes a valid, recent lease. Reinstalling that lease after
+    /// a clean close simulates a process killed before the Core's cleanup ran;
+    /// the bridge must remove it under the process lock and reopen immediately
+    /// instead of waiting for the Core's 60-second heartbeat timeout.
+    func testPersistentDirectoryReopensImmediatelyWithStaleCoreLease() async throws {
+        let producerID = "bridge-stale-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let first = try makeBridgeAdapter(
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)
+        try first.open()
+        let leaseURL = directory.appendingPathComponent("lease")
+        let leaseSnapshot = try Data(contentsOf: leaseURL)
+        try first.close(withTimeout: 5)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: leaseURL.path))
+
+        try leaseSnapshot.write(to: leaseURL, options: .atomic)
+
+        let reopened = try makeBridgeAdapter(
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)
+        try reopened.open()
+        XCTAssertFalse(reopened.isClosed)
+        try reopened.close(withTimeout: 5)
+    }
+
+    /// O_NOFOLLOW must reject a lock-file symlink before any Core file is
+    /// touched. The target remains intact because the bridge never follows or
+    /// unlinks it.
+    func testPersistentDirectoryRejectsSymlinkLockFile() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tls-bridge-symlink-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: false,
+            attributes: [FileAttributeKey.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let target = directory.appendingPathComponent("lock-target")
+        try Data("do-not-touch".utf8).write(to: target)
+        let lock = directory.appendingPathComponent(".ios-producer.lock")
+        try FileManager.default.createSymbolicLink(at: lock, withDestinationURL: target)
+
+        XCTAssertThrowsError(try makeBridgeAdapter(
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)) { error in
+            let nsError = error as NSError
+            XCTAssertEqual(nsError.domain, TLSRealCoreAdapterErrorDomain)
+            XCTAssertEqual(nsError.code, TLSRealCoreAdapterErrorCode.createFailed.rawValue)
+            XCTAssertEqual(
+                (nsError.userInfo[TLSRealCoreAdapterErrorResultKey] as? NSNumber)?.intValue,
+                3,
+                "symlink lock rejection must be a persistence error")
+        }
+        XCTAssertEqual(try Data(contentsOf: target), Data("do-not-touch".utf8))
+    }
+
+    /// Core-owned files use the POSIX platform adapter. A pre-existing final
+    /// component symlink must fail with O_NOFOLLOW before manifest creation or
+    /// recovery can truncate/read its target.
+    func testPersistentCoreFileSymlinkDoesNotTouchTarget() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tls-core-file-symlink-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: false,
+            attributes: [FileAttributeKey.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let target = directory.appendingPathComponent("manifest-target")
+        let sentinel = Data("do-not-read-or-truncate".utf8)
+        try sentinel.write(to: target)
+        let manifest = directory.appendingPathComponent("manifest")
+        try FileManager.default.createSymbolicLink(
+            at: manifest,
+            withDestinationURL: target)
+
+        do {
+            let adapter = try makeBridgeAdapter(
+                persistenceMode: .buffered,
+                persistentDirectory: directory.path)
+            defer { try? adapter.close(withTimeout: 1) }
+            XCTAssertThrowsError(try adapter.open())
+        } catch {
+            let nsError = error as NSError
+            XCTAssertEqual(nsError.domain, TLSRealCoreAdapterErrorDomain)
+        }
+        XCTAssertEqual(try Data(contentsOf: target), sentinel)
+    }
+
+    /// URLProtocol intentionally never calls a client completion. The bridge
+    /// must cancel the request at its hard deadline and emit one structured
+    /// timeout result instead of returning a status-0 success or hanging the
+    /// Core sender thread indefinitely.
+    func testHTTPTimeoutWithoutURLProtocolCallbackIsBounded() async throws {
+        RealCoreStubURLProtocol.setHanging(forPath: "/PutLogs")
+        let adapter = try makeBridgeAdapter(requestTimeout: 0.1, maxLogCount: 1)
+        let callback = BridgeCallbackCollector()
+        let callbackExpectation = expectation(description: "timeout result")
+        installCallback(on: adapter, collector: callback, expectation: callbackExpectation)
+        try adapter.open()
+
+        let started = Date()
+        try addImmediateLog(to: adapter, value: "timeout")
+        await fulfillment(of: [callbackExpectation], timeout: 8)
+        let elapsed = Date().timeIntervalSince(started)
+
+        let result = try XCTUnwrap(callback.first)
+        XCTAssertNotEqual(result.result, 0)
+        XCTAssertLessThan(elapsed, 6, "HTTP bridge timeout must be bounded")
+        XCTAssertLessThanOrEqual(result.httpCode, 0)
+        XCTAssertEqual(result.transportCode, TLSTransportErrorCode.requestTimeout.rawValue)
+        XCTAssertEqual(result.errorMessage, "HTTP request timed out")
+        XCTAssertEqual(callback.count, 1, "one accepted batch must have one terminal callback")
+
+        try adapter.close(withTimeout: 5)
+    }
+
+    /// A zero-budget close while a request is in flight must throw and leave
+    /// the Core retryable. Once the request reaches its own bounded timeout,
+    /// a later close is allowed to complete and only then reports isClosed.
+    func testCloseTimeoutRemainsRetryable() async throws {
+        RealCoreStubURLProtocol.setHanging(forPath: "/PutLogs")
+        let requestStarted = expectation(description: "request entered transport")
+        RealCoreStubURLProtocol.expectNextRequest(requestStarted)
+        let adapter = try makeBridgeAdapter(requestTimeout: 0.5, maxLogCount: 1)
+        let callback = BridgeCallbackCollector()
+        let callbackExpectation = expectation(description: "close retry send result")
+        installCallback(on: adapter, collector: callback, expectation: callbackExpectation)
+        try adapter.open()
+        try addImmediateLog(to: adapter, value: "close-retry")
+
+        // Prove the batch is actually in flight before asserting that a
+        // zero-budget close must time out. Closing immediately after add is a
+        // race: the Core may not have dequeued the batch yet and can then
+        // legitimately report an already-drained success.
+        await fulfillment(of: [requestStarted], timeout: 3)
+
+        XCTAssertThrowsError(try adapter.close(withTimeout: 0)) { error in
+            XCTAssertEqual((error as NSError).domain, TLSRealCoreAdapterErrorDomain)
+            XCTAssertEqual((error as NSError).code, TLSRealCoreAdapterErrorCode.closeFailed.rawValue)
+        }
+        XCTAssertFalse(adapter.isClosed)
+
+        // Let a subsequent retry finish quickly; the already-running hanging
+        // request remains bounded by its own 500 ms deadline.
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+        await fulfillment(of: [callbackExpectation], timeout: 8)
+        try adapter.close(withTimeout: 10)
+        XCTAssertTrue(adapter.isClosed)
+    }
+
+    /// Service statuses must survive the NSURLSession → C Core → ObjC bridge
+    /// without forwarding the untrusted response body. Retryable statuses are
+    /// retried by the C Core, but still produce one terminal callback.
+    func testHTTPStatusesPreserveStructuredCallbackFields() async throws {
+        let cases: [(status: Int, retryable: Bool)] = [
+            (401, false), (403, false), (429, true), (500, true), (503, true)
+        ]
+
+        for item in cases {
+            let body = Data(
+                #"{"errorCode":"ServiceCode","errorMessage":"secret=do-not-leak","requestID":"body-request"}"#.utf8)
+            RealCoreStubURLProtocol.setResponse(
+                statusCode: item.status,
+                body: body,
+                requestID: "request-\(item.status)",
+                forPath: "/PutLogs")
+            let adapter = try makeBridgeAdapter(requestTimeout: 0.2, maxLogCount: 1)
+            let callback = BridgeCallbackCollector()
+            let callbackExpectation = expectation(description: "HTTP \(item.status) result")
+            installCallback(on: adapter, collector: callback, expectation: callbackExpectation)
+            try adapter.open()
+            try addImmediateLog(to: adapter, value: "status-\(item.status)")
+            await fulfillment(of: [callbackExpectation], timeout: 12)
+
+            let result = try XCTUnwrap(callback.first)
+            XCTAssertNotEqual(result.result, 0)
+            XCTAssertEqual(result.httpCode, item.status)
+            XCTAssertEqual(result.errorCode, "ServiceCode")
+            XCTAssertEqual(result.requestID, "request-\(item.status)")
+            XCTAssertEqual(result.retryable, item.retryable)
+            XCTAssertTrue(result.errorMessage?.contains("secret=do-not-leak") == false)
+            XCTAssertEqual(callback.count, 1)
+            try adapter.close(withTimeout: 5)
+        }
+    }
+
+    /// Persistent `.retain` treats an authentication failure as a suspended
+    /// delivery attempt, not a terminal batch result. Updating the complete
+    /// credential group resumes that same batch, which must then produce its
+    /// one and only terminal callback.
+    func testPersistentAuthRetainEmitsOnlySuccessAfterCredentialUpdate() async throws {
+        let producerID = "bridge-auth-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        RealCoreStubURLProtocol.setResponse(
+            statusCode: 401,
+            requestID: "auth-retain-first",
+            forPath: "/PutLogs")
+        let firstRequest = expectation(description: "persistent auth request reached transport")
+        RealCoreStubURLProtocol.expectNextRequest(firstRequest)
+
+        let prematureFailure = expectation(
+            description: "auth retain must not emit a terminal failure")
+        prematureFailure.isInverted = true
+        let eventualSuccess = expectation(
+            description: "credential update resumes retained batch once")
+        let callback = BridgeCallbackCollector()
+        let adapter = try makeBridgeAdapter(
+            requestTimeout: 0.2,
+            maxLogCount: 1,
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)
+        adapter.onSendResult = {
+            result, rawBytes, compressedBytes, httpCode, errorCode, errorMessage,
+            requestID, transportKind, transportCode, retryable, startID, endID in
+            callback.append(BridgeCallbackPayload(
+                result: result,
+                rawBytes: rawBytes,
+                compressedBytes: compressedBytes,
+                httpCode: httpCode,
+                errorCode: errorCode,
+                errorMessage: errorMessage,
+                requestID: requestID,
+                transportKind: transportKind,
+                transportCode: transportCode,
+                retryable: retryable,
+                startID: startID,
+                endID: endID))
+            if result == 0 {
+                eventualSuccess.fulfill()
+            } else {
+                prematureFailure.fulfill()
+            }
+        }
+
+        try adapter.open()
+        try addImmediateLog(to: adapter, value: "auth-retain")
+        await fulfillment(of: [firstRequest], timeout: 3)
+        await fulfillment(of: [prematureFailure], timeout: 0.5)
+
+        RealCoreStubURLProtocol.setResponse(
+            statusCode: 200,
+            requestID: "auth-retain-success",
+            forPath: "/PutLogs")
+        try adapter.updateCredentials(
+            "updated-ak",
+            accessKeySecret: "updated-sk",
+            securityToken: "updated-token")
+
+        await fulfillment(of: [eventualSuccess], timeout: 8)
+        XCTAssertEqual(callback.count, 1)
+        XCTAssertEqual(callback.first?.result, 0)
+        XCTAssertEqual(callback.first?.requestID, "auth-retain-success")
+        try adapter.close(withTimeout: 5)
+    }
+
+    /// A highly repetitive payload must take the LZ4 branch and report a
+    /// smaller compressed byte count while preserving the raw count.
+    func testLZ4CallbackReportsCompressedBytes() async throws {
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+        let adapter = try makeBridgeAdapter(
+            lz4Enabled: true,
+            maxLogCount: 1,
+            maxRawBytes: 4 * 1024 * 1024)
+        let callback = BridgeCallbackCollector()
+        let callbackExpectation = expectation(description: "LZ4 send result")
+        installCallback(on: adapter, collector: callback, expectation: callbackExpectation)
+        try adapter.open()
+
+        let compressibleValue = String(repeating: "compressible-payload-", count: 100_000)
+        try adapter.addLog(
+            withTimestamp: Int64(Date().timeIntervalSince1970 * 1000),
+            hashKey: nil as String?,
+            contents: ["message": compressibleValue],
+            flush: true)
+        await fulfillment(of: [callbackExpectation], timeout: 12)
+
+        let result = try XCTUnwrap(callback.first)
+        XCTAssertEqual(result.result, 0)
+        XCTAssertGreaterThan(result.rawBytes, 0)
+        XCTAssertGreaterThan(result.compressedBytes, 0)
+        XCTAssertLessThan(result.compressedBytes, result.rawBytes)
+        try adapter.close(withTimeout: 5)
     }
 }

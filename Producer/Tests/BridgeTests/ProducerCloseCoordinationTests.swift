@@ -11,7 +11,6 @@
 
 import XCTest
 @testable import VolcengineTLSProducer
-import ProducerTestSupport
 
 final class ProducerCloseCoordinationTests: XCTestCase {
 

@@ -9,15 +9,15 @@
 //
 // SCOPE: these are helper-level tests for the Storage helper. They are NOT
 // evidence of C WAL crash-recovery, checkpoint, lease or fsync behavior —
-// that evidence is L4 (macOS Core crash harness + on-device XCUITest) and is
-// pending the frozen C Core and a macOS/Xcode toolchain (ledger §4).
+// that evidence comes from the process-kill Core recovery harness and future
+// on-device validation, not from these helper-level assertions alone.
 //
 // ENVIRONMENT NOTE: Data Protection attributes are iOS-specific. The helper
 // guards NSFileProtectionKey with TARGET_OS_IOS and these tests guard the
 // corresponding assertions with #if os(iOS), so the file compiles on macOS
 // host builds (assertions skipped there) and runs in full on an iOS Simulator
-// destination (the SDK targets iOS 13). macOS-host runtime evidence is still
-// pending validation (ledger §4).
+// destination (the SDK targets iOS 13). Simulator attributes are not evidence
+// of locked-device Data Protection behavior.
 //
 
 import XCTest

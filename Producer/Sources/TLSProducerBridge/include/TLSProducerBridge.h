@@ -5,14 +5,19 @@
 //  Umbrella header for the TLSProducerBridge module.
 //
 //  SCOPE: TLSProducerBridge is a package-INTERNAL target, not a public
-//  product. External consumers only see the VolcengineTLSProducer Swift
-//  module (which does not re-export this Clang module). The headers below
-//  are exported so that package test targets (BridgeTests/TransportTests/
-//  PersistenceTests) can exercise the Bridge helpers; they are not public
-//  API of the SDK. The CocoaPods podspec keeps them as private headers.
+//  product, and VolcengineTLSProducer does not re-export it. SwiftPM does not
+//  enforce access control for transitive target modules, so a source-package
+//  consumer may still spell `import TLSProducerBridge`; that unsupported
+//  implementation surface has no source/ABI compatibility promise. The
+//  headers below exist for the Swift wrapper and package tests. CocoaPods
+//  keeps them in PrivateHeaders and out of the public module.
 //
 
 #import <Foundation/Foundation.h>
+
+// Package tests use a small set of Core probes through this package-internal
+// module. The public Swift product never re-exports this umbrella.
+#import "../../CTLSProducerCore/include/CTLSProducerCore.h"
 
 // Path-qualified imports relative to this header's directory (include/).
 // The module build (umbrella → modulemap, used when test targets `import
@@ -27,7 +32,7 @@
 #import "../Storage/TLSProducerDirectory.h"
 #import "../Lifecycle/TLSLifecycleManager.h"
 
-// Wave 2 Worker D — NSURLSession transport (package-internal).
+// NSURLSession transport (package-internal).
 #import "../Transport/TLSHTTPRequest.h"
 #import "../Transport/TLSHTTPResponse.h"
 #import "../Transport/TLSTransport.h"

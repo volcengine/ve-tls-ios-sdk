@@ -7,24 +7,30 @@
 
 import Foundation
 
-/// The atomic set of routing fields for a producer: endpoint, region,
-/// project and topic.
+/// The destination identity for a producer: endpoint, region, project and
+/// topic.
 ///
 /// A destination is always replaced as a whole via
 /// `Producer.updateDestination(_:)`; there are no per-field setters.
+/// With the bundled C Core v0.3.1, wire routing is determined by endpoint,
+/// region and topic. `projectID` is validated and retained as metadata, but
+/// changing it alone does not retarget requests because that Core ABI has no
+/// project update parameter.
 /// Construction does not throw, so a destination can be built declaratively;
 /// validation runs at `Producer.open` / `updateDestination` time via
 /// `validate()`.
 public struct Destination: Equatable, Sendable {
 
     /// Service endpoint URL, e.g. `https://tls-cn-beijing.volces.com`.
-    /// Must be HTTPS, have a host, and carry no userinfo or fragment.
+    /// Must be an HTTPS origin with a host (an explicit port is allowed), and
+    /// carry no path, query, userinfo, or fragment.
     public var endpoint: String
 
     /// Region ID, e.g. `cn-beijing`. Non-empty.
     public var region: String
 
-    /// TLS Project ID. Non-empty.
+    /// TLS Project ID. Non-empty. Metadata-only with the bundled C Core
+    /// v0.3.1; it is not part of request routing in that Core version.
     public var projectID: String
 
     /// TLS Topic ID. Non-empty.
@@ -45,7 +51,8 @@ public struct Destination: Equatable, Sendable {
     public func validate() throws {
         guard let components = URLComponents(string: endpoint),
               let scheme = components.scheme?.lowercased(),
-              scheme == "https" else {
+              scheme == "https",
+              components.url != nil else {
             throw ProducerError.configuration("endpoint must be an https URL: \(Self.redactedEndpoint(endpoint))")
         }
         guard let host = components.host, !host.isEmpty else {
@@ -55,8 +62,20 @@ public struct Destination: Equatable, Sendable {
         if components.user != nil || components.password != nil {
             throw ProducerError.configuration("endpoint must not contain userinfo")
         }
+        if !components.path.isEmpty {
+            throw ProducerError.configuration("endpoint must not contain a path")
+        }
+        if components.query != nil {
+            throw ProducerError.configuration("endpoint must not contain a query")
+        }
         if components.fragment != nil {
             throw ProducerError.configuration("endpoint must not contain a fragment")
+        }
+        if endpoint.hasSuffix(":") {
+            throw ProducerError.configuration("endpoint port must not be empty")
+        }
+        if let port = components.port, !(1...65_535).contains(port) {
+            throw ProducerError.configuration("endpoint port must be between 1 and 65535")
         }
         guard !region.isEmpty else {
             throw ProducerError.configuration("region must not be empty")
@@ -66,6 +85,12 @@ public struct Destination: Equatable, Sendable {
         }
         guard !topicID.isEmpty else {
             throw ProducerError.configuration("topicID must not be empty")
+        }
+        guard !region.contains("\0"),
+              !projectID.contains("\0"),
+              !topicID.contains("\0") else {
+            throw ProducerError.configuration(
+                "destination fields must not contain embedded NUL characters")
         }
     }
 

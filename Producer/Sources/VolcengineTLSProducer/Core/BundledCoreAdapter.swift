@@ -2,17 +2,16 @@
 //  BundledCoreAdapter.swift
 //  VolcengineTLSProducer/Core
 //
-//  Worker A — PROVISIONAL placeholder until RealCoreAdapter gate;
-//  NOT a release behavior claim.
+//  Deterministic in-memory adapter for package-internal contract tests.
 //
 
 import Foundation
 
-/// Minimal in-memory `CoreAdapter` used by `Producer.open` until the real
-/// C Core is integrated.
+/// Minimal in-memory `CoreAdapter` used only through the internal injection
+/// seam in contract tests. Public `Producer.open` always builds the real Core.
 ///
-/// PROVISIONAL placeholder until RealCoreAdapter gate; NOT a release
-/// behavior claim. Behavior:
+/// This is not release behavior. It deliberately models only the facade
+/// lifecycle/batching contract:
 /// - Normal and immediate modes only perform in-memory batching.
 /// - Batches seal on: `AddMode.immediate`, `batch.maxLogCount`,
 ///   `batch.maxRawBytes`, or `batch.linger`.
@@ -22,25 +21,23 @@ import Foundation
 ///   `compressedBytes` mirrors `rawBytes` because no compression runs.
 /// - Buffer capacity (`buffer.maxBytes`) is enforced across admitted but
 ///   not yet reported bytes; overflow throws `.bufferFull`.
-/// - `BufferFullPolicy.block` is NOT honored by this placeholder: it
-///   degrades to `.reject` (fail-fast). The blocking policy will be
-///   implemented by the RealCoreAdapter (Wave 3); do not rely on it before
-///   then.
+/// - `BufferFullPolicy.block` is not modeled; it degrades to `.reject`.
 /// - The linger timer currently shares `configuration.callbackQueue`; a
-///   user handler that blocks delays sealing. RealCoreAdapter will use a
-///   dedicated timer queue (see FakeCoreAdapter.timerQueue).
+///   user handler that blocks delays sealing. The real Core does not use this
+///   implementation.
 ///
 /// Locking: `lock` guards state/batch/bufferedBytes. `drainCondition`
 /// guards `pendingCallbacks` and is used by `close` to bound the wait for
 /// terminal callbacks. Nested lock order is always `lock` →
 /// `drainCondition`, never the reverse.
-internal final class BundledCoreAdapter: CoreAdapter {
+internal final class BundledCoreAdapter: CoreAdapter, @unchecked Sendable {
 
     var onSendResult: (@Sendable (SendResult) -> Void)?
 
     private enum State {
         case initialized
         case open
+        case closing
         case closed
     }
 
@@ -85,7 +82,7 @@ internal final class BundledCoreAdapter: CoreAdapter {
         switch state {
         case .open:
             break
-        case .closed:
+        case .closing, .closed:
             throw ProducerError.closed
         case .initialized:
             throw ProducerError.invalidState
@@ -119,7 +116,7 @@ internal final class BundledCoreAdapter: CoreAdapter {
         switch state {
         case .open:
             break
-        case .closed:
+        case .closing, .closed:
             throw ProducerError.closed
         case .initialized:
             throw ProducerError.invalidState
@@ -135,7 +132,7 @@ internal final class BundledCoreAdapter: CoreAdapter {
         switch state {
         case .open:
             break
-        case .closed:
+        case .closing, .closed:
             throw ProducerError.closed
         case .initialized:
             throw ProducerError.invalidState
@@ -145,34 +142,56 @@ internal final class BundledCoreAdapter: CoreAdapter {
         _ = destination
     }
 
-    func close(timeout: TimeInterval) async {
-        lock.lock()
-        guard state == .open else {
-            lock.unlock()
+    func close(timeout: TimeInterval) async throws {
+        let needWait = withStateLock {
+            switch state {
+            case .initialized:
+                state = .closed
+                return false
+            case .closed:
+                return false
+            case .open:
+                state = .closing
+                lingerWorkItem?.cancel()
+                lingerWorkItem = nil
+                sealLocked() // nests drainCondition under lock (fixed order)
+            case .closing:
+                break
+            }
+            return withDrainConditionLock { pendingCallbacks > 0 }
+        }
+        if !needWait {
+            withStateLock {
+                if state == .closing {
+                    state = .closed
+                }
+            }
             return
         }
-        state = .closed
-        lingerWorkItem?.cancel()
-        lingerWorkItem = nil
-        sealLocked() // nests drainCondition under lock (fixed order)
-        lock.unlock()
-
-        drainCondition.lock()
-        let needWait = pendingCallbacks > 0
-        drainCondition.unlock()
-        guard needWait else { return }
 
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             DispatchQueue.global(qos: .utility).async {
                 let deadline = Date().addingTimeInterval(max(0, timeout))
-                self.drainCondition.lock()
-                while self.pendingCallbacks > 0 {
-                    if !self.drainCondition.wait(until: deadline) {
-                        break // timeout: local stop proceeds regardless
+                self.withDrainConditionLock {
+                    while self.pendingCallbacks > 0 {
+                        if !self.drainCondition.wait(until: deadline) {
+                            break // timeout is reported after this scope
+                        }
                     }
                 }
-                self.drainCondition.unlock()
                 cont.resume()
+            }
+        }
+
+        let drained = withDrainConditionLock { pendingCallbacks == 0 }
+        guard drained else {
+            // Keep the adapter in .closing so a later close can retry the
+            // bounded drain after the callback queue makes progress.
+            throw ProducerError.timeout
+        }
+        withStateLock {
+            if state == .closing {
+                state = .closed
             }
         }
     }
@@ -238,6 +257,21 @@ internal final class BundledCoreAdapter: CoreAdapter {
             drainCondition.broadcast()
         }
         drainCondition.unlock()
+    }
+
+    // Synchronous lock scopes keep NSLock.lock/unlock out of async function
+    // bodies, which is required by strict Swift 6 concurrency checking while
+    // remaining available on Swift 5.8/iOS 13.
+    private func withStateLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+
+    private func withDrainConditionLock<T>(_ body: () -> T) -> T {
+        drainCondition.lock()
+        defer { drainCondition.unlock() }
+        return body()
     }
 
     private static let fallbackQueue = DispatchQueue(

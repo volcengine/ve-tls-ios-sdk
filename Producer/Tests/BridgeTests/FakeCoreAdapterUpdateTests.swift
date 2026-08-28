@@ -8,7 +8,6 @@
 
 import XCTest
 @testable import VolcengineTLSProducer
-import ProducerTestSupport
 
 final class FakeCoreAdapterUpdateTests: XCTestCase {
 
@@ -65,7 +64,7 @@ final class FakeCoreAdapterUpdateTests: XCTestCase {
                 "batch \(batch.id) mixes AK/SK/token across credential groups: "
                     + "\(batch.credentials.accessKeyID)/"
                     + "\(batch.credentials.accessKeySecret)/"
-                    + "\(batch.credentials.securityToken)")
+                    + "\(batch.credentials.securityToken ?? "<nil>")")
         }
     }
 
@@ -124,7 +123,7 @@ final class FakeCoreAdapterUpdateTests: XCTestCase {
         let fake = FakeCoreAdapter()
         let config = try TestConfigurations.make()
         try fake.open(configuration: config, credentials: SampleCredentials.setA)
-        await fake.close(timeout: 5)
+        try await fake.close(timeout: 5)
 
         XCTAssertThrowsError(
             try fake.updateCredentials(SampleCredentials.setB)

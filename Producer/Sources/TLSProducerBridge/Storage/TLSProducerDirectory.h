@@ -3,7 +3,7 @@
 //
 // App-sandbox storage helper for the TLS Producer SDK (Beta design §9.2).
 //
-// Responsibilities (Wave 2 Worker E):
+// Responsibilities:
 //   - Validate the stable `producerID` used to identify the on-disk directory.
 //   - Compute the default sandbox directory URL:
 //       ~/Library/Application Support/com.volcengine.tls/producer/<producerID>/
@@ -22,10 +22,10 @@
 //   - The two attributes are set on the DIRECTORY only. They are not inherited
 //     by children; the Core/platform adapter must re-verify them on every WAL/
 //     checkpoint/manifest create, rotate, rename and recover (design §9.2).
-//     Per-file handling is Core's job (Wave 3), not this helper's.
+//     The Real Core platform file-open wrapper performs that per-file work;
+//     it is intentionally outside this stateless directory helper.
 //   - This helper does NOT implement WAL / recover / checkpoint / lease.
-//     Those are Core responsibilities (Wave 3); do not fake crash-recovery
-//     here.
+//     Those remain Core/adapter responsibilities; do not fake recovery here.
 //
 // Pure Objective-C; iOS 13.0+ safe APIs only.
 //

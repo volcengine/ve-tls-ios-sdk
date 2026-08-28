@@ -1,15 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  PrivacyInfo.xcprivacy — VolcengineTLSProducer (Development Preview).
+  PrivacyInfo.xcprivacy — VolcengineTLSProducer (release candidate source).
 
-  Minimal and accurate:
+  Current source inventory:
     - The SDK does not track users (NSPrivacyTracking = false).
-    - The SDK does not collect user data (NSPrivacyCollectedDataTypes empty).
-    - NSPrivacyAccessedAPITypes is intentionally empty for now. Required
-      Reason APIs (e.g. file timestamp / disk space APIs that the WAL storage
-      layer may use) are to be finalized in the Wave 2 storage/lifecycle
-      review, once the Storage/Lifecycle implementation lands.
+    - NSPrivacyCollectedDataTypes is intentionally still empty in this
+      development manifest. The SDK transmits and retains caller-supplied log
+      contents; product/privacy owners must classify those contents, linkage,
+      and purposes before an App Store release. An empty array is not release
+      evidence that no data is collected.
+    - The persistent Core path uses POSIX stat(2) to inspect the size and other
+      metadata of WAL files inside the app container. Apple classifies stat as
+      NSPrivacyAccessedAPICategoryFileTimestamp; C617.1 is the approved reason
+      for metadata access to files inside the app container.
+    - The Core also uses POSIX clock_gettime for condition-variable deadlines
+      and elapsed timers. Apple's current required-reason SystemBootTime list
+      names systemUptime and mach_absolute_time, not clock_gettime, so this
+      manifest does not invent a SystemBootTime declaration for that API.
 -->
 <plist version="1.0">
 <dict>
@@ -20,6 +28,15 @@
     <key>NSPrivacyCollectedDataTypes</key>
     <array/>
     <key>NSPrivacyAccessedAPITypes</key>
-    <array/>
+    <array>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>C617.1</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>

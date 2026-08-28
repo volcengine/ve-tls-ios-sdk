@@ -137,6 +137,8 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
 @property (nonatomic, strong) NSMutableDictionary<NSString *, TLSRequestContext *> *contextsByID;
 @property (nonatomic, strong) NSMutableDictionary<NSNumber *, TLSRequestContext *> *contextsByTaskID;
 @property (nonatomic, assign) BOOL invalidated;
+
+- (NSInteger)effectivePortForURL:(NSURL *)URL;
 @end
 
 @implementation TLSTransport
@@ -298,13 +300,19 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
                 if (pending == nil || pending.state == TLSTransportRequestStateTerminal) {
                     return;
                 }
-                [pending.task cancel];
+                // Publish our stable timeout terminal state before cancelling.
+                // A custom URLProtocol may deliver NSURLErrorCancelled
+                // synchronously from -cancel; cancelling first would let that
+                // callback win the exactly-once race and erase the timeout
+                // classification.
+                NSURLSessionDataTask *task = pending.task;
                 NSError *error = [self transportErrorWithCode:TLSTransportErrorCodeRequestTimeout
                                                   description:[NSString stringWithFormat:@"request timed out after %.3f seconds", deadline]
                                                    statusCode:pending.statusCode
                                                     requestID:pending.responseRequestID
                                                underlyingCode:nil];
                 [self completeContext:pending withError:error];
+                [task cancel];
             });
         }
     });
@@ -320,13 +328,14 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
         if (context == nil || context.state == TLSTransportRequestStateTerminal) {
             return;
         }
-        [context.task cancel];
+        NSURLSessionDataTask *task = context.task;
         NSError *error = [self transportErrorWithCode:TLSTransportErrorCodeCancelled
                                           description:@"request cancelled"
                                            statusCode:context.statusCode
                                             requestID:context.responseRequestID
                                        underlyingCode:nil];
         [self completeContext:context withError:error];
+        [task cancel];
     });
 }
 
@@ -342,13 +351,14 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
         NSArray<TLSRequestContext *> *pending = [self.contextsByID.allValues copy];
         for (TLSRequestContext *context in pending) {
             if (context.state == TLSTransportRequestStateRunning) {
-                [context.task cancel];
+                NSURLSessionDataTask *task = context.task;
                 NSError *error = [self transportErrorWithCode:TLSTransportErrorCodeCancelled
                                                   description:@"transport invalidated"
                                                    statusCode:context.statusCode
                                                     requestID:context.responseRequestID
                                                underlyingCode:nil];
                 [self completeContext:context withError:error];
+                [task cancel];
             }
         }
         [self.session invalidateAndCancel];
@@ -415,26 +425,65 @@ willPerformHTTPRedirection:(NSHTTPURLResponse *)response
     }
     NSURL *originalURL = task.originalRequest.URL;
     NSURL *nextURL = request.URL;
+    NSURLComponents *originalComponents = originalURL
+        ? [NSURLComponents componentsWithURL:originalURL resolvingAgainstBaseURL:NO]
+        : nil;
+    NSURLComponents *nextComponents = nextURL
+        ? [NSURLComponents componentsWithURL:nextURL resolvingAgainstBaseURL:NO]
+        : nil;
     BOOL sameScheme = (originalURL.scheme != nil && nextURL.scheme != nil &&
                        [[originalURL.scheme lowercaseString] isEqualToString:[nextURL.scheme lowercaseString]]);
     BOOL sameHost = (originalURL.host != nil && nextURL.host != nil &&
                      [[originalURL.host lowercaseString] isEqualToString:[nextURL.host lowercaseString]]);
-    if (sameScheme && sameHost) {
-        completionHandler(request);
+    BOOL samePort = ([self effectivePortForURL:originalURL] ==
+                     [self effectivePortForURL:nextURL]);
+    BOOL noUserInfo = nextComponents.user == nil && nextComponents.password == nil;
+    BOOL sameMethod = context.request.method.length > 0 && request.HTTPMethod.length > 0 &&
+        [context.request.method caseInsensitiveCompare:request.HTTPMethod] == NSOrderedSame;
+    BOOL samePath = originalComponents != nil && nextComponents != nil &&
+        [(originalComponents.percentEncodedPath ?: @"")
+            isEqualToString:(nextComponents.percentEncodedPath ?: @"")];
+    BOOL sameQuery = ((originalComponents.percentEncodedQuery == nil &&
+                       nextComponents.percentEncodedQuery == nil) ||
+                      [originalComponents.percentEncodedQuery
+                          isEqualToString:nextComponents.percentEncodedQuery]);
+    BOOL sameBody = ((context.request.body == nil && request.HTTPBody == nil) ||
+                     [context.request.body isEqualToData:request.HTTPBody]);
+    if (sameScheme && sameHost && samePort && noUserInfo && sameMethod &&
+        samePath && sameQuery && sameBody) {
+        // NSURLSession strips Authorization while constructing a redirect
+        // request. The C Core signs before entering this transport, and its V4
+        // signature covers method, canonical path/query, and payload. Reapply
+        // the original Core-provided headers only when every signed request
+        // component and the exact origin are unchanged.
+        NSMutableURLRequest *sameOriginRequest = [request mutableCopy];
+        for (NSString *key in context.request.headers) {
+            NSString *value = context.request.headers[key];
+            if (key.length > 0 && value != nil) {
+                [sameOriginRequest setValue:value forHTTPHeaderField:key];
+            }
+        }
+        completionHandler(sameOriginRequest);
         return;
     }
-    // Cross-host or cross-scheme redirect: do not follow, so credentials
-    // are never carried to a new host (§8.2).
-    completionHandler(nil);
+    // Cross-origin or signature-changing redirect: do not follow. This both
+    // keeps credentials within their origin and prevents replaying an
+    // Authorization value whose canonical method/path/query/body no longer
+    // matches. A missing HTTPS port is normalized to 443, making explicit
+    // :443 equivalent to the default origin.
+    // Record our redirect-rejected terminal state before asking URLSession to
+    // cancel the redirect. Some URLProtocol implementations synchronously
+    // report cancellation from this completion handler.
     context.statusCode = response.statusCode;
     context.responseHeaders = response.allHeaderFields;
     context.responseRequestID = [self requestIDFromHeaders:response.allHeaderFields];
     NSError *error = [self transportErrorWithCode:TLSTransportErrorCodeRedirectRejected
-                                      description:@"redirect rejected: cross-host or cross-scheme redirects are not followed"
+                                      description:@"redirect rejected: origin or signed request target changed"
                                        statusCode:response.statusCode
                                         requestID:context.responseRequestID
                                    underlyingCode:nil];
     [self completeContext:context withError:error];
+    completionHandler(nil);
 }
 
 - (void)URLSession:(NSURLSession *)session
@@ -447,6 +496,20 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
 }
 
 #pragma mark - Internal helpers (all on _queue)
+
+- (NSInteger)effectivePortForURL:(NSURL *)URL {
+    if (URL.port != nil) {
+        return URL.port.integerValue;
+    }
+    NSString *scheme = URL.scheme.lowercaseString;
+    if ([scheme isEqualToString:@"https"]) {
+        return 443;
+    }
+    if ([scheme isEqualToString:@"http"]) {
+        return 80;
+    }
+    return -1;
+}
 
 - (nullable NSError *)validationErrorForRequest:(TLSHTTPRequest *)request {
     if (request.method.length == 0) {

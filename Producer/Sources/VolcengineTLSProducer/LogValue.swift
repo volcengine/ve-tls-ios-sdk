@@ -33,6 +33,7 @@ public enum LogValue: Equatable, Sendable {
 internal enum LogValueEncodingError: Error, Equatable, CustomStringConvertible {
     case nonFiniteDouble
     case invalidUTF8Data
+    case embeddedNUL
     case nestingDepthExceeded
 
     var description: String {
@@ -41,6 +42,8 @@ internal enum LogValueEncodingError: Error, Equatable, CustomStringConvertible {
             return "double must be finite (NaN/Infinity are not allowed)"
         case .invalidUTF8Data:
             return "utf8Data is not valid UTF-8"
+        case .embeddedNUL:
+            return "value must not contain embedded NUL characters"
         case .nestingDepthExceeded:
             return "nesting depth exceeds \(LogValue.maxNestingDepth)"
         }
@@ -77,6 +80,9 @@ extension LogValue {
     private func encode(remainingDepth: Int, quoteStrings: Bool) throws -> String {
         switch self {
         case .string(let value):
+            guard !value.contains("\0") else {
+                throw LogValueEncodingError.embeddedNUL
+            }
             return quoteStrings ? LogValue.encodeJSONString(value) : value
         case .signedInt(let value):
             return String(value)
@@ -96,6 +102,9 @@ extension LogValue {
         case .dictionary(let dict):
             guard remainingDepth > 0 else { throw LogValueEncodingError.nestingDepthExceeded }
             let parts = try dict.keys.sorted().map { key -> String in
+                guard !key.contains("\0") else {
+                    throw LogValueEncodingError.embeddedNUL
+                }
                 let encodedValue = try dict[key]!.encode(remainingDepth: remainingDepth - 1, quoteStrings: true)
                 return LogValue.encodeJSONString(key) + ":" + encodedValue
             }
@@ -103,6 +112,9 @@ extension LogValue {
         case .utf8Data(let data):
             guard let text = String(data: data, encoding: .utf8) else {
                 throw LogValueEncodingError.invalidUTF8Data
+            }
+            guard !text.contains("\0") else {
+                throw LogValueEncodingError.embeddedNUL
             }
             return text
         }
@@ -112,9 +124,16 @@ extension LogValue {
         switch self {
         case .double(let value):
             guard value.isFinite else { throw LogValueEncodingError.nonFiniteDouble }
+        case .string(let value):
+            guard !value.contains("\0") else {
+                throw LogValueEncodingError.embeddedNUL
+            }
         case .utf8Data(let data):
-            guard String(data: data, encoding: .utf8) != nil else {
+            guard let text = String(data: data, encoding: .utf8) else {
                 throw LogValueEncodingError.invalidUTF8Data
+            }
+            guard !text.contains("\0") else {
+                throw LogValueEncodingError.embeddedNUL
             }
         case .array(let values):
             guard remainingDepth > 0 else { throw LogValueEncodingError.nestingDepthExceeded }
@@ -123,10 +142,13 @@ extension LogValue {
             }
         case .dictionary(let dict):
             guard remainingDepth > 0 else { throw LogValueEncodingError.nestingDepthExceeded }
-            for value in dict.values {
+            for (key, value) in dict {
+                guard !key.contains("\0") else {
+                    throw LogValueEncodingError.embeddedNUL
+                }
                 try value.validate(remainingDepth: remainingDepth - 1)
             }
-        case .string, .signedInt, .unsignedInt, .bool, .null:
+        case .signedInt, .unsignedInt, .bool, .null:
             break
         }
     }

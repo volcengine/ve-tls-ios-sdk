@@ -7,7 +7,34 @@
 
 import XCTest
 @testable import VolcengineTLSProducer
-import ProducerTestSupport
+
+/// Test-only synchronization primitive for state shared with an @Sendable
+/// callback. The lock is kept inside a synchronous method so Swift 6 does not
+/// reject NSLock.lock/unlock at an async call site.
+private final class CallbackLockedState<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+
+    init(_ value: Value) {
+        self.value = value
+    }
+
+    @discardableResult
+    func withValue<Result>(_ body: (inout Value) -> Result) -> Result {
+        lock.lock()
+        defer { lock.unlock() }
+        return body(&value)
+    }
+
+    var snapshot: Value {
+        withValue { $0 }
+    }
+}
+
+private struct ReentryCallbackState {
+    var callbackCount = 0
+    var didFulfill = false
+}
 
 final class FakeCoreAdapterCallbackTests: XCTestCase {
 
@@ -58,12 +85,11 @@ final class FakeCoreAdapterCallbackTests: XCTestCase {
         let batchCount = 10
         let allDelivered = expectation(description: "all delivered")
         allDelivered.expectedFulfillmentCount = batchCount
-        var requestIDs: [String] = []
-        let idsLock = NSLock()
+        let requestIDs = CallbackLockedState<[String]>([])
         fake.onSendResult = { result in
-            idsLock.lock()
-            requestIDs.append(result.requestID ?? "")
-            idsLock.unlock()
+            requestIDs.withValue { ids in
+                ids.append(result.requestID ?? "")
+            }
             allDelivered.fulfill()
         }
 
@@ -73,7 +99,7 @@ final class FakeCoreAdapterCallbackTests: XCTestCase {
         await fulfillment(of: [allDelivered], timeout: 10)
 
         let expected = (1...batchCount).map { "fake-req-\($0)" }
-        XCTAssertEqual(requestIDs, expected,
+        XCTAssertEqual(requestIDs.snapshot, expected,
                        "callbacks must be delivered in seal order on the serial queue")
     }
 
@@ -85,9 +111,7 @@ final class FakeCoreAdapterCallbackTests: XCTestCase {
         try fake.open(configuration: config, credentials: SampleCredentials.setA)
 
         let delivered = expectation(description: "delivered")
-        let stateLock = NSLock()
-        var callbackCount = 0
-        var didFulfill = false
+        let callbackState = CallbackLockedState(ReentryCallbackState())
         fake.onSendResult = { _ in
             // Reentry into the adapter from inside the callback must not
             // deadlock or crash. `try?` because the handler is invoked again
@@ -96,13 +120,15 @@ final class FakeCoreAdapterCallbackTests: XCTestCase {
             // not success of every add.
             try? fake.add(SampleEvents.make(key: "reentry", value: "1"),
                           mode: .normal)
-            stateLock.lock()
-            callbackCount += 1
-            if !didFulfill {
-                didFulfill = true
+            let shouldFulfill = callbackState.withValue { state in
+                state.callbackCount += 1
+                guard !state.didFulfill else { return false }
+                state.didFulfill = true
+                return true
+            }
+            if shouldFulfill {
                 delivered.fulfill()
             }
-            stateLock.unlock()
         }
 
         try fake.add(SampleEvents.make(), mode: .immediate)
@@ -111,10 +137,9 @@ final class FakeCoreAdapterCallbackTests: XCTestCase {
 
         // Close must still converge (seals the reentrant event's batch and
         // delivers its terminal callback).
-        await fake.close(timeout: 5)
+        try await fake.close(timeout: 5)
         XCTAssertTrue(fake.isClosed)
-        stateLock.lock(); let finalCount = callbackCount; stateLock.unlock()
-        XCTAssertEqual(finalCount, 2,
+        XCTAssertEqual(callbackState.snapshot.callbackCount, 2,
                        "the reentrant event's batch must produce a second callback")
     }
 
@@ -129,24 +154,23 @@ final class FakeCoreAdapterCallbackTests: XCTestCase {
         let gate = DispatchSemaphore(value: 0)
         callbackQueue.async { gate.wait() }
 
-        let countLock = NSLock()
-        var callCount = 0
+        let callCount = CallbackLockedState(0)
         fake.onSendResult = { _ in
-            countLock.lock(); callCount += 1; countLock.unlock()
+            callCount.withValue { $0 += 1 }
         }
 
         try fake.add(SampleEvents.make(), mode: .immediate)
 
         let closed = expectation(description: "close returned")
         Task {
-            await fake.close(timeout: 0.2)
+            try? await fake.close(timeout: 0.2)
             closed.fulfill()
         }
         await fulfillment(of: [closed], timeout: 5)
         XCTAssertTrue(fake.isClosed)
 
         // Not delivered while the queue was blocked...
-        XCTAssertEqual(callCount, 0)
+        XCTAssertEqual(callCount.snapshot, 0)
 
         // ...but once the queue drains, the late terminal callback must still
         // arrive (exactly-once terminal contract; late delivery is safe).
@@ -154,7 +178,7 @@ final class FakeCoreAdapterCallbackTests: XCTestCase {
         let verified = expectation(description: "late callback verified")
         callbackQueue.async {
             // Serial queue: this runs after the delivery block above.
-            countLock.lock(); let n = callCount; countLock.unlock()
+            let n = callCount.snapshot
             XCTAssertEqual(n, 1)
             verified.fulfill()
         }
@@ -169,20 +193,19 @@ final class FakeCoreAdapterCallbackTests: XCTestCase {
             callbackQueue: callbackQueue)
         try fake.open(configuration: config, credentials: SampleCredentials.setA)
 
-        let countLock = NSLock()
-        var callCount = 0
+        let callCount = CallbackLockedState(0)
         fake.onSendResult = { _ in
-            countLock.lock(); callCount += 1; countLock.unlock()
+            callCount.withValue { $0 += 1 }
         }
 
         try fake.add(SampleEvents.make(), mode: .normal) // schedules 60s linger
-        await fake.close(timeout: 5) // seals (reason .close) and delivers once
+        try await fake.close(timeout: 5) // seals (reason .close) and delivers once
 
-        XCTAssertEqual(callCount, 1)
+        XCTAssertEqual(callCount.snapshot, 1)
         // Wait past the original linger deadline; the cancelled timer must
         // not produce a second callback (and a hypothetical late fire is a
         // no-op on the closed adapter).
         try? await Task.sleep(nanoseconds: 200_000_000)
-        XCTAssertEqual(callCount, 1)
+        XCTAssertEqual(callCount.snapshot, 1)
     }
 }

@@ -6,11 +6,10 @@
 // Security contract (Beta design §8.2 / decision ledger):
 // - HTTPS only; plain-http requests fail with
 //   TLSTransportErrorCodeHTTPSRequired before any task is created.
-// - Redirects are followed only when scheme AND host are unchanged;
-//   cross-host/cross-scheme redirects are rejected (credentials must not
-//   be carried to a new host). Port is intentionally NOT part of the
-//   comparison (design §8.2 literal: same scheme, same host); a same-host
-//   different-port redirect is followed. This may be tightened in Wave 3.
+// - Redirects are followed only when the normalized origin (scheme, host,
+//   effective port) and every signed request component (method, path, query,
+//   body) are unchanged. Cross-origin or signature-changing redirects are
+//   rejected, so credentials are never replayed to a different target.
 // - TLS challenges use the system default trust evaluation only. There is
 //   intentionally no trust-all bypass and no certificate override switch.
 // - Logging goes through TLSRedactingLogger: only method, redacted URL,
@@ -53,7 +52,7 @@ typedef NS_ENUM(NSInteger, TLSTransportErrorCode) {
     TLSTransportErrorCodeInvalidURL = 2100,
     /// Non-HTTPS URL; the transport refuses plain HTTP.
     TLSTransportErrorCodeHTTPSRequired = 2101,
-    /// Redirect target changed scheme or host; the redirect was not followed.
+    /// Redirect changed the origin or signed request target; it was rejected.
     TLSTransportErrorCodeRedirectRejected = 2102,
     /// The requestTimeout hard deadline fired before a terminal response.
     TLSTransportErrorCodeRequestTimeout = 2103,

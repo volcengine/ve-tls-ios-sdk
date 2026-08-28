@@ -1,5 +1,5 @@
 // ProducerTestHarness.swift
-// ProducerTestSupport
+// BridgeTests/Support
 //
 // Constructs a `Producer` backed by an injected (fake) `CoreAdapter`.
 //

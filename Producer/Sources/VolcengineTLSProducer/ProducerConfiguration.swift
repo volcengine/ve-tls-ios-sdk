@@ -28,8 +28,8 @@ public enum Persistence: Equatable, Sendable {
     /// No persistence; logs live in memory only.
     case disabled
     /// In-memory durability class (explicit alias of `.disabled` semantics).
-    /// NOTE: like every non-`.disabled` mode, it still requires a
-    /// `producerID` so the directory identity exists when a real Core lands.
+    /// This mode does not create a directory and does not require a
+    /// `producerID`.
     case memory
     /// Buffered WAL: writes are buffered; crash/power-loss boundaries apply.
     case buffered
@@ -79,19 +79,37 @@ public struct BufferConfiguration: Equatable, Sendable {
     /// Behavior when the buffer is full. Default `.reject` (SLS fail-fast).
     public var fullPolicy: BufferFullPolicy
 
+    /// Maximum time a `.block` admission may wait for buffer space. The
+    /// timeout is bounded and expressed in whole milliseconds when passed to
+    /// the C Core. It is ignored for `.reject`.
+    public var blockTimeout: TimeInterval
+
     public init(maxBytes: Int = 64 * 1024 * 1024,
-                fullPolicy: BufferFullPolicy = .reject) {
+                fullPolicy: BufferFullPolicy = .reject,
+                blockTimeout: TimeInterval = 1) {
         self.maxBytes = maxBytes
         self.fullPolicy = fullPolicy
+        self.blockTimeout = blockTimeout
     }
 }
 
 /// Build-time configuration for a `Producer`. Frozen at `open` time.
 ///
 /// All defaults align with the SLS iOS wrapper / SLS C defaults (see the
-/// Beta design §5.5 table). The initializer validates every parameter and
-/// throws `ProducerError.configuration` on the first violation.
-public struct ProducerConfiguration {
+/// Beta design §5.5 table). The initializer validates all locally complete
+/// fields, and `Producer.open` revalidates an immutable snapshot including
+/// the destination and credentials. Validation throws the first applicable
+/// public `ProducerError`.
+/// The value is `Sendable`; callers may pass a copied configuration across
+/// tasks. As with any mutable value, do not concurrently mutate the same
+/// variable while another task is reading it for `Producer.open`.
+public struct ProducerConfiguration: Sendable {
+
+    /// Public-contract upper bounds for one batch. These are stricter than
+    /// the underlying C integer representation so callers cannot configure a
+    /// value that violates the TLS service admission contract.
+    internal static let maxBatchLogCount = 10_000
+    internal static let maxBatchRawBytes = 10 * 1024 * 1024
 
     public var batch: BatchConfiguration
     public var buffer: BufferConfiguration
@@ -120,13 +138,14 @@ public struct ProducerConfiguration {
     /// extensions (runtime detection). Pass an explicit value to override.
     public var automaticLifecycleHandling: Bool
 
-    /// Optional stable producer identifier. Required when `persistence !=
-    /// .disabled`. Allowed characters: `[A-Za-z0-9._-]`, max 64 UTF-8 bytes.
+    /// Optional stable producer identifier. Required when `persistence` is
+    /// `.buffered` or `.sync`. Allowed characters: `[A-Za-z0-9._-]`, max 64
+    /// UTF-8 bytes.
     public var producerID: String?
 
-    /// The send target (endpoint/region/project/topic). Required when using
-    /// the real C Core adapter; the bundled in-memory adapter ignores it.
-    /// Use `updateDestination` to change it after `open`.
+    /// The send target (endpoint/region/project/topic). Required by public
+    /// `Producer.open`; the internal injected-adapter entry point may omit it
+    /// for tests. Use `updateDestination` to change it after `open`.
     public var destination: Destination?
 
     public init(
@@ -153,49 +172,59 @@ public struct ProducerConfiguration {
         guard batch.maxLogCount > 0 else {
             throw ProducerError.configuration("batch.maxLogCount must be greater than 0")
         }
+        guard batch.maxLogCount <= Self.maxBatchLogCount else {
+            throw ProducerError.configuration(
+                "batch.maxLogCount must be at most \(Self.maxBatchLogCount)")
+        }
         guard batch.maxRawBytes > 0 else {
             throw ProducerError.configuration("batch.maxRawBytes must be greater than 0")
         }
-        guard batch.linger >= 0 else {
-            throw ProducerError.configuration("batch.linger must be greater than or equal to 0")
+        guard batch.maxRawBytes <= Self.maxBatchRawBytes else {
+            throw ProducerError.configuration(
+                "batch.maxRawBytes must be at most \(Self.maxBatchRawBytes) bytes")
         }
+        try Self.validateMilliseconds(
+            batch.linger,
+            name: "batch.linger",
+            allowZero: true)
         guard buffer.maxBytes > 0 else {
             throw ProducerError.configuration("buffer.maxBytes must be greater than 0")
+        }
+        guard buffer.maxBytes <= Int(Int32.max) else {
+            throw ProducerError.configuration("buffer.maxBytes exceeds the C Core Int32 range")
+        }
+        if buffer.fullPolicy == .block {
+            try Self.validateMilliseconds(
+                buffer.blockTimeout,
+                name: "buffer.blockTimeout",
+                allowZero: false)
+        } else if !buffer.blockTimeout.isFinite {
+            throw ProducerError.configuration("buffer.blockTimeout must be finite")
         }
         guard sendConcurrency > 0 else {
             throw ProducerError.configuration("sendConcurrency must be greater than 0")
         }
-        guard connectTimeout > 0 else {
-            throw ProducerError.configuration("connectTimeout must be greater than 0")
+        guard sendConcurrency <= Int(Int32.max) else {
+            throw ProducerError.configuration("sendConcurrency exceeds the C Core Int32 range")
         }
-        guard requestTimeout > 0 else {
-            throw ProducerError.configuration("requestTimeout must be greater than 0")
-        }
-        guard !metadata.source.isEmpty else {
-            throw ProducerError.configuration("metadata.source must not be empty")
-        }
-        guard maxLogAge > 0 else {
-            throw ProducerError.configuration("maxLogAge must be greater than 0")
-        }
+        try Self.validateMilliseconds(
+            connectTimeout,
+            name: "connectTimeout",
+            allowZero: false)
+        try Self.validateMilliseconds(
+            requestTimeout,
+            name: "requestTimeout",
+            allowZero: false)
+        try metadata.validate()
+        try Self.validateWholeSeconds(maxLogAge, name: "maxLogAge")
 
         if let producerID = producerID {
-            guard !producerID.isEmpty else {
-                throw ProducerError.configuration("producerID must not be empty")
-            }
-            let allowed = CharacterSet(charactersIn:
-                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-            guard producerID.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
-                throw ProducerError.configuration(
-                    "producerID may only contain [A-Za-z0-9._-]")
-            }
-            guard producerID.utf8.count <= 64 else {
-                throw ProducerError.configuration("producerID must be at most 64 UTF-8 bytes")
-            }
+            try Self.validateProducerID(producerID)
         }
 
-        if persistence != .disabled && producerID == nil {
+        if (persistence == .buffered || persistence == .sync) && producerID == nil {
             throw ProducerError.configuration(
-                "producerID is required when persistence is not .disabled")
+                "producerID is required when persistence is .buffered or .sync")
         }
 
         // --- normalization ----------------------------------------------
@@ -235,6 +264,165 @@ public struct ProducerConfiguration {
     /// Info.plist. No UIKit dependency.
     public static func defaultAutomaticLifecycleHandling() -> Bool {
         return Bundle.main.infoDictionary?["NSExtension"] == nil
+    }
+
+    // MARK: - Open-time validation
+
+    /// Re-validates mutable public fields at the open boundary and returns a
+    /// defensive copy. The public initializer is intentionally source
+    /// compatible and cannot prevent callers from mutating `public var`
+    /// fields after construction, so this check must run immediately before
+    /// any adapter or network work.
+    internal func validatedForOpen(requireDestination: Bool) throws -> ProducerConfiguration {
+        guard batch.maxLogCount > 0 else {
+            throw ProducerError.configuration("batch.maxLogCount must be greater than 0")
+        }
+        guard batch.maxLogCount <= Self.maxBatchLogCount else {
+            throw ProducerError.configuration(
+                "batch.maxLogCount must be at most \(Self.maxBatchLogCount)")
+        }
+        guard batch.maxRawBytes > 0 else {
+            throw ProducerError.configuration("batch.maxRawBytes must be greater than 0")
+        }
+        guard batch.maxRawBytes <= Self.maxBatchRawBytes else {
+            throw ProducerError.configuration(
+                "batch.maxRawBytes must be at most \(Self.maxBatchRawBytes) bytes")
+        }
+        try Self.validateMilliseconds(batch.linger, name: "batch.linger", allowZero: true)
+
+        guard buffer.maxBytes > 0 else {
+            throw ProducerError.configuration("buffer.maxBytes must be greater than 0")
+        }
+        guard buffer.maxBytes <= Int(Int32.max) else {
+            throw ProducerError.configuration("buffer.maxBytes exceeds the C Core Int32 range")
+        }
+        if buffer.fullPolicy == .block {
+            try Self.validateMilliseconds(
+                buffer.blockTimeout,
+                name: "buffer.blockTimeout",
+                allowZero: false)
+        } else if !buffer.blockTimeout.isFinite {
+            throw ProducerError.configuration("buffer.blockTimeout must be finite")
+        }
+
+        guard sendConcurrency > 0 else {
+            throw ProducerError.configuration("sendConcurrency must be greater than 0")
+        }
+        guard sendConcurrency <= Int(Int32.max) else {
+            throw ProducerError.configuration("sendConcurrency exceeds the C Core Int32 range")
+        }
+        try Self.validateMilliseconds(connectTimeout, name: "connectTimeout", allowZero: false)
+        try Self.validateMilliseconds(requestTimeout, name: "requestTimeout", allowZero: false)
+        try metadata.validate()
+        try Self.validateWholeSeconds(maxLogAge, name: "maxLogAge")
+
+        if let producerID = producerID {
+            try Self.validateProducerID(producerID)
+        }
+        if (persistence == .buffered || persistence == .sync) && producerID == nil {
+            throw ProducerError.configuration(
+                "producerID is required when persistence is .buffered or .sync")
+        }
+
+        if let destination = destination {
+            try destination.validate()
+        } else if requireDestination {
+            throw ProducerError.configuration("destination is required")
+        }
+
+        guard let sanitizedSessionConfiguration = urlSessionConfiguration.copy()
+            as? URLSessionConfiguration else {
+            throw ProducerError.configuration(
+                "urlSessionConfiguration could not be copied")
+        }
+        Self.sanitize(sanitizedSessionConfiguration)
+
+        var validated = self
+        validated.urlSessionConfiguration = sanitizedSessionConfiguration
+        return validated
+    }
+
+    /// Validates a timeout that is converted to the C Core's int32
+    /// millisecond representation. `allowZero` is used for close and linger;
+    /// send/connect/block timeouts require at least one millisecond.
+    internal static func validateMilliseconds(
+        _ value: TimeInterval,
+        name: String,
+        allowZero: Bool
+    ) throws {
+        guard value.isFinite else {
+            throw ProducerError.configuration("\(name) must be finite")
+        }
+        guard allowZero ? value >= 0 : value > 0 else {
+            let bound = allowZero ? "greater than or equal to 0" : "greater than 0"
+            throw ProducerError.configuration("\(name) must be \(bound)")
+        }
+
+        let milliseconds = value * 1_000
+        guard milliseconds.isFinite else {
+            throw ProducerError.configuration("\(name) exceeds the C Core millisecond range")
+        }
+        if !allowZero && milliseconds < 1 {
+            throw ProducerError.configuration("\(name) must be at least 1 millisecond")
+        }
+        guard milliseconds <= Double(Int32.max) else {
+            throw ProducerError.configuration(
+                "\(name) exceeds the C Core Int32 millisecond range")
+        }
+        // The bridge currently casts to int32_t rather than explicitly
+        // rounding. Reject a fractional millisecond so it cannot silently
+        // become zero or a different timeout.
+        guard milliseconds.rounded() == milliseconds else {
+            throw ProducerError.configuration(
+                "\(name) must be representable in whole milliseconds")
+        }
+    }
+
+    /// `maxLogAge` is passed as whole seconds to the ObjC bridge and then as
+    /// int64 milliseconds to the C Core. Reject fractional seconds and values
+    /// that would overflow either conversion.
+    private static func validateWholeSeconds(
+        _ value: TimeInterval,
+        name: String
+    ) throws {
+        guard value.isFinite else {
+            throw ProducerError.configuration("\(name) must be finite")
+        }
+        guard value > 0 else {
+            throw ProducerError.configuration("\(name) must be greater than 0")
+        }
+        guard value.rounded() == value else {
+            throw ProducerError.configuration("\(name) must be representable in whole seconds")
+        }
+        guard value <= Double(Int64.max) / 1_000 else {
+            throw ProducerError.configuration(
+                "\(name) exceeds the C Core integer millisecond range")
+        }
+    }
+
+    private static func validateProducerID(_ producerID: String) throws {
+        guard !producerID.isEmpty else {
+            throw ProducerError.configuration("producerID must not be empty")
+        }
+        guard producerID != "." && producerID != ".." else {
+            throw ProducerError.configuration("producerID must not be \".\" or \"..\"")
+        }
+        let allowed = CharacterSet(
+            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        guard producerID.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            throw ProducerError.configuration(
+                "producerID may only contain [A-Za-z0-9._-]")
+        }
+        guard producerID.utf8.count <= 64 else {
+            throw ProducerError.configuration("producerID must be at most 64 UTF-8 bytes")
+        }
+    }
+
+    private static func sanitize(_ configuration: URLSessionConfiguration) {
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.urlCredentialStorage = nil
+        configuration.httpShouldSetCookies = false
     }
 }
 

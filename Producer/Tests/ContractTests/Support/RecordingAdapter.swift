@@ -11,7 +11,7 @@ import XCTest
 
 /// Thread-safe `CoreAdapter` spy recording every call and allowing error
 /// injection and manual `SendResult` emission.
-final class RecordingAdapter: CoreAdapter {
+final class RecordingAdapter: CoreAdapter, @unchecked Sendable {
 
     var onSendResult: (@Sendable (SendResult) -> Void)?
 
@@ -27,9 +27,17 @@ final class RecordingAdapter: CoreAdapter {
     var openError: Error?
     /// When set, `add` throws this error.
     var addError: Error?
+    /// Errors returned by successive close attempts. A consumed entry is
+    /// removed, allowing contract tests to exercise retry-after-failure.
+    var closeErrors: [Error] = []
+    /// Keeps a close attempt in flight so concurrent Producer callers join
+    /// the same attempt deterministically.
+    var closeDelay: TimeInterval = 0
 
     /// Signaled once `open` has started (after recording the call).
     let openStarted = DispatchSemaphore(value: 0)
+    /// Signaled once each close attempt has started (after recording it).
+    let closeStarted = DispatchSemaphore(value: 0)
     /// `open` blocks on this semaphore when non-nil, letting tests exercise
     /// the `.opening` state.
     var openGate: DispatchSemaphore?
@@ -61,6 +69,11 @@ final class RecordingAdapter: CoreAdapter {
     var closeCallCount: Int {
         lock.lock(); defer { lock.unlock() }
         return _closeCallCount
+    }
+
+    var openedConfiguration: ProducerConfiguration? {
+        lock.lock(); defer { lock.unlock() }
+        return _configuration
     }
 
     // MARK: - CoreAdapter
@@ -103,12 +116,21 @@ final class RecordingAdapter: CoreAdapter {
         lock.unlock()
     }
 
-    func close(timeout: TimeInterval) async {
-        lock.lock()
-        _closeCallCount += 1
-        lock.unlock()
+    func close(timeout: TimeInterval) async throws {
+        let (closeError, delay) = withLock {
+            _closeCallCount += 1
+            let closeError = closeErrors.isEmpty ? nil : closeErrors.removeFirst()
+            return (closeError, closeDelay)
+        }
+        closeStarted.signal()
         // Yield once so concurrent-close tests exercise the .closing state.
         await Task.yield()
+        if delay > 0 {
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        }
+        if let closeError {
+            throw closeError
+        }
     }
 
     // MARK: - Emission
@@ -127,6 +149,12 @@ final class RecordingAdapter: CoreAdapter {
     private static let fallbackQueue = DispatchQueue(
         label: "com.volcengine.tls.producer.contracttests.recording",
         qos: .utility)
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
 }
 
 // MARK: - Test helpers
@@ -156,7 +184,7 @@ extension Destination {
 /// Polls `condition` until true or the deadline. Fails the test on timeout.
 func waitUntil(
     timeout: TimeInterval = 2,
-    file: StaticString = #file,
+    file: StaticString = #filePath,
     line: UInt = #line,
     _ condition: () -> Bool
 ) async throws {

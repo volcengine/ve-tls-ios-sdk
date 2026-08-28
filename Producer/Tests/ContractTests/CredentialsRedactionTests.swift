@@ -69,6 +69,20 @@ final class CredentialsRedactionTests: XCTestCase {
         XCTAssertEqual(String(reflecting: credentials), "Credentials(<redacted>)")
     }
 
+    func testEmbeddedNULCredentialsAreRejectedWithoutEchoingSecrets() {
+        for credentials in [
+            Credentials(accessKeyID: "ak\0suffix", accessKeySecret: "sk"),
+            Credentials(accessKeyID: "ak", accessKeySecret: "sk\0suffix"),
+            Credentials(accessKeyID: "ak", accessKeySecret: "sk", securityToken: "token\0suffix"),
+        ] {
+            XCTAssertThrowsError(try credentials.validate()) { error in
+                let description = String(describing: error)
+                XCTAssertTrue(description.contains("NUL"))
+                XCTAssertFalse(description.contains("suffix"))
+            }
+        }
+    }
+
     func testUpdateCredentialsDoesNotLeakViaErrors() async throws {
         let recording = RecordingAdapter()
         let producer = try await Producer.open(

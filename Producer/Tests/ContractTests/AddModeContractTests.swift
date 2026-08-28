@@ -82,6 +82,7 @@ final class AddModeContractTests: XCTestCase {
     func testBundledAdapterImmediateSealsWithoutLinger() async throws {
         let counter = CallbackCounter()
         let producer = try await Producer.open(
+            adapter: BundledCoreAdapter(),
             configuration: .makeTesting(),
             credentials: .testing) { _ in
                 counter.increment()
@@ -104,6 +105,7 @@ final class AddModeContractTests: XCTestCase {
     func testBundledAdapterDeliversSuccessfulResultFields() async throws {
         let collector = ResultCollector()
         let producer = try await Producer.open(
+            adapter: BundledCoreAdapter(),
             configuration: .makeTesting(),
             credentials: .testing) { result in
                 collector.append(result)

@@ -3,14 +3,12 @@
 //  SwiftExample
 //
 //  One-button demo of the VolcengineTLSProducer public API:
-//  tap → open (once) → updateDestination → add(.immediate) → show SendResult.
+//  tap → open (once) → add(.immediate) → show SendResult.
 //
-//  DEVELOPMENT PREVIEW: `Producer.open` currently wires the PROVISIONAL
-//  in-memory `BundledCoreAdapter`. There is no network, no persistence, and
-//  every sealed batch yields a successful `SendResult`. This UI demonstrates
-//  the API shape and callback flow only — it is NOT evidence of real
-//  delivery. Replace the placeholder credentials/destination below with
-//  your own before running against the Real Core.
+//  DEVELOPMENT PREVIEW: `Producer.open` uses the Real C Core and can issue
+//  real HTTPS requests. Replace the placeholders only with credentials and a
+//  project/topic explicitly authorized for testing. This UI is not BOE,
+//  device, or service-delivery evidence by itself.
 //
 
 import UIKit
@@ -106,7 +104,7 @@ final class ViewController: UIViewController {
 
     // MARK: - Producer
 
-    /// Opens the producer lazily on first tap and sets the destination.
+    /// Opens the producer lazily on first tap with a validated destination.
     /// `onSendResult` is delivered on the SDK callback queue (not main), so
     /// UI updates hop back to the main queue.
     private func ensureProducer() async throws -> Producer {
@@ -114,11 +112,11 @@ final class ViewController: UIViewController {
             return producer
         }
 
-        let configuration = try ProducerConfiguration()
         let destination = Destination(endpoint: endpoint,
                                       region: region,
                                       projectID: projectID,
                                       topicID: topicID)
+        let configuration = try ProducerConfiguration(destination: destination)
 
         let producer = try await Producer.open(
             configuration: configuration,
@@ -137,11 +135,6 @@ final class ViewController: UIViewController {
                 self?.statusLabel.text = text
             }
         }
-
-        // The frozen P0 `open` does not take a destination; set it after
-        // open. Previously accepted logs are later sent to the new
-        // destination (current-target semantics).
-        try producer.updateDestination(destination)
 
         self.producer = producer
         return producer

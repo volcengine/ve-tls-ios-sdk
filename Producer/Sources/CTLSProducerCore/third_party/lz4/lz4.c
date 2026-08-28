@@ -67,6 +67,17 @@
 **************************************/
 #include "lz4.h"
 
+/*
+ * The iOS SDK statically embeds this namespaced copy of LZ4. SwiftPM does
+ * not allow a remotely consumed package product to rely on unsafe compiler
+ * flags, so hide the implementation at the source boundary when the package
+ * build marker is present. The standalone vendored Core build is unchanged.
+ */
+#if (defined(VE_TLS_PACKAGE_INTERNAL) || defined(VE_TLS_LZ4_PACKAGE_INTERNAL)) && \
+    (defined(__GNUC__) || defined(__clang__))
+#  pragma GCC visibility push(hidden)
+#endif
+
 
 /**************************************
 *  Compiler Options
@@ -1467,3 +1478,8 @@ int LZ4_decompress_fast_withPrefix64k(const char* source, char* dest, int origin
 }
 
 #endif   /* LZ4_COMMONDEFS_ONLY */
+
+#if (defined(VE_TLS_PACKAGE_INTERNAL) || defined(VE_TLS_LZ4_PACKAGE_INTERNAL)) && \
+    (defined(__GNUC__) || defined(__clang__))
+#  pragma GCC visibility pop
+#endif

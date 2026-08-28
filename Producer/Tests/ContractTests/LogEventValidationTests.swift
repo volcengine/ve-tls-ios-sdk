@@ -86,6 +86,77 @@ final class LogEventValidationTests: XCTestCase {
         }
     }
 
+    func testEmbeddedNULAndNonFiniteTimestampAreRejected() throws {
+        let event = LogEvent(
+            timestamp: Date(timeIntervalSince1970: .infinity),
+            hashKey: "hash\0suffix",
+            contents: [
+                "key\0suffix": .string("value"),
+                "value": .string("prefix\0suffix"),
+            ])
+        XCTAssertThrowsError(try event.validate()) { error in
+            guard case ProducerError.invalidLog(let paths) = error else {
+                XCTFail("expected .invalidLog, got \(error)")
+                return
+            }
+            let joined = paths.joined(separator: "|")
+            XCTAssertTrue(joined.contains("timestamp:"))
+            XCTAssertTrue(joined.contains("hashKey:"))
+            XCTAssertTrue(joined.contains("embedded NUL"))
+        }
+    }
+
+    func testHashKeyMustBeLowercaseHexAndAtMost32Bytes() throws {
+        let valid = ["0", "0123456789abcdef", String(repeating: "a", count: 32)]
+        for hashKey in valid {
+            XCTAssertNoThrow(
+                try LogEvent(hashKey: hashKey, contents: ["k": .string("v")]).validate(),
+                "expected valid hashKey: \(hashKey)")
+        }
+
+        let invalid = [
+            "",
+            "ABCDEF",
+            "0123456789abcdef0123456789abcdef0",
+            "g",
+            "hash-key",
+            "é",
+        ]
+        for hashKey in invalid {
+            XCTAssertThrowsError(
+                try LogEvent(hashKey: hashKey, contents: ["k": .string("v")]).validate(),
+                "expected invalid hashKey: \(hashKey)") { error in
+                guard case ProducerError.invalidLog(let paths) = error else {
+                    XCTFail("expected .invalidLog, got \(error)")
+                    return
+                }
+                XCTAssertTrue(paths.contains { $0.hasPrefix("hashKey:") })
+            }
+        }
+    }
+
+    func testSingleLogAboveTenMiBRejectedEvenAtMaximumConfiguredBatch() async throws {
+        let recording = RecordingAdapter()
+        let config = try ProducerConfiguration(
+            batch: BatchConfiguration(
+                maxLogCount: 10_000,
+                maxRawBytes: 10 * 1024 * 1024,
+                linger: 3))
+        let producer = try await Producer.open(
+            adapter: recording,
+            configuration: config,
+            credentials: .testing)
+
+        let oversizedValue = String(repeating: "x", count: 10 * 1024 * 1024)
+        let oversized = LogEvent(contents: ["k": .string(oversizedValue)])
+        XCTAssertThrowsError(try producer.add(oversized)) { error in
+            XCTAssertEqual(error as? ProducerError, .singleLogTooLarge)
+        }
+        XCTAssertTrue(recording.addCalls.isEmpty)
+
+        try await producer.close(timeout: 1)
+    }
+
     func testValidEventPassesValidation() throws {
         let event = LogEvent(contents: [
             "s": .string("x"),

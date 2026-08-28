@@ -7,7 +7,6 @@
 
 import XCTest
 import TLSProducerBridge
-import CTLSProducerCore
 
 final class BridgeObjCHelpersTests: XCTestCase {
 
@@ -61,9 +60,8 @@ final class BridgeObjCHelpersTests: XCTestCase {
     }
 
     func testRealCoreAdapterVersion() {
-        // The C Core is now integrated (v0.3.1); verify the version probe
-        // returns a non-empty string.
-        let version = String(cString: ve_tls_iosp_core_version())
+        // Keep the hidden C ABI behind the package-internal ObjC bridge.
+        let version = TLSRealCoreAdapter.coreVersion
         XCTAssertFalse(version.isEmpty, "C Core version must be non-empty")
     }
 }

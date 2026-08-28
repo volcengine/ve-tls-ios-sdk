@@ -93,6 +93,54 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
         }
     }
 
+    func testBatchContractUpperBoundsAreAcceptedAtTheBoundary() throws {
+        XCTAssertNoThrow(try ProducerConfiguration(
+            batch: BatchConfiguration(
+                maxLogCount: 10_000,
+                maxRawBytes: 10 * 1024 * 1024)))
+    }
+
+    func testBatchContractUpperBoundsAreRejected() {
+        XCTAssertThrowsError(try ProducerConfiguration(
+            batch: BatchConfiguration(maxLogCount: 10_001))) { error in
+            assertConfigurationError(error, containing: "maxLogCount")
+        }
+        XCTAssertThrowsError(try ProducerConfiguration(
+            batch: BatchConfiguration(maxRawBytes: 10 * 1024 * 1024 + 1))) { error in
+            assertConfigurationError(error, containing: "maxRawBytes")
+        }
+    }
+
+    func testBatchContractUpperBoundsAreRevalidatedAfterMutationAtOpen() async throws {
+        var countConfiguration = try ProducerConfiguration()
+        countConfiguration.batch.maxLogCount = 10_001
+        let countAdapter = RecordingAdapter()
+        do {
+            _ = try await Producer.open(
+                adapter: countAdapter,
+                configuration: countConfiguration,
+                credentials: .testing)
+            XCTFail("expected mutated maxLogCount to fail at open")
+        } catch let error as ProducerError {
+            assertConfigurationError(error, containing: "maxLogCount")
+        }
+        XCTAssertEqual(countAdapter.openCallCount, 0)
+
+        var bytesConfiguration = try ProducerConfiguration()
+        bytesConfiguration.batch.maxRawBytes = 10 * 1024 * 1024 + 1
+        let bytesAdapter = RecordingAdapter()
+        do {
+            _ = try await Producer.open(
+                adapter: bytesAdapter,
+                configuration: bytesConfiguration,
+                credentials: .testing)
+            XCTFail("expected mutated maxRawBytes to fail at open")
+        } catch let error as ProducerError {
+            assertConfigurationError(error, containing: "maxRawBytes")
+        }
+        XCTAssertEqual(bytesAdapter.openCallCount, 0)
+    }
+
     func testNegativeLingerRejected() {
         XCTAssertThrowsError(
             try ProducerConfiguration(batch: BatchConfiguration(linger: -1))
@@ -129,6 +177,20 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
             try ProducerConfiguration(metadata: ProducerMetadata(source: ""))
         ) { error in
             assertConfigurationError(error, containing: "source")
+        }
+    }
+
+    func testMetadataEmbeddedNULRejected() {
+        let cases = [
+            ProducerMetadata(source: "iOS\0suffix"),
+            ProducerMetadata(fileName: "file\0name"),
+            ProducerMetadata(tags: ["key\0suffix": "value"]),
+            ProducerMetadata(tags: ["key": "value\0suffix"]),
+        ]
+        for metadata in cases {
+            XCTAssertThrowsError(try ProducerConfiguration(metadata: metadata)) { error in
+                assertConfigurationError(error, containing: "NUL")
+            }
         }
     }
 
@@ -169,18 +231,65 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
         }
     }
 
-    func testPersistenceRequiresProducerID() {
-        for mode in [Persistence.memory, .buffered, .sync] {
+    func testWALPersistenceRequiresProducerID() {
+        for mode in [Persistence.buffered, .sync] {
             XCTAssertThrowsError(try ProducerConfiguration(persistence: mode)) { error in
                 assertConfigurationError(error, containing: "producerID")
             }
         }
     }
 
-    func testPersistenceWithProducerIDAccepted() throws {
-        for mode in [Persistence.memory, .buffered, .sync] {
+    func testMemoryPersistenceDoesNotRequireProducerID() throws {
+        XCTAssertNoThrow(try ProducerConfiguration(persistence: .memory))
+        XCTAssertNoThrow(try ProducerConfiguration(persistence: .disabled))
+    }
+
+    func testWALPersistenceWithProducerIDAccepted() throws {
+        for mode in [Persistence.buffered, .sync] {
             XCTAssertNoThrow(
                 try ProducerConfiguration(persistence: mode, producerID: "p1"))
+        }
+    }
+
+    func testDotProducerIDsRejectedLikeStorageDirectory() {
+        for invalid in [".", ".."] {
+            XCTAssertThrowsError(try ProducerConfiguration(
+                persistence: .buffered,
+                producerID: invalid)) { error in
+                assertConfigurationError(error, containing: "producerID")
+            }
+        }
+    }
+
+    func testBlockTimeoutIsValidatedOnlyWhenBlocking() throws {
+        XCTAssertNoThrow(try ProducerConfiguration(
+            buffer: BufferConfiguration(fullPolicy: .reject, blockTimeout: 0)))
+        XCTAssertNoThrow(try ProducerConfiguration(
+            buffer: BufferConfiguration(fullPolicy: .reject, blockTimeout: -1)))
+        XCTAssertThrowsError(try ProducerConfiguration(
+            buffer: BufferConfiguration(fullPolicy: .block, blockTimeout: 0))) { error in
+            assertConfigurationError(error, containing: "blockTimeout")
+        }
+        XCTAssertThrowsError(try ProducerConfiguration(
+            buffer: BufferConfiguration(fullPolicy: .block, blockTimeout: 0.0005))) { error in
+            assertConfigurationError(error, containing: "millisecond")
+        }
+    }
+
+    func testTimeIntervalsMustBeFiniteAndRepresentable() {
+        XCTAssertThrowsError(try ProducerConfiguration(connectTimeout: .infinity)) { error in
+            assertConfigurationError(error, containing: "finite")
+        }
+        XCTAssertThrowsError(try ProducerConfiguration(requestTimeout: .nan)) { error in
+            assertConfigurationError(error, containing: "finite")
+        }
+        XCTAssertThrowsError(try ProducerConfiguration(
+            connectTimeout: TimeInterval(Int32.max) / 1_000 + 0.001)) { error in
+            assertConfigurationError(error, containing: "Int32")
+        }
+        XCTAssertThrowsError(try ProducerConfiguration(
+            batch: BatchConfiguration(linger: 0.0005))) { error in
+            assertConfigurationError(error, containing: "millisecond")
         }
     }
 
@@ -219,7 +328,7 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
     private func assertConfigurationError(
         _ error: Error,
         containing fragment: String,
-        file: StaticString = #file,
+        file: StaticString = #filePath,
         line: UInt = #line
     ) {
         guard case ProducerError.configuration(let reason) = error else {

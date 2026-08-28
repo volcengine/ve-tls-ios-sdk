@@ -1,7 +1,14 @@
 #ifndef VE_TLS_EXPORT_H
 #define VE_TLS_EXPORT_H
 
-#if defined(_WIN32) || defined(__CYGWIN__)
+#if defined(VE_TLS_PACKAGE_INTERNAL)
+#  if defined(__GNUC__) || defined(__clang__)
+#    pragma GCC visibility push(hidden)
+#    define VE_TLS_API __attribute__((visibility("hidden")))
+#  else
+#    define VE_TLS_API
+#  endif
+#elif defined(_WIN32) || defined(__CYGWIN__)
 #  if defined(VE_TLS_SHARED)
 #    if defined(VE_TLS_BUILDING_LIBRARY) || defined(VE_TLS_BUILDING) || defined(VE_TLS_EXPORTS)
 #      define VE_TLS_API __declspec(dllexport)

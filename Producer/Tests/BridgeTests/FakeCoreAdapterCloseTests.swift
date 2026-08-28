@@ -7,7 +7,6 @@
 
 import XCTest
 @testable import VolcengineTLSProducer
-import ProducerTestSupport
 
 final class FakeCoreAdapterCloseTests: XCTestCase {
 
@@ -17,19 +16,19 @@ final class FakeCoreAdapterCloseTests: XCTestCase {
             maxLogCount: 100, linger: 0)
         try fake.open(configuration: config, credentials: SampleCredentials.setA)
 
-        await fake.close(timeout: 5)
+        try await fake.close(timeout: 5)
         XCTAssertTrue(fake.isClosed)
         let callsAfterFirstClose = fake.closeCallCount
 
         // A second close must complete normally and perform no new work.
-        await fake.close(timeout: 5)
+        try await fake.close(timeout: 5)
         XCTAssertTrue(fake.isClosed)
         XCTAssertEqual(fake.closeCallCount, callsAfterFirstClose)
     }
 
-    func testCloseWithoutOpenIsSafe() async {
+    func testCloseWithoutOpenIsSafe() async throws {
         let fake = FakeCoreAdapter()
-        await fake.close(timeout: 1)
+        try await fake.close(timeout: 1)
         XCTAssertTrue(fake.isClosed)
     }
 
@@ -38,7 +37,7 @@ final class FakeCoreAdapterCloseTests: XCTestCase {
         let config = try TestConfigurations.make(
             maxLogCount: 100, linger: 0)
         try fake.open(configuration: config, credentials: SampleCredentials.setA)
-        await fake.close(timeout: 5)
+        try await fake.close(timeout: 5)
 
         XCTAssertThrowsError(
             try fake.add(SampleEvents.make(), mode: .normal)
@@ -61,7 +60,7 @@ final class FakeCoreAdapterCloseTests: XCTestCase {
         try fake.add(SampleEvents.make(value: "a"), mode: .normal)
         try fake.add(SampleEvents.make(value: "b"), mode: .normal)
         // No seal yet (linger 60s). close performs a bounded flush.
-        await fake.close(timeout: 5)
+        try await fake.close(timeout: 5)
 
         await fulfillment(of: [delivered], timeout: 5)
         XCTAssertEqual(fake.sealedBatches.count, 1)
@@ -89,19 +88,18 @@ final class FakeCoreAdapterCloseTests: XCTestCase {
 
         // Five concurrent closes: all must join as waiters and return once
         // the delivery completes, without trapping on double resume.
-        let group = DispatchGroup()
-        for _ in 0..<5 {
-            group.enter()
+        let closeTasks = (0..<5).map { _ in
             Task {
-                await fake.close(timeout: 5)
-                group.leave()
+                try? await fake.close(timeout: 5)
             }
         }
         // Give the closes time to register as waiters.
         try? await Task.sleep(nanoseconds: 100_000_000)
 
         gate.signal()
-        group.wait()
+        for closeTask in closeTasks {
+            _ = await closeTask.value
+        }
 
         XCTAssertTrue(fake.isClosed)
         XCTAssertEqual(fake.closeCallCount, 1,
@@ -117,7 +115,7 @@ final class FakeCoreAdapterCloseTests: XCTestCase {
             maxLogCount: 100, linger: 0)
         try fake.open(configuration: config, credentials: SampleCredentials.setA)
 
-        let closeTask = Task { await fake.close(timeout: 5) }
+        let closeTask = Task { try? await fake.close(timeout: 5) }
         // Wait until close has entered its in-flight window.
         try? await Task.sleep(nanoseconds: 100_000_000)
 
@@ -138,7 +136,7 @@ final class FakeCoreAdapterCloseTests: XCTestCase {
             maxLogCount: 100, linger: 0)
         try fake.open(configuration: config, credentials: SampleCredentials.setA)
 
-        let closeTask = Task { await fake.close(timeout: 5) }
+        let closeTask = Task { try? await fake.close(timeout: 5) }
         try? await Task.sleep(nanoseconds: 100_000_000)
 
         XCTAssertThrowsError(
@@ -158,7 +156,7 @@ final class FakeCoreAdapterCloseTests: XCTestCase {
             maxLogCount: 100, linger: 0)
         try fake.open(configuration: config, credentials: SampleCredentials.setA)
 
-        let closeTask = Task { await fake.close(timeout: 5) }
+        let closeTask = Task { try? await fake.close(timeout: 5) }
         try? await Task.sleep(nanoseconds: 100_000_000)
 
         XCTAssertThrowsError(

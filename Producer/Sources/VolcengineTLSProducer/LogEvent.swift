@@ -44,10 +44,38 @@ public struct LogEvent: Equatable, Sendable {
     /// field paths; partial admission never happens.
     internal func validate() throws {
         var violations: [String] = []
+        let timestampMilliseconds = timestamp.timeIntervalSince1970 * 1_000
+        if !timestampMilliseconds.isFinite ||
+            timestampMilliseconds < Double(Int64.min) ||
+            // Double(Int64.max) rounds up to 2^63, which Int64 cannot hold.
+            timestampMilliseconds >= Double(Int64.max) {
+            violations.append("timestamp: must fit in finite Unix epoch milliseconds")
+        }
+        if let hashKey {
+            if hashKey.contains("\0") {
+                violations.append("hashKey: must not contain embedded NUL characters")
+            } else {
+                let bytes = hashKey.utf8
+                let isLowercaseHex = !bytes.isEmpty &&
+                    bytes.count <= 32 &&
+                    bytes.allSatisfy { byte in
+                        (byte >= 0x30 && byte <= 0x39) ||
+                            (byte >= 0x61 && byte <= 0x66)
+                    }
+                if !isLowercaseHex {
+                    violations.append(
+                        "hashKey: must match non-empty lowercase hexadecimal [0-9a-f]{1,32}")
+                }
+            }
+        }
         for (key, value) in contents {
             // Keys must be non-empty UTF-8 strings (Beta design §5.3).
             if key.isEmpty {
                 violations.append("<empty-key>: key must be a non-empty UTF-8 string")
+                continue
+            }
+            if key.contains("\0") {
+                violations.append("\(key): key must not contain embedded NUL characters")
                 continue
             }
             do {

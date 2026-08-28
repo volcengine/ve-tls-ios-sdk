@@ -1,8 +1,7 @@
 // TestFixtures.swift
-// ProducerTestSupport
+// BridgeTests/Support
 //
-// Shared configuration/value fixtures for BridgeTests (and any other test
-// target that links ProducerTestSupport).
+// Shared configuration/value fixtures for BridgeTests.
 //
 // Aligned with Worker A's landed Sources (2026-08-27):
 //   - ProducerConfiguration(batch:callbackQueue:) is a throwing init; there

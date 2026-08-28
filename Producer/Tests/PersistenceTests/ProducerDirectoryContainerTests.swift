@@ -8,8 +8,8 @@
 //
 // SCOPE: these are helper-level tests for the Storage helper. They are NOT
 // evidence of C WAL crash-recovery, checkpoint, lease or fsync behavior —
-// that evidence is L4 (macOS Core crash harness + on-device XCUITest) and is
-// pending the frozen C Core and a macOS/Xcode toolchain (ledger §4).
+// that evidence comes from the process-kill Core recovery harness and future
+// on-device validation, not from these helper-level assertions alone.
 //
 
 import XCTest

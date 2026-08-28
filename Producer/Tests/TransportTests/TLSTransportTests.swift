@@ -1,16 +1,16 @@
 // TLSTransportTests.swift
 // TransportTests
 //
-// Wave 2 Worker D — NSURLSession transport contract tests.
+// NSURLSession transport contract tests.
 //
 // All network is stubbed offline via a per-session NSURLProtocol subclass
 // (TLSTestStubURLProtocol), so no real connection is ever made. The stub
 // behavior registry is keyed by URL path, keeping tests safe even if test
 // methods are parallelized.
 //
-// Evidence boundary: written against Swift 5.8 / iOS 13 APIs; NOT compiled
-// or run on this Linux dev machine (no Apple toolchain). Execution pending
-// macOS + Xcode (decision ledger §4).
+// Evidence boundary: offline URLProtocol tests exercise deterministic
+// transport semantics; real TLS redirect behavior is covered separately by
+// the opt-in HTTPS integration fixture.
 //
 
 import Foundation
@@ -21,9 +21,9 @@ import VolcengineTLSProducer
 // MARK: - Offline stub protocol
 
 /// NSURLProtocol stub serving canned responses per URL path.
-final class TLSTestStubURLProtocol: URLProtocol {
+final class TLSTestStubURLProtocol: URLProtocol, @unchecked Sendable {
 
-    struct Behavior {
+    struct Behavior: Sendable {
         var statusCode: Int
         var headers: [String: String]
         var body: Data
@@ -55,26 +55,44 @@ final class TLSTestStubURLProtocol: URLProtocol {
             redirectLocation: nil)
     }
 
-    private static let stateLock = NSLock()
-    private static var behaviors: [String: Behavior] = [:]
+    private final class Registry: @unchecked Sendable {
+        let lock = NSLock()
+        var behaviors: [String: Behavior] = [:]
+    }
+
+    private static let registry = Registry()
 
     static func setBehavior(_ behavior: Behavior, forPath path: String) {
-        stateLock.lock()
-        behaviors[path] = behavior
-        stateLock.unlock()
+        registry.lock.lock()
+        registry.behaviors[path] = behavior
+        registry.lock.unlock()
     }
 
     static func reset() {
-        stateLock.lock()
-        behaviors.removeAll()
-        stateLock.unlock()
+        registry.lock.lock()
+        registry.behaviors.removeAll()
+        registry.lock.unlock()
     }
 
     private static func behavior(for path: String) -> Behavior? {
-        stateLock.lock()
-        let behavior = behaviors[path]
-        stateLock.unlock()
+        registry.lock.lock()
+        let behavior = registry.behaviors[path]
+        registry.lock.unlock()
         return behavior
+    }
+
+    private static func effectivePort(for url: URL) -> Int? {
+        if let port = url.port {
+            return port
+        }
+        switch url.scheme?.lowercased() {
+        case "https":
+            return 443
+        case "http":
+            return 80
+        default:
+            return nil
+        }
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -125,10 +143,10 @@ final class TLSTestStubURLProtocol: URLProtocol {
         if let location = behavior.redirectLocation {
             // NSURLSession does not reliably call willPerformHTTPRedirection
             // for responses delivered by a custom NSURLProtocol on the
-            // simulator, so the stub follows same-host redirects internally
-            // (the transport's redirect-delegate security logic is still
-            // correct for real requests; cross-host rejection is verified
-            // by testRedirectRejectionLogic below).
+            // simulator. This fixture may deliver a same-origin final response
+            // directly for unrelated response-plumbing coverage; it does not
+            // model the production signed-target redirect policy. That policy
+            // is exercised only by RealHTTPSRedirectIntegrationTests.
             let originalHost = request.url?.host?.lowercased()
             let originalScheme = request.url?.scheme?.lowercased()
             if let redirectURL = URL(string: location),
@@ -136,6 +154,7 @@ final class TLSTestStubURLProtocol: URLProtocol {
                let redirectScheme = redirectURL.scheme?.lowercased(),
                redirectHost == originalHost,
                redirectScheme == originalScheme,
+               Self.effectivePort(for: request.url!) == Self.effectivePort(for: redirectURL),
                let redirectBehavior = Self.behavior(for: redirectURL.path) {
                 // Same-host redirect: deliver the final response directly.
                 let finalResponse = HTTPURLResponse(
@@ -160,7 +179,7 @@ final class TLSTestStubURLProtocol: URLProtocol {
             }
             return
         }
-        let deliver = { [weak self] in
+        let deliver: @Sendable () -> Void = { [weak self] in
             guard let self = self, !self.cancelled else { return }
             let response = HTTPURLResponse(
                 url: self.request.url!,
@@ -319,7 +338,7 @@ final class TLSTransportTests: XCTestCase {
 
     // MARK: Redirect
 
-    func testRedirectSameHostIsFollowed() {
+    func testCustomProtocolCanDeliverSimulatedSameOriginFinalResponse() {
         TLSTestStubURLProtocol.setBehavior(
             Behavior(
                 statusCode: 302,
@@ -341,14 +360,60 @@ final class TLSTransportTests: XCTestCase {
         XCTAssertEqual(response?.body, Data("final".utf8))
     }
 
-    func testRedirectCrossHostIsRejected() {
+    func testCustomProtocolTreatsExplicit443AsDefaultPort() {
+        TLSTestStubURLProtocol.setBehavior(
+            Behavior(
+                statusCode: 302,
+                headers: [:],
+                body: Data(),
+                delay: 0,
+                neverRespond: false,
+                redirectLocation: "https://TLS-TEST.EXAMPLE:443/redirect-final-443"),
+            forPath: "/redirect-default-443")
+        TLSTestStubURLProtocol.setBehavior(
+            Behavior.success(requestID: "rid-final-443", body: Data("final-443".utf8)),
+            forPath: "/redirect-final-443")
+
+        let response = performSync(makeRequest(path: "/redirect-default-443"))
+
+        XCTAssertEqual(response?.statusCode, 200)
+        XCTAssertNil(response?.error)
+        XCTAssertEqual(response?.requestID, "rid-final-443")
+        XCTAssertEqual(response?.body, Data("final-443".utf8))
+    }
+
+    func testCustomProtocolDoesNotSimulateDifferentPortRedirect() {
+        TLSTestStubURLProtocol.setBehavior(
+            Behavior(
+                statusCode: 302,
+                headers: [:],
+                body: Data(),
+                delay: 0,
+                neverRespond: false,
+                redirectLocation: "https://tls-test.example:8443/redirect-final-port"),
+            forPath: "/redirect-cross-port")
+        TLSTestStubURLProtocol.setBehavior(
+            Behavior.success(requestID: "rid-should-not-follow"),
+            forPath: "/redirect-final-port")
+
+        let response = performSync(makeRequest(path: "/redirect-cross-port"))
+
+        // Custom NSURLProtocol responses do not invoke the URLSession redirect
+        // delegate reliably on the simulator. The transport therefore sees
+        // the original 302; importantly, the cross-port final response is
+        // never delivered.
+        XCTAssertEqual(response?.statusCode, 302)
+        XCTAssertNil(response?.error)
+        XCTAssertNil(response?.requestID)
+    }
+
+    func testCustomProtocolCrossHostRedirectDoesNotExerciseDelegate() {
         // NOTE: NSURLSession does not reliably call willPerformHTTPRedirection
         // for custom-NSURLProtocol responses on the simulator, so the stub
         // delivers the 302 as-is. The transport's redirect-delegate
-        // rejection logic (same scheme+host check, completionHandler(nil) +
-        // redirectRejected error) is correct for real requests but cannot be
-        // exercised through this stub. This test documents the observable
-        // behavior: the 302 response is returned with no transport error.
+        // rejection logic is intentionally proved by the real HTTPS redirect
+        // integration tests instead. This test documents only the stub's
+        // observable behavior: the 302 response is returned unchanged.
         TLSTestStubURLProtocol.setBehavior(
             Behavior(
                 statusCode: 302,
@@ -367,8 +432,8 @@ final class TLSTransportTests: XCTestCase {
         XCTAssertNil(response?.error)
     }
 
-    func testRedirectCrossSchemeIsRejected() {
-        // Same caveat as testRedirectCrossHostIsRejected: the stub delivers
+    func testCustomProtocolCrossSchemeRedirectDoesNotExerciseDelegate() {
+        // Same caveat as the cross-host stub test: the stub delivers
         // the 307 as-is; the transport's redirect-delegate rejection is not
         // exercised through the custom protocol on the simulator.
         TLSTestStubURLProtocol.setBehavior(

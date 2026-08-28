@@ -993,6 +993,18 @@ static int ve_tls_should_retain_auth_failure(
         ve_tls_is_authentication_failure(error);
 }
 
+static void ve_tls_record_send_failure_metrics(
+    ve_tls_producer * producer,
+    const ve_tls_error * error,
+    int64_t total_ms
+) {
+    if (!producer || !error) {
+        return;
+    }
+    ve_tls_metric_inc_u64(&producer->m_requests_failed_total, 1);
+    ve_tls_metrics_emit(producer, "send_failed", total_ms, error->http_code);
+}
+
 static void ve_tls_report_send_failure(
     ve_tls_producer * producer,
     const ve_tls_send_task * task,
@@ -1003,8 +1015,7 @@ static void ve_tls_report_send_failure(
     if (!producer || !task || !error) {
         return;
     }
-    ve_tls_metric_inc_u64(&producer->m_requests_failed_total, 1);
-    ve_tls_metrics_emit(producer, "send_failed", total_ms, error->http_code);
+    ve_tls_record_send_failure_metrics(producer, error, total_ms);
     char * msg = ve_tls_error_build_message(error);
     ve_tls_persistent_on_delivery_failure(
         producer,
@@ -1226,11 +1237,11 @@ static int ve_tls_send_put_logs(ve_tls_producer * producer, const char * access_
             out_error->http_code = -1;
             out_error->transport_kind = resp.transport_kind ? resp.transport_kind : VE_TLS_TRANSPORT_GENERIC;
             out_error->transport_code = resp.transport_code;
-            if (out_error->transport_kind == VE_TLS_TRANSPORT_CURL) {
-                out_error->retryable = resp.transport_retryable ? 1 : 0;
-            } else {
-                out_error->retryable = 1;
-            }
+            // Retryability is part of the transport adapter contract, not a
+            // CURL-only capability. Ignoring it for custom transports causes
+            // deterministic validation/cancel/redirect failures to be retried
+            // after the adapter explicitly marked them terminal.
+            out_error->retryable = resp.transport_retryable ? 1 : 0;
             out_error->error_code = resp.error_code ? ve_tls_strdup(resp.error_code) : ve_tls_strdup("ClientError");
             out_error->error_message = resp.error_message ? ve_tls_strdup(resp.error_message) : ve_tls_strdup("http request failed");
             out_error->request_id = resp.request_id ? ve_tls_strdup(resp.request_id) : NULL;
@@ -1476,8 +1487,11 @@ have_task: {
     }
     if (!sent_ok &&
         ve_tls_should_retain_auth_failure(producer, &err, credential_version)) {
-        ve_tls_report_send_failure(
-            producer, &task, &err, send_body_size, total_ms);
+        // Retained authentication failures suspend this delivery attempt;
+        // they are not terminal batch results. Publishing a failure callback
+        // here and a success callback after credential rotation violates the
+        // public exactly-once SendResult contract.
+        ve_tls_record_send_failure_metrics(producer, &err, total_ms);
         if (entered_breaker && half_open_guard) {
             ve_tls_breaker_release_half_open_guard(producer);
         }
@@ -1650,8 +1664,7 @@ retry_fast_after_auth_update:
         if (!sent_ok &&
             ve_tls_should_retain_auth_failure(
                 producer, &err, credential_version)) {
-            ve_tls_report_send_failure(
-                producer, &task, &err, send_body_size, total_ms);
+            ve_tls_record_send_failure_metrics(producer, &err, total_ms);
             if (ve_tls_wait_for_static_credentials_update(
                     producer, credential_version)) {
                 ve_tls_error_free_fields(&err);
@@ -1983,8 +1996,7 @@ retry_keyed_after_auth_update:
         if (!sent_ok &&
             ve_tls_should_retain_auth_failure(
                 producer, &err, credential_version)) {
-            ve_tls_report_send_failure(
-                producer, &task, &err, send_body_size, total_ms);
+            ve_tls_record_send_failure_metrics(producer, &err, total_ms);
             if (entered_breaker && half_open_guard) {
                 ve_tls_breaker_release_half_open_guard(producer);
             }

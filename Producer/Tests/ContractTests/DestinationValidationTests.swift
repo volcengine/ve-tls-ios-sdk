@@ -23,19 +23,10 @@ final class DestinationValidationTests: XCTestCase {
 
         XCTAssertNoThrow(
             try Destination(
-                endpoint: "https://tls-cn-beijing.volces.com:8443/path",
+                endpoint: "https://tls-cn-beijing.volces.com:8443",
                 region: "cn-beijing",
                 projectID: "project",
                 topicID: "topic"
-            ).validate())
-
-        // Query is allowed (only userinfo/fragment are forbidden).
-        XCTAssertNoThrow(
-            try Destination(
-                endpoint: "https://host.example.com?query=1",
-                region: "r",
-                projectID: "p",
-                topicID: "t"
             ).validate())
 
         // Scheme is case-insensitive.
@@ -85,6 +76,24 @@ final class DestinationValidationTests: XCTestCase {
         }
     }
 
+    func testEndpointWithInvalidExplicitPortRejected() {
+        for endpoint in [
+            "https://host.example.com:0",
+            "https://host.example.com:65536",
+            "https://host.example.com:99999",
+            "https://host.example.com:",
+        ] {
+            XCTAssertThrowsError(
+                try Destination(
+                    endpoint: endpoint,
+                    region: "r", projectID: "p", topicID: "t"
+                ).validate()
+            ) { error in
+                assertConfigurationError(error, containing: "port")
+            }
+        }
+    }
+
     // MARK: - Userinfo / fragment
 
     func testEndpointWithUserinfoRejected() {
@@ -114,6 +123,25 @@ final class DestinationValidationTests: XCTestCase {
             ).validate()
         ) { error in
             assertConfigurationError(error, containing: "fragment")
+        }
+    }
+
+    func testEndpointWithPathOrQueryRejected() {
+        XCTAssertThrowsError(
+            try Destination(
+                endpoint: "https://host.example.com/base",
+                region: "r", projectID: "p", topicID: "t"
+            ).validate()
+        ) { error in
+            assertConfigurationError(error, containing: "path")
+        }
+        XCTAssertThrowsError(
+            try Destination(
+                endpoint: "https://host.example.com?token=secret",
+                region: "r", projectID: "p", topicID: "t"
+            ).validate()
+        ) { error in
+            assertConfigurationError(error, containing: "query")
         }
     }
 
@@ -152,6 +180,18 @@ final class DestinationValidationTests: XCTestCase {
         }
     }
 
+    func testDestinationFieldsWithEmbeddedNULRejected() {
+        for destination in [
+            Destination(endpoint: "https://host.example.com", region: "r\0x", projectID: "p", topicID: "t"),
+            Destination(endpoint: "https://host.example.com", region: "r", projectID: "p\0x", topicID: "t"),
+            Destination(endpoint: "https://host.example.com", region: "r", projectID: "p", topicID: "t\0x"),
+        ] {
+            XCTAssertThrowsError(try destination.validate()) { error in
+                assertConfigurationError(error, containing: "NUL")
+            }
+        }
+    }
+
     // MARK: - updateDestination integration
 
     func testUpdateDestinationValidates() async throws {
@@ -182,7 +222,7 @@ final class DestinationValidationTests: XCTestCase {
     private func assertConfigurationError(
         _ error: Error,
         containing fragment: String,
-        file: StaticString = #file,
+        file: StaticString = #filePath,
         line: UInt = #line
     ) {
         guard case ProducerError.configuration(let reason) = error else {

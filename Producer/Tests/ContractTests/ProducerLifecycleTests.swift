@@ -56,7 +56,7 @@ final class ProducerLifecycleTests: XCTestCase {
             onSendResult: nil)
 
         let openTask = Task { try await producer.performOpen() }
-        recording.openStarted.wait()
+        try await waitUntil { recording.openCallCount == 1 }
 
         // Producer is mid-open: add must fail with .invalidState.
         XCTAssertThrowsError(

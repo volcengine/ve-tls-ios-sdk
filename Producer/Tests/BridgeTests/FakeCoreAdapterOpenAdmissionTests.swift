@@ -7,7 +7,6 @@
 
 import XCTest
 @testable import VolcengineTLSProducer
-import ProducerTestSupport
 
 final class FakeCoreAdapterOpenAdmissionTests: XCTestCase {
 
@@ -143,7 +142,9 @@ final class FakeCoreAdapterOpenAdmissionTests: XCTestCase {
         sealedTwice.expectedFulfillmentCount = 2
         // Serial callback queue → the handler runs one at a time, so a plain
         // reference box is sufficient synchronization.
-        final class ReentryBox { var didAddSecond = false }
+        final class ReentryBox: @unchecked Sendable {
+            var didAddSecond = false
+        }
         let box = ReentryBox()
         fake.onSendResult = { _ in
             sealedTwice.fulfill()

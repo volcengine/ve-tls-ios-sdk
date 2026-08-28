@@ -28,6 +28,24 @@ public struct Credentials: Equatable, Sendable {
         self.securityToken = securityToken
     }
 
+    /// Validates the credential group at each open/update boundary. The
+    /// initializer remains non-throwing for source compatibility; callers
+    /// must not pass an empty access key or secret to the Core.
+    internal func validate() throws {
+        guard !accessKeyID.isEmpty else {
+            throw ProducerError.configuration("credentials.accessKeyID must not be empty")
+        }
+        guard !accessKeySecret.isEmpty else {
+            throw ProducerError.configuration("credentials.accessKeySecret must not be empty")
+        }
+        guard !accessKeyID.contains("\0"),
+              !accessKeySecret.contains("\0"),
+              securityToken?.contains("\0") != true else {
+            throw ProducerError.configuration(
+                "credentials must not contain embedded NUL characters")
+        }
+    }
+
     // MARK: - Redaction
 
     /// Always redacted. Never reveals AK/SK/token.

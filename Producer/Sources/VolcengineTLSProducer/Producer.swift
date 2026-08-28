@@ -2,7 +2,7 @@
 //  Producer.swift
 //  VolcengineTLSProducer
 //
-//  Worker A — public lifecycle facade.
+//  Public lifecycle facade.
 //
 
 import Foundation
@@ -22,7 +22,7 @@ import Foundation
 ///   work.
 /// - `onSendResult` handlers are delivered on
 ///   `configuration.callbackQueue` (a serial utility queue by default).
-public final class Producer {
+public final class Producer: @unchecked Sendable {
 
     // MARK: - Lifecycle
 
@@ -38,61 +38,112 @@ public final class Producer {
     private let lock = NSLock()
     private var state: State = .initialized
     private var closeResult: Result<Void, Error>?
-    private var closeWaiters: [CheckedContinuation<Void, Error>] = []
+    private var activeCloseAttempt: CloseAttempt?
 
     private let adapter: CoreAdapter
     private let configuration: ProducerConfiguration
-    private let snapshot: ConfigurationSnapshot
+    private var snapshot: ConfigurationSnapshot
     private var openCredentials: Credentials?
     private let userOnSendResult: (@Sendable (SendResult) -> Void)?
+    private let requireDestinationOnOpen: Bool
 
-    /// Internal injection point for tests and for the future
-    /// `RealCoreAdapter`. Not part of the public API.
+    private enum CloseAction {
+        case completed(Result<Void, Error>)
+        case wait(CloseAttempt)
+        case start(CloseAttempt)
+        case invalidState
+    }
+
+    /// A per-attempt rendezvous. Keeping the result on the attempt object
+    /// means a waiter that races with a failed close still receives that
+    /// attempt's result even if a later close retry has already started.
+    private final class CloseAttempt: @unchecked Sendable {
+        private let lock = NSLock()
+        private var result: Result<Void, Error>?
+        private var waiters: [CheckedContinuation<Void, Error>] = []
+
+        func wait() async throws {
+            try await withCheckedThrowingContinuation { continuation in
+                let finished: Result<Void, Error>? = withLock {
+                    if let result {
+                        return result
+                    }
+                    waiters.append(continuation)
+                    return nil
+                }
+                if let finished {
+                    continuation.resume(with: finished)
+                }
+            }
+        }
+
+        func finish(_ result: Result<Void, Error>) {
+            let pending: [CheckedContinuation<Void, Error>] = withLock {
+                guard self.result == nil else { return [] }
+                self.result = result
+                let pending = self.waiters
+                self.waiters = []
+                return pending
+            }
+            for waiter in pending {
+                waiter.resume(with: result)
+            }
+        }
+
+        private func withLock<T>(_ body: () -> T) -> T {
+            lock.lock()
+            defer { lock.unlock() }
+            return body()
+        }
+    }
+
+    /// Internal injection point for deterministic facade tests. Not part of
+    /// the public API; public open always constructs `RealCoreAdapter`.
     internal init(adapter: CoreAdapter,
                   configuration: ProducerConfiguration,
                   credentials: Credentials,
-                  onSendResult: (@Sendable (SendResult) -> Void)?) {
+                  onSendResult: (@Sendable (SendResult) -> Void)?,
+                  requireDestination: Bool = false) {
         self.adapter = adapter
         self.configuration = configuration
         self.snapshot = ConfigurationSnapshot(configuration)
         self.openCredentials = credentials
         self.userOnSendResult = onSendResult
+        self.requireDestinationOnOpen = requireDestination
 
         // The adapter guarantees delivery on configuration.callbackQueue and
         // never calls back under a lock (see CoreAdapter contract). The
         // Producer therefore forwards to the user handler directly.
         adapter.onSendResult = { [weak self] result in
             guard let self = self else { return }
-            self.lock.lock()
-            let handler = self.userOnSendResult
-            self.lock.unlock()
+            let handler = self.withStateLock { self.userOnSendResult }
             handler?(result)
         }
     }
 
     /// Opens a producer with the real C Core adapter (ve-tls-c-sdk v0.3.1).
     ///
-    /// The C Core provides persistent WAL, retry, batching, LZ4 compression,
-    /// and signing. When `configuration.destination` is nil, the in-memory
-    /// `BundledCoreAdapter` is used instead (no network/persistence).
+    /// Public open requires a valid HTTPS destination. The adapter is built
+    /// on a utility executor because construction can create persistent
+    /// storage and recover a WAL.
     public static func open(
         configuration: ProducerConfiguration,
         credentials: Credentials,
         onSendResult: (@Sendable (SendResult) -> Void)? = nil
     ) async throws -> Producer {
-        let adapter: CoreAdapter
-        if configuration.destination != nil {
-            adapter = try RealCoreAdapter(
-                configuration: configuration,
-                credentials: credentials)
-        } else {
-            adapter = BundledCoreAdapter()
-        }
+        let validatedConfiguration = try configuration.validatedForOpen(
+            requireDestination: true)
+        try credentials.validate()
+
+        let adapter = try await makeRealCoreAdapter(
+            configuration: validatedConfiguration,
+            credentials: credentials)
         let producer = Producer(
             adapter: adapter,
-            configuration: configuration,
+            configuration: validatedConfiguration,
             credentials: credentials,
-            onSendResult: onSendResult)
+            onSendResult: onSendResult,
+            requireDestination: true)
         try await producer.performOpen()
         return producer
     }
@@ -104,13 +155,61 @@ public final class Producer {
         credentials: Credentials,
         onSendResult: (@Sendable (SendResult) -> Void)? = nil
     ) async throws -> Producer {
+        let validatedConfiguration = try configuration.validatedForOpen(
+            requireDestination: false)
+        try credentials.validate()
         let producer = Producer(
             adapter: adapter,
-            configuration: configuration,
+            configuration: validatedConfiguration,
             credentials: credentials,
-            onSendResult: onSendResult)
+            onSendResult: onSendResult,
+            requireDestination: false)
         try await producer.performOpen()
         return producer
+    }
+
+    private final class AdapterConstructionInput: @unchecked Sendable {
+        let configuration: ProducerConfiguration
+        let credentials: Credentials
+
+        init(configuration: ProducerConfiguration, credentials: Credentials) {
+            self.configuration = configuration
+            self.credentials = credentials
+        }
+    }
+
+    private final class AdapterBox: @unchecked Sendable {
+        let adapter: CoreAdapter
+
+        init(adapter: CoreAdapter) {
+            self.adapter = adapter
+        }
+    }
+
+    /// Constructs the real adapter after the first suspension point. The
+    /// input/result boxes are explicitly unchecked Sendable because the
+    /// configuration contains Foundation reference types; ownership is
+    /// transferred exactly once to the newly created Producer.
+    private static func makeRealCoreAdapter(
+        configuration: ProducerConfiguration,
+        credentials: Credentials
+    ) async throws -> CoreAdapter {
+        let input = AdapterConstructionInput(
+            configuration: configuration,
+            credentials: credentials)
+        let box = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    let adapter = try RealCoreAdapter(
+                        configuration: input.configuration,
+                        credentials: input.credentials)
+                    continuation.resume(returning: AdapterBox(adapter: adapter))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+        return box.adapter
     }
 
     /// Internal: drives the initialized → opening → ready/failed transition.
@@ -118,51 +217,71 @@ public final class Producer {
     /// queue; the producer is returned (or the error surfaced) only after it
     /// completes.
     internal func performOpen() async throws {
-        lock.lock()
-        guard state == .initialized else {
-            lock.unlock()
+        let validatedConfiguration = try configuration.validatedForOpen(
+            requireDestination: requireDestinationOnOpen)
+        let credentials = try credentialsForOpen()
+        let didStart = withStateLock { () -> Bool in
+            guard state == .initialized else { return false }
+            state = .opening
+            return true
+        }
+        guard didStart else {
             throw ProducerError.invalidState
         }
-        state = .opening
-        lock.unlock()
 
-        guard let credentials = openCredentials else {
-            // openCredentials is set in init and cleared only after a
-            // successful open; reaching here means open ran twice.
-            lock.lock()
-            state = .failed
-            lock.unlock()
-            throw ProducerError.invalidState
-        }
+        let input = AdapterOpenInput(
+            adapter: adapter,
+            configuration: validatedConfiguration,
+            credentials: credentials)
 
         do {
-            // NOTE: no explicit closure type annotation — Swift 6 removed the
-            // `CheckedThrowingContinuation` type name (now `CheckedContinuation<T,
-            // any Error>`); inference works on both Swift 5.8 and 6.x.
-            try await withCheckedThrowingContinuation { cont in
+            try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
                     do {
-                        try self.adapter.open(
-                            configuration: self.configuration,
-                            credentials: credentials)
-                        cont.resume()
+                        try input.adapter.open(
+                            configuration: input.configuration,
+                            credentials: input.credentials)
+                        continuation.resume()
                     } catch {
-                        cont.resume(throwing: error)
+                        continuation.resume(throwing: error)
                     }
                 }
             }
         } catch {
-            lock.lock()
-            state = .failed
-            lock.unlock()
+            withStateLock {
+                state = .failed
+            }
             throw error
         }
 
         // Release the plaintext copy now that the adapter has its own.
-        lock.lock()
-        openCredentials = nil
-        state = .ready
-        lock.unlock()
+        withStateLock {
+            snapshot = ConfigurationSnapshot(validatedConfiguration)
+            openCredentials = nil
+            state = .ready
+        }
+    }
+
+    private final class AdapterOpenInput: @unchecked Sendable {
+        let adapter: CoreAdapter
+        let configuration: ProducerConfiguration
+        let credentials: Credentials
+
+        init(adapter: CoreAdapter,
+             configuration: ProducerConfiguration,
+             credentials: Credentials) {
+            self.adapter = adapter
+            self.configuration = configuration
+            self.credentials = credentials
+        }
+    }
+
+    private func credentialsForOpen() throws -> Credentials {
+        guard let credentials = withStateLock({ openCredentials }) else {
+            throw ProducerError.invalidState
+        }
+        try credentials.validate()
+        return credentials
     }
 
     // MARK: - Public API
@@ -178,23 +297,21 @@ public final class Producer {
     ///   whole event is rejected), `.singleLogTooLarge`, `.queueFull`,
     ///   `.bufferFull`, `.invalidState`, or `.closed`.
     public func add(_ log: LogEvent, mode: AddMode = .normal) throws {
-        // Validate before touching any shared state: an invalid event must
-        // never reach the adapter.
-        try log.validate()
+        let state = withStateLock { self.state }
+        try requireReadyState(state)
 
-        lock.lock()
-        let state = self.state
-        lock.unlock()
-        switch state {
-        case .ready:
-            break
-        case .closed, .closing:
-            throw ProducerError.closed
-        case .initialized, .opening, .failed:
-            throw ProducerError.invalidState
+        // Validate before touching the adapter: an invalid event must never
+        // reach the Core after the lifecycle state has been checked.
+        try log.validate()
+        guard !log.contents.isEmpty else {
+            throw ProducerError.invalidLog([
+                "contents: must contain at least one field"
+            ])
         }
 
-        if log.estimatedRawBytes() > snapshot.batch.maxRawBytes {
+        let estimatedRawBytes = log.estimatedRawBytes()
+        if estimatedRawBytes > snapshot.batch.maxRawBytes ||
+            estimatedRawBytes > ProducerConfiguration.maxBatchRawBytes {
             throw ProducerError.singleLogTooLarge
         }
 
@@ -204,89 +321,111 @@ public final class Producer {
 
     /// Atomically replaces the whole credentials group.
     public func updateCredentials(_ credentials: Credentials) throws {
-        lock.lock()
-        let state = self.state
-        lock.unlock()
-        switch state {
-        case .ready:
-            break
-        case .closed, .closing:
-            throw ProducerError.closed
-        case .initialized, .opening, .failed:
-            throw ProducerError.invalidState
-        }
+        let state = withStateLock { self.state }
+        try requireReadyState(state)
+        try credentials.validate()
         try adapter.updateCredentials(credentials)
     }
 
     /// Atomically replaces the whole destination. Previously accepted logs
     /// are later sent to the new destination (current-target semantics).
     public func updateDestination(_ destination: Destination) throws {
+        let state = withStateLock { self.state }
+        try requireReadyState(state)
         try destination.validate()
-        lock.lock()
-        let state = self.state
-        lock.unlock()
+        try adapter.updateDestination(destination)
+    }
+
+    private func requireReadyState(_ state: State) throws {
         switch state {
         case .ready:
-            break
+            return
         case .closed, .closing:
             throw ProducerError.closed
         case .initialized, .opening, .failed:
             throw ProducerError.invalidState
         }
-        try adapter.updateDestination(destination)
     }
 
     /// Locally and safely stops the producer: seals pending batches, stops
     /// workers, and completes local persistence work within `timeout`.
     ///
     /// Success does NOT mean all accepted logs were delivered to the
-    /// server. Idempotent: a second call returns the same outcome (waiting
-    /// for the in-flight shutdown if necessary).
+    /// server. Concurrent callers waiting on the same close attempt receive
+    /// the same outcome. After a failed attempt, a later call may retry the
+    /// Core close; after success, later calls return success immediately.
     public func close(timeout: TimeInterval) async throws {
-        lock.lock()
-        switch state {
-        case .closed:
-            let result = closeResult ?? .success(())
-            lock.unlock()
-            try result.get()
-            return
-        case .closing:
-            // Join the in-flight shutdown.
-            lock.unlock()
-            try await withCheckedThrowingContinuation { cont in
-                self.lock.lock()
-                if let finished = self.closeResult {
-                    self.lock.unlock()
-                    cont.resume(with: finished)
-                    return
+        try ProducerConfiguration.validateMilliseconds(
+            timeout,
+            name: "close.timeout",
+            allowZero: true)
+
+        let action = withStateLock { () -> CloseAction in
+            switch state {
+            case .closed:
+                return .completed(closeResult ?? .success(()))
+            case .ready:
+                state = .closing
+                let attempt = CloseAttempt()
+                activeCloseAttempt = attempt
+                return .start(attempt)
+            case .closing:
+                if let attempt = activeCloseAttempt {
+                    return .wait(attempt)
                 }
-                self.closeWaiters.append(cont)
-                self.lock.unlock()
+                // The preceding attempt failed. Keep rejecting add/update
+                // while allowing this next call to retry the Core close.
+                let attempt = CloseAttempt()
+                activeCloseAttempt = attempt
+                return .start(attempt)
+            case .initialized, .opening, .failed:
+                return .invalidState
             }
-            return
-        case .ready:
-            state = .closing
-            lock.unlock()
-        case .initialized, .opening, .failed:
-            lock.unlock()
+        }
+
+        switch action {
+        case .completed(let result):
+            try result.get()
+        case .wait(let attempt):
+            try await attempt.wait()
+        case .start(let attempt):
+            do {
+                try await adapter.close(timeout: timeout)
+                finishClose(result: .success(()), attempt: attempt)
+            } catch {
+                finishClose(result: .failure(error), attempt: attempt)
+                throw error
+            }
+        case .invalidState:
             throw ProducerError.invalidState
         }
-
-        // Bounded local shutdown. The adapter contract forbids throwing;
-        // timeout means "stop waiting", not failure of the local stop.
-        await adapter.close(timeout: timeout)
-        finishClose(result: .success(()))
     }
 
-    private func finishClose(result: Result<Void, Error>) {
-        lock.lock()
-        state = .closed
-        closeResult = result
-        let waiters = closeWaiters
-        closeWaiters = []
-        lock.unlock()
-        for waiter in waiters {
-            waiter.resume(with: result)
+    private func finishClose(
+        result: Result<Void, Error>,
+        attempt: CloseAttempt
+    ) {
+        let shouldFinish = withStateLock {
+            guard activeCloseAttempt === attempt else { return false }
+            activeCloseAttempt = nil
+            closeResult = result
+            if case .success = result {
+                state = .closed
+            } else {
+                // A failed close leaves the producer non-admissible but
+                // retryable. A later close creates a fresh CloseAttempt.
+                state = .closing
+            }
+            return true
         }
+        if shouldFinish {
+            attempt.finish(result)
+        }
+    }
+
+    private func withStateLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
     }
 }

@@ -1,0 +1,6 @@
+# Exact exported symbols reviewed for the VolcengineTLSProducer product.
+#
+# The public product is Swift-first. The vendored C Core and bundled LZ4 are
+# implementation details, so no ve_tls_*, VE_TLS_LZ4_*, or LZ4_* symbol is
+# allowed here. Add an exact name only after a public ABI review; wildcards are
+# intentionally unsupported.
