@@ -9,7 +9,11 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
 
 - 集成 upstream C Core v0.3.1 基线（commit
   `08f33affc2f346f92dc0734cbb92330dd272156c`）：WAL/recovery、retry、LZ4、
-  V4 signing、批处理与并发 sender。
+  V4 signing、批处理与并发 sender。当前交付是该基线加可审计 iOS patchset，
+  不是未修改的上游包；patch commits 与 diff checksum 见 `CORE_VERSION`。
+- 修复 persistent 批次处于跨轮退避时直接 destroy 只置 `stop`、sender 仅检查
+  `closing` 导致 worker join 等待延迟计时器的问题；内存任务释放，WAL 保持未 ACK
+  供下次 recover。对应 C Core `persistent` 本地修复提交为 `613b38d`，尚未推送。
 - `RealCoreAdapter` + `TLSRealCoreAdapter`：Swift/ObjC/C 生命周期、per-instance
   URLSession transport、结构化错误和终态 callback。
 - Public destination-at-open、持久化模式、bounded buffer block timeout、
@@ -52,7 +56,7 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
 - 服务端 requestID 在 transport 边界截断/规范化；SDK 诊断日志只记录稳定指纹，
   不再把服务端文本原样交给 `NSLog`。redirect 方法名按 HTTP/V4 合同大小写精确比较。
 - requestID 响应头修正为 TLS 官方 `x-tls-requestid`，并保留原
-  `x-tls-request-id` 的大小写不敏感兼容；最终 BOE public requestID 断言通过。
+  `x-tls-request-id` 的大小写不敏感兼容；wire/合同测试覆盖 public requestID。
 - 凭证整组更新时，`securityToken=nil` 会显式清除旧 STS token；Swift 与 ObjC
   边界拒绝 header-bound 字段中的 CR/LF，避免换行注入且错误不回显输入。
 - transport 将响应体限制为 64 KiB；超限在追加前终止、清空部分 body、标记为
@@ -67,14 +71,17 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
 
 ### Verified distribution status
 
-- Xcode 26.6：iOS 26.5 / 26.3.1 arm64 Simulator 全量 251 total，245 passed，
-  0 failed，6 opt-in skipped；真实 redirect 4/4；最终源码 BOE AK/SK 200 + public
-  requestID 与错误 SK `.auth` 2/2。
-- ASan/TSan 全量均为 245 passed / 0 failed / 6 skipped。
+- Xcode 26.6：iOS 26.5 / 26.3.1 arm64 Simulator 全量 252 total，246 passed，
+  0 failed，6 opt-in skipped；真实 redirect 4/4；最终源码 BOE AK/SK 200 与错误
+  SK `.auth` 2/2。该 BOE env 未要求成功响应必须含 requestID，不能据此过度声明。
+- ASan/TSan 全量均为 246 passed / 0 failed / 6 skipped。
 - SwiftPM strict Swift 6、iOS 13 deployment：arm64/x86_64 × Debug/Release 产品
   build；外部 public lifecycle/resource/symbol consumer 通过。
 - CocoaPods 1.17.0 完整 `pod lib lint`、默认 static library consumer、static
-  framework consumer、私有 header/module 与 final symbols/resources 通过。
+  framework consumer、私有 header/module 与 final symbols/resources 通过；TLS 与
+  pinned SLS `4.3.4` 的 x86_64 混编 consumer 同 App 链接通过；临时覆盖 SLS
+  podspec 的 arm64 Simulator 排除后，arm64 Release 编译、安装与启动通过，但不
+  计作官方原样 Pod 支持证据。
 - 100 轮历史进程恢复 + 最终 Release 通用 Harness 3 buffered / 3 sync、60/60
   recovered 回归通过。
 - persistent retry-cycle live recovery 与 persisted-for-recovery close/reopen 定向
@@ -84,13 +91,22 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   通过：6908 accepted / observed / success、0 failure、单 PID；RSS 覆盖率
   96.81%、最大间隔 2 秒、中位数增长 -2528 KiB、斜率 -552.40 KiB/h；但它早于
   官方 requestID 响应头修复。v12 因随后发现 Release 逐请求日志仍默认开启而主动
-  中止；最终 v13 尚未完成。
+  中止；v13 因 delayed retry destroy 等待问题主动中止。精确 `19b8648` 的最终
+  v1 完整 7200 秒通过：6920 accepted / observed / success、0 failure、单 PID；
+  RSS 覆盖率 96.42%、最大间隔 2 秒、首尾 5 分钟中位数下降 15968 KiB、斜率
+  -6175.36 KiB/h。
 
 ### Release blockers
 
 - Xcode 14.3.1 / Swift 5.8、iOS 13 真机、STS、真机 Instruments/background/
   Data Protection、隐私数据分类/App Store privacy report 尚未完成。
-- 最终 2h Simulator soak v13 尚未完成。
+- 性能口径已冻结为 1 KiB/10 fields/LZ4/1 sender、100/300 logs/s、
+  memory/persistent 分组、pinned SLS `4.3.4` 同机 Release A/B；P99 add latency、
+  CPU、RSS 相对恶化不得超过 20%。SLS 原 podspec 排除 arm64 Simulator；临时
+  source-build override 已完成 24 组短矩阵（10 秒 warm-up + 30 秒测量，3 次重复）：
+  功能/采样门禁全绿，RSS 0.996–1.048× 通过，但 P99 add 1.88–3.56×、CPU
+  2.42–7.12× 均未过 1.20× 门槛。短矩阵不替代正式时长；应先优化 admission
+  热点再跑完整 A/B，正式原样包证据仍需 Intel runner/真机。
 - 远端 `0.0.2` tag 尚未创建。
 - 当前仍是 Development Preview / release candidate source，不可标记 Beta/GA。
 

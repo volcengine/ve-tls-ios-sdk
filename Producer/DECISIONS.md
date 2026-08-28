@@ -4,14 +4,15 @@
 > [Implementation Decision Ledger](../../docs/research/tls-ios-producer-sdk-implementation-decision-ledger.md)
 > 为准；执行证据以最新 acceptance report 为准。
 
-## 当前状态（2026-08-28）
+## 当前状态（2026-08-29）
 
 - Development Preview / release candidate source，**不是 Beta/GA**。
 - Public `Producer.open` 只使用 Real C Core，不存在无 destination 时静默降级为
   内存实现。
 - Xcode 26.6 Simulator、严格 Swift 6、SwiftPM consumer、CocoaPods lint/consumer、
-  最终源码 BOE AK/SK + public requestID、本地 HTTPS redirect、sanitizer 与进程级
-  recovery 已有证据。
+  最终源码 BOE AK/SK、本地 HTTPS redirect、sanitizer、进程级 recovery 与
+  pinned SLS `4.3.4` x86_64 共存链接已有证据。当前 BOE env 未强制成功响应必须
+  含 requestID，因此 requestID 贯通只引用独立 wire/合同测试。
 - Xcode 14.3.1、iOS 13 真机、STS、隐私数据分类/App Store report 和远端 tag
   仍是发布阻断。
 
@@ -54,6 +55,11 @@
 13. batch 默认仍为 1 MiB；public initializer/open 与 ObjC Bridge 的可配置上限为
     9.5 MiB（9,961,472 bytes），并写入 Core 的 package 与 aggregate raw-byte
     两个限制，在服务端 10 MiB 绝对上限下保留 framing 余量。
+14. 默认性能验收口径为 1 KiB/10 fields/LZ4/1 sender，100/300 logs/s 两档，
+    memory/persistent 分组，pinned SLS 稳定 tag `4.3.4` 同机 Release A/B；每组
+    warm-up 5 分钟、测量 30 分钟、至少 3 次。P99 add latency、CPU、RSS 任一相对
+    SLS 恶化超过 20% 即失败，且 admission/terminal loss 必须为零。1 log/s soak
+    只验稳定性与 RSS 趋势，不是吞吐门禁。
 
 ## 安全与传输
 
@@ -110,8 +116,11 @@
 - upstream 基线：C Core v0.3.1，commit
   `08f33affc2f346f92dc0734cbb92330dd272156c`。
 - 当前 vendored Core 不是字节级未修改上游包；包含 iOS 集成补丁：custom
-  transport 尊重 `transport_retryable`、package-internal visibility 与 LZ4 hidden
-  visibility。
+  transport 尊重 `transport_retryable`、auth retain 单终态、persistent 跨 cycle
+  delayed retry、destroy/stop 有界释放、POSIX no-follow，以及 package-internal /
+  LZ4 hidden visibility。
+- Core 行为与 POSIX 补丁已整理到最新 `origin/persistent@c7fa2fa` 之上的本地
+  feature commit `613b38d`，但尚未 push/merge/tag；不能写成已发布上游版本。
 - Bridge 另补齐 effective `retry_policy.max_attempts`、NSURLSession transport、
   structured error、persistent directory lock 和 autorelease pool；retryable
   persistent batch 在有界 cycle 后进入最长 5 分钟的 jittered delayed retry。
@@ -133,13 +142,21 @@
 - 正式 2h Simulator soak v11 已通过：6908 accepted / observed / success、0
   failure、单 PID；RSS 覆盖率 96.81%、最大间隔 2 秒、首尾 5 分钟中位数下降
   2528 KiB、完整窗口斜率 -552.40 KiB/h；但它早于官方 requestID 响应头修复，
-  只作为修复前稳定性证据。v12 因 Release 逐请求日志默认开启而主动中止，最终
-  v13 尚未完成。
+  只作为修复前稳定性证据。v12 因 Release 逐请求日志默认开启主动中止；v13 因
+  delayed retry destroy 等待问题主动中止。精确提交 `19b8648` 的最终 v1 已完整
+  通过：6920 accepted / observed / success、0 failure；RSS 覆盖率 96.42%、最大
+  间隔 2 秒、首尾 5 分钟中位数下降 15968 KiB、斜率 -6175.36 KiB/h。
 
 ## 仍未完成的发布门禁
 
 - Xcode 14.3.1 / Swift 5.8 runner；iOS 13 真机。
 - 真机 background/Data Protection/Instruments；STS 临时凭证。
-- 最终 2h Simulator soak v13；v12 因逐请求日志默认开启而主动中止。
+- pinned SLS `4.3.4` 的同机性能 A/B；其 podspec 排除 arm64 Simulator，当前需
+  临时 source-build override 才能在当前 Apple Silicon Simulator 运行。24 组短
+  preflight 的功能/RSS 门禁通过，但四组 P99/CPU 相对门禁全部失败；需先优化
+  admission 重复校验/编码/字典重建，再执行正式 5 分钟 warm-up + 30 分钟测量。
+  正式原样包仍需 Intel Simulator runner 或真机。该版本 public destroy
+  在 arm64 实测会对已由 C Core 释放的 config 再做 `CFRelease` 并 SIGTRAP；临时
+  A/B 必须每组进程隔离、跳过 SLS destroy，并明确不构成其生命周期通过证据。
 - 隐私数据分类、archive privacy report、App Store Connect 校验。
 - 远端 tag、发布说明、最终 owner sign-off。

@@ -149,20 +149,24 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
   结论。SDK 会传输并可能持久化调用方日志，发布前必须由产品/隐私/法务确认数据
   类型、linkage 与 purpose，并验证 archive privacy report。
 
-## 当前证据边界（2026-08-28）
+## 当前证据边界（2026-08-29）
 
 已验证：
 
-- iOS 26.5 与 iOS 26.3.1 arm64 Simulator 全量：251 total，245 passed，
+- iOS 26.5 与 iOS 26.3.1 arm64 Simulator 全量：252 total，246 passed，
   0 failed，6 个 opt-in 用例按设计 skipped。
-- 真实本地 HTTPS redirect 4/4；最终源码 BOE AK/SK 200 + 官方
-  `x-tls-requestid` 贯通 public `SendResult`，随机错误 SK 映射 `.auth`，2/2。
-- ASan 与 TSan 全量均为 245 passed / 0 failed / 6 skipped。
+- 真实本地 HTTPS redirect 4/4；最终源码 BOE AK/SK 200、随机错误 SK 映射
+  `.auth`，2/2。当前 BOE env 未要求成功响应必须包含 requestID，因此不能把该次
+  BOE 运行写成官方 requestID 实证；requestID 贯通由独立 wire/合同测试覆盖。
+- ASan 与 TSan 全量均为 246 passed / 0 failed / 6 skipped。
 - SwiftPM 严格 Swift 6、iOS 13 deployment 产品目标：arm64/x86_64 ×
   Debug/Release 全部 build；
   x86_64 在 Apple Silicon 上只验证 build/link，不声称 runtime。
 - 外部 SwiftPM public lifecycle/resource/symbol gate；CocoaPods 完整 lint、两种
-  `:path` consumer、Privacy resource 与最终 Mach-O symbol gate。
+  `:path` consumer、Privacy resource 与最终 Mach-O symbol gate；TLS 与 pinned
+  SLS `4.3.4` 同 App 的 x86_64 CocoaPods 混编链接通过。临时覆盖 SLS podspec 的
+  历史 arm64 Simulator 排除后，同一混编 App 的 arm64 Release 编译、安装与启动
+  通过；这不是官方原样 podspec 消费证据。
 - 100 轮历史进程强杀恢复（50 buffered + 50 sync）全绿；最终 Release 通用
   Harness 又完成 3 + 3 轮，共 60/60 recovered、0 失败。
 - persistent 503 首轮 3 次耗尽后同一 live Producer 自动恢复、只产生一个
@@ -170,8 +174,10 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
 - 正式 2h Simulator soak v11 已通过：6908 accepted / observed / success、0
   failure、单 PID；RSS 覆盖率 96.81%、最大间隔 2 秒、首尾 5 分钟中位数下降
   2528 KiB、完整窗口斜率 -552.40 KiB/h；但它早于官方 requestID 响应头修复，
-  只作为修复前稳定性证据。v12 因 Release 逐请求日志默认开启而主动中止，最终
-  v13 尚未完成。
+  只作为修复前稳定性证据。v12 因 Release 逐请求日志默认开启主动中止；v13 又因
+  delayed retry destroy 等待问题主动中止。精确 `19b8648` 的最终 v1 已完整通过：
+  6920 accepted / observed / success、0 failure、单 PID；RSS 覆盖率 96.42%、最大
+  间隔 2 秒、首尾 5 分钟中位数下降 15968 KiB、斜率 -6175.36 KiB/h。
 
 仍为 BLOCKED / 未验证：
 
@@ -179,8 +185,14 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
 - STS 临时凭证；当前 BOE 材料只覆盖 AK/SK。
 - 真机 Data Protection/background/Instruments；App Store archive privacy report。
 - 隐私数据分类；远端 `0.0.2` tag 与发布动作。
-- 最终 2h Simulator soak v13；v12 因发现 Release 逐请求日志仍默认开启而主动中止，
-  不计作产品失败或通过。
+- 性能口径冻结为 1 KiB/10 fields/LZ4/1 sender，100/300 logs/s，memory/persistent
+  分组，pinned SLS `4.3.4` 同机 Release A/B；每组 warm-up 5 分钟、测量 30 分钟、
+  至少 3 次，P99 add latency/CPU/RSS 相对恶化不得超过 20%。SLS 原 podspec 排除
+  arm64 Simulator；source-build override 的 24 组短矩阵（10 秒 warm-up + 30 秒
+  测量，3 次重复）已完成：零 admission/terminal loss，RSS 0.996–1.048× 通过，
+  但 P99 add 1.88–3.56×、CPU 2.42–7.12× 未过 1.20× 门槛。短矩阵只作优化
+  preflight，不替代正式时长；先优化 admission 的重复校验/编码/字典重建，再跑
+  每组 5 分钟 + 30 分钟正式矩阵。正式原样包仍需 Intel runner/真机。
 测试通过不等于可发布。仓库内冻结合同与门禁状态见
 [DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
 workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08-28.md`。
@@ -196,8 +208,12 @@ workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08
 - projectID 为未来 project 域名路由保留；当前只做 non-empty、NUL、CR/LF 的最小
   安全校验，不猜测长度/字符集。v0.3.1 destination update wire API 没有
   projectID 参数，单独修改 projectID 不会改变 sender target。
-- Core 基线是 upstream v0.3.1，但当前 vendored 源码包含 iOS 集成补丁：custom
-  transport retryability、内部符号可见性/LZ4 隐藏；不能描述为未修改上游包。
+- Core 基线是 upstream v0.3.1，但当前 vendored 源码包含正式 iOS patchset：
+  `O_NOFOLLOW/O_CLOEXEC` 文件适配、custom transport retryability、auth-retain
+  单终态、persistent live retry-cycle、bounded destroy、内部符号可见性/LZ4 隐藏。
+  前五项已整理到 C Core `persistent` 基线之上的本地提交 `613b38d`，但尚未
+  push/merge/tag；正式上游状态与 iOS patch checksum 以 `CORE_VERSION` 为准，不能
+  描述为未修改上游包或已发布上游版本。
 - bridge-level `flock` 只能约束遵守该 Bridge 协议的 SDK 实例，不能约束绕过
   Bridge 直接使用同一目录的其他 Core 实现。
 - `requestID` 是服务端控制的可观测字段。Transport 将其截断为 256 个字符，并把
