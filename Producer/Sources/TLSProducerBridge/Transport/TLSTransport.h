@@ -16,6 +16,8 @@
 //   status, duration, request ID and byte counts are ever logged. Headers,
 //   bodies and Authorization values never reach the log, and NSError
 //   userInfo never contains credentials or raw bodies.
+// - Response bodies are capped at 64 KiB. Oversized responses terminate once
+//   with a non-retryable transport error and no partial body is returned.
 //
 // Threading/ownership contract (Beta design §8.1):
 // - One transport owns one NSURLSession on a SDK-owned serial, non-main

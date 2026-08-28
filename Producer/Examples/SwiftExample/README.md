@@ -1,16 +1,17 @@
 # SwiftExample — VolcengineTLSProducer 示例 App
 
 最小 iOS App 示例，演示 `VolcengineTLSProducer` 的公开 API：
-点击按钮 → `Producer.open` → `updateDestination` → `add(.immediate)` →
+点击按钮 → `Producer.open` → `add(.immediate)` →
 在界面上显示 `SendResult` 状态。
 
-> **Development Preview**：`Producer.open` 当前接入的是 PROVISIONAL 内存实现
-> `BundledCoreAdapter`——无网络、无持久化、无压缩、无签名，每个封批都返回
-> 成功的 `SendResult`。本示例只演示 API 形态与回调流程，**不是**真实发送证据。
+> **Development Preview**：`Producer.open` 当前接入 Real C Core。替换占位
+> destination/credentials 后会发起真实 HTTPS 请求；请只在授权测试项目中运行。
+> 本示例本身不是 BOE、真机或服务端送达证据。
 
 ## 环境
 
-- Xcode 14.3.1（Swift 5.8）
+- 已验证：Xcode 26.6 / Swift 6.3.3
+- 待验证：Xcode 14.3.1 / Swift 5.8
 - iOS 13.0+ 模拟器或真机
 
 ## 方式一：直接打开自带工程（推荐先试）
@@ -48,15 +49,13 @@ open SwiftExample.xcodeproj
    - 选择本仓库根目录（包含 `Package.swift` 的目录）。
    - 将 `VolcengineTLSProducer` 产品加入 App target。
 
-   **CocoaPods**：在 `Podfile` 中
+   **CocoaPods（本地 lint/consumer 已验证；远端 tag 尚未发布）**：在 `Podfile` 中
    ```ruby
    platform :ios, '13.0'
    use_frameworks!
 
    target 'SwiftExample' do
-     pod 'VolcengineTLSProducer',
-         :git => 'https://github.com/volcengine/ve-tls-ios-sdk.git',
-         :branch => 'producer'
+     pod 'VolcengineTLSProducer', :path => '/path/to/ve-tls-ios-sdk'
    end
    ```
    然后 `pod install`，用 `.xcworkspace` 打开。
@@ -71,7 +70,8 @@ open SwiftExample.xcodeproj
        accessKeyID: "your-access-key-id",
        accessKeySecret: "your-access-key-secret")
    ```
-6. Run。点击 **Add Log**，标签会显示 `SendResult: success (raw=…, compressed=…)`。
+6. 仅在已授权的测试 project/topic 上 Run。点击 **Add Log** 后，界面显示
+   实际 `SendResult`（可能成功或失败）。
 
 ## 关于 ATS
 
@@ -90,5 +90,6 @@ trust-all 开关。
 
 ## 证据边界
 
-本示例代码**未编译、未运行**（开发机无 Xcode 工具链）。示例行为描述以
-`Producer/DECISIONS.md` 与 `Producer/README.md` 的证据边界为准。
+SDK package 与 public consumer 路径已在模拟器编译/测试；本手写示例工程尚未
+作为 BOE 或真机证据执行。行为与发布边界以 `Producer/README.md` 和最新验收
+报告为准。

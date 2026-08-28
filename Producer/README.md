@@ -1,196 +1,205 @@
 # VolcengineTLSProducer
 
-火山引擎日志服务（TLS）iOS Producer SDK——Swift-first 的日志采集与批量发送库。
+火山引擎日志服务（TLS）iOS Producer SDK，Swift-first，集成 C Core v0.3.1
+（WAL/recovery、retry、LZ4、V4 signing、批量与并发发送）。
 
-> **Development Preview — 不是 Beta 发布。**
+> **Development Preview / release candidate source，不是 Beta/GA。**
 >
-> - C Core v0.3.1 已集成（`RealCoreAdapter`），提供 persistent WAL、retry、LZ4、签名。
-> - 184 个测试在 iOS Simulator 26.5 全部通过（2026-08-27）。
-> - iOS 13 真机、BOE 真实发送、soak/recovery 证据 pending。
-> - 状态依据：`Producer/DECISIONS.md`、`Producer/CORE_VERSION`、
->   `docs/research/tls-ios-producer-sdk-real-core-integration-log.md`。
+> 当前 Xcode 26.6 模拟器、SwiftPM、CocoaPods、本地 HTTPS redirect、BOE AK/SK、
+> sanitizer 和进程级 WAL recovery 已有执行证据。发布仍受 Xcode 14.3.1、
+> iOS 13 真机、STS、隐私数据分类/App Store 校验和远端版本 tag 阻断。
 
-## 需求
+## 要求
 
-- iOS 13.0+
-- Xcode 14.3.1 / Swift 5.8（Swift 语言模式 5.0 兼容）
+- deployment target：iOS 13.0+
+- SwiftPM manifest：Swift tools 5.8
+- 已验证工具链：Xcode 26.6 / Swift 6.3.3（Swift 5 与严格 Swift 6）
+- 声明但尚未现场验证：Xcode 14.3.1 / Swift 5.8
 
 ## 安装
 
-### Swift Package Manager
-
-**Xcode 集成**：File → Add Package Dependencies… → 输入仓库 URL，
-规则选择 *Branch: `producer`*：
-
-```
-https://github.com/volcengine/ve-tls-ios-sdk
-```
-
-将 `VolcengineTLSProducer` 产品加入你的 App target。
-
-**Package.swift 依赖**（消费方为 SwiftPM 包时）：
+### Swift Package Manager（当前开发分支）
 
 ```swift
-.package(url: "https://github.com/volcengine/ve-tls-ios-sdk.git",
-         branch: "producer")
+.package(
+    url: "https://github.com/volcengine/ve-tls-ios-sdk.git",
+    branch: "producer")
 ```
+
+只依赖 `VolcengineTLSProducer` product。`TLSProducerBridge` 是实现 target，不是
+product 或受支持 API。需要注意：SwiftPM 不对传递 target module 实施访问控制，
+源码消费者仍可能写出 `import TLSProducerBridge`；该路径没有源码/ABI 兼容承诺。
 
 ### CocoaPods
 
-```ruby
-platform :ios, '13.0'
-use_frameworks!
+当前 podspec 的本地 lint、默认 static library consumer 和 static framework
+consumer 均已通过。远端 `0.0.2` tag 尚未创建，因此发布前只能使用本地路径：
 
-target 'YourApp' do
-  pod 'VolcengineTLSProducer',
-      :git => 'https://github.com/volcengine/ve-tls-ios-sdk.git',
-      :branch => 'producer'
-end
+```ruby
+pod 'VolcengineTLSProducer', :path => '/path/to/ve-tls-ios-sdk'
 ```
 
-SwiftPM 与 CocoaPods 编译**同一份** `Producer/Sources/` 源码，不维护两套实现。
+SwiftPM 与 CocoaPods 编译同一份 `Producer/Sources/`，不维护双实现。当前是源码分发，
+未承诺 binary framework ABI stability；Pod 构建仍有 `@_implementationOnly` 未开启
+library evolution 的工具链 warning。
 
 ## Quick start
-
-与 `Producer/Tests/ConsumerIntegrationTests/ConsumerIntegrationTests.swift`
-的 `testConsumerSmoke` 相同的生命周期模式（示例额外加入了真实使用必需的
-`updateDestination`——冻结的 P0 `open` 不接收 destination 参数）：
 
 ```swift
 import VolcengineTLSProducer
 
-let configuration = try ProducerConfiguration()
+let destination = Destination(
+    endpoint: "https://tls-cn-beijing.volces.com",
+    region: "cn-beijing",
+    projectID: "YOUR_PROJECT_ID",
+    topicID: "YOUR_TOPIC_ID")
+
+let configuration = try ProducerConfiguration(destination: destination)
 let credentials = Credentials(
     accessKeyID: "YOUR_AK",
-    accessKeySecret: "YOUR_SK")
+    accessKeySecret: "YOUR_SK",
+    securityToken: nil)
 
 let producer = try await Producer.open(
     configuration: configuration,
     credentials: credentials
 ) { result in
-    // 在 SDK 回调队列（非主线程）上投递；每个封批恰好一个终态 SendResult。
-    print("send result: \(result.status), raw=\(result.rawBytes)")
+    // 串行 callback delivery；具体执行上下文由 configuration.callbackQueue 决定。
+    // 同一 live Producer 内，每个已封批最多只有一个终态结果。
+    print(result.status, result.rawBytes, result.error as Any)
 }
-
-// Destination 在 open 之后整组设置（current-target 语义：
-// 此前已接收的日志后续改投新目标）。
-try producer.updateDestination(Destination(
-    endpoint: "https://tls-cn-beijing.volces.com",
-    region: "cn-beijing",
-    projectID: "YOUR_PROJECT_ID",
-    topicID: "YOUR_TOPIC_ID"))
 
 let event = LogEvent(contents: [
     "level": .string("info"),
     "message": .string("hello tls"),
 ])
 
-// .normal 进入批量窗口（默认 1024 条 / 1 MiB / 3s linger 封批）。
+// 同步本地 admission；不等待网络或服务端 ACK。
 try producer.add(event, mode: .normal)
-
-// .immediate 立即封批并唤醒 sender；仍是异步操作，不等待网络/ACK。
+// 立即封批并唤醒 sender；仍是异步发送。
 try producer.add(event, mode: .immediate)
 
-// close = 本地 worker/session 安全停止 + 本地持久化完成；
-// 不表示所有日志已远端送达。
+// 成功表示本地 worker/session 安全停止，不表示全部远端送达。
 try await producer.close(timeout: 5)
 ```
 
-## API 概览
+Public `open` 必须在 configuration 中携带 destination。所有 public mutable fields
+都会在 open 边界重新校验并复制；非法配置不会创建 Core、持久化目录或网络请求。
 
-P0 公共 API 已冻结（ledger §2），仅 5 个方法：
+## 公共 API 语义
 
-| 方法 | 语义 |
+| API | 合同 |
 |---|---|
-| `Producer.open(configuration:credentials:onSendResult:) async throws -> Producer` | 打开 producer；`onSendResult` 在 `configuration.callbackQueue` 上投递，每个封批恰好一个终态 `SendResult` |
-| `add(_:mode:) throws` | 同步、非网络阻塞地接收一条日志；成功只表示达到当前 durability 的本地 admission 边界 |
-| `updateCredentials(_:) throws` | 整组原子替换凭证（静态 AK/SK/STS） |
-| `updateDestination(_:) throws` | 整组替换 endpoint/region/project/topic（current-target 语义） |
-| `close(timeout:) async throws` | 本地安全停止；幂等；**不**表示远端全部送达 |
+| `Producer.open(...) async throws` | 校验配置/凭证/destination，在 utility executor 构造并 recover Real Core |
+| `add(_:mode:) throws` | 同步本地 admission；成功仅表示达到配置的 durability 边界 |
+| `updateCredentials(_:) throws` | AK/SK/STS 整组原子替换 |
+| `updateDestination(_:) throws` | 整组替换 current target；endpoint/region/topic 进入 v0.3.1 sender，projectID 保存在 SDK snapshot |
+| `close(timeout:) async throws` | bounded 本地停止；并发 waiter 同结果；失败可重试；成功后幂等 |
 
-`AddMode`：`.normal`（默认，进入批量窗口）、`.immediate`（封批并唤醒 sender，
-仍异步）。
+关键默认值：batch 1024 条 / 1 MiB / 3s，buffer 64 MiB `.reject`，
+sendConcurrency 1，LZ4，connect 10s，request 15s，maxLogAge 7d。移动端单实例
+资源合同限制 buffer 不超过 256 MiB、sendConcurrency 不超过 8；initializer 与
+open 边界都会重校验，Bridge 也独立拒绝越界值。
 
-关键类型：
+持久化模式：
 
-| 类型 | 说明 |
-|---|---|
-| `ProducerConfiguration` | 构建期配置，open 时冻结。默认值对齐 SLS iOS wrapper：batch 1024/1MiB/3s、buffer 64MiB `.reject`、sendConcurrency 1、LZ4、connect 10s、request 15s、maxLogAge 7d、`.rewriteTimestamp`、`.retain`、source `"iOS"` |
-| `Credentials` | AK/SK + 可选 STS token；`description`/`debugDescription` 永远脱敏 |
-| `Destination` | endpoint（必须 HTTPS、无 userinfo/fragment）/region/projectID/topicID |
-| `LogEvent` / `LogValue` | 值类型日志事件；`add` 按值快照。`LogValue` 支持 string/int/double/bool/null/array/dictionary/utf8Data；double 必须有限（NaN/Infinity 拒绝） |
-| `SendResult` | 稳定最小字段：`status` / `rawBytes` / `compressedBytes` / `requestID?` / `error?` |
-| `ProducerError` | 稳定错误合同（`errorCode` 字符串不变）：`configuration` / `invalidLog` / `invalidState` / `queueFull` / `bufferFull` / `singleLogTooLarge` / `persistence` / `transport` / `service` / `auth` / `quota` / `timeout` / `cancelled` / `closed` / `internal` |
-| `ProducerMetadata` | log-group 级 source/fileName/tags |
+- `.disabled` / `.memory`：不创建 WAL，不要求 `producerID`。
+- `.buffered` / `.sync`：要求合法 `producerID`，使用 app-container WAL。
+- persistent retryable 失败耗尽一轮预算后保留 WAL 与 live task，按带 jitter 的
+  指数退避开启下一轮（最长 5 分钟）；不会把中间轮次伪装成终态 failure。
+- `close` 遇到 retry-delayed durable batch 时只停止本地 worker 并保留 WAL；旧
+  handler 不收到假终态，下一次使用同一 `producerID` open 后继续 recovery。
+- 同一 persistent directory 只允许一个遵守 iOS Bridge lock 协议的活跃 adapter。
+- 每个 persistent producer 当前固定最多 256 MiB / 20 万条 / 32 个 8 MiB
+  segment，超限 reject-new；尚无 public 调整项。
+- `.sync` 和 `BufferFullPolicy.block` 可能阻塞调用线程，不应在主线程使用。
 
-> `CoreAdapter` 是 `public` 但 **PROVISIONAL** 的内部 seam（仅供测试 target
-> 链接），不是公共 API 合同，Wave 3 可能重塑。消费者不应直接使用。
+## 安全与隐私
 
-## 安全
+- endpoint 必须是纯 HTTPS origin：有 host，显式 port 必须在 1…65535，不允许
+  userinfo、path、query、fragment；Core 固定构造 `/PutLogs?TopicId=...`。
+- transport 使用调用方 `URLSessionConfiguration` 的防御性副本，禁用 cache、
+  cookie 与 credential store。
+- redirect 只有在 normalized origin（scheme/host/effective port）以及签名覆盖的
+  method/path/query/body 全部不变时才 follow；否则拒绝且不转发 Authorization。
+- SDK 不直接记录 credentials、Authorization 或请求/响应 body；
+  `Credentials.description/debugDescription` 固定脱敏；C 字符串拒绝 embedded NUL
+  与 CR/LF；凭证整组更新传 `securityToken=nil` 会显式清除旧 STS token。
+  服务端 `requestID` 在 256 字符/安全字符集规范化后进入公开结果/错误；SDK 日志
+  只记录稳定指纹，不记录 requestID 文本。endpoint 仍必须属于可信服务边界。
+- transport 响应体固定上限 64 KiB；超限不返回部分 body，且不会被 Core 重试。
+- persistent 文件设置 backup exclusion 与
+  `NSFileProtectionCompleteUntilFirstUserAuthentication`；Privacy Manifest 声明
+  FileTimestamp / `C617.1`。WAL 没有 SDK 应用层加密；敏感日志必须按宿主安全
+  需求评估 Data Protection 是否足够。
+- 当前 `NSPrivacyCollectedDataTypes=[]` 只是开发占位，不是“SDK 不收集数据”的
+  结论。SDK 会传输并可能持久化调用方日志，发布前必须由产品/隐私/法务确认数据
+  类型、linkage 与 purpose，并验证 archive privacy report。
 
-- **HTTPS-only**：`Destination.validate()` 拒绝非 HTTPS endpoint、拒绝
-  userinfo 与 fragment；SDK 没有也不会提供 trust-all 开关。
-- **系统信任**：传输层使用 `URLSession` 默认 TLS 证书校验，不内置任何
-  自定义 anchor/绕过逻辑。
-- **凭证脱敏**：`Credentials` 的 `description`/`debugDescription` 永远输出
-  `Credentials(<redacted>)`；凭证不写入日志、WAL、文件名、metrics 或错误描述；
-  redacting logger 仅记录 method/脱敏 URL/status/duration/requestID/字节数，
-  并 mask `Authorization` 与 `x-tls-*`。
-- **无磁盘缓存**：`ProducerConfiguration` 对 `urlSessionConfiguration` 做防御性
-  清洗——清空 `urlCache`/`httpCookieStorage`/`urlCredentialStorage`，禁用自动
-  cookies（默认即 `.ephemeral`）。
-- **redirect 约束**：仅允许同 scheme+host 的重定向（设计合同）。
+## 当前证据边界（2026-08-28）
 
-## 证据边界
+已验证：
 
-**代码存在 ≠ 编译通过 ≠ 真机通过 ≠ Real Core 集成 ≠ Beta。**
+- iOS 26.5 与 iOS 26.3.1 arm64 Simulator 全量：246 total，240 passed，
+  0 failed，6 个 opt-in 用例按设计 skipped。
+- 真实本地 HTTPS redirect 4/4；BOE AK/SK 200 与随机错误 SK 401/403 映射
+  2/2。BOE 证据早于最终 auth-retain 补丁；补丁不影响该 non-persistent wire
+  路径，但最终源码精确复跑仍需凭证使用授权，不能把默认 skip 计作通过。
+- ASan 与 TSan 全量均为 240 passed / 0 failed / 6 skipped。
+- SwiftPM 严格 Swift 6、iOS 13 deployment 产品目标：arm64/x86_64 ×
+  Debug/Release 全部 build；
+  x86_64 在 Apple Silicon 上只验证 build/link，不声称 runtime。
+- 外部 SwiftPM public lifecycle/resource/symbol gate；CocoaPods 完整 lint、两种
+  `:path` consumer、Privacy resource 与最终 Mach-O symbol gate。
+- 100 轮历史进程强杀恢复（50 buffered + 50 sync）全绿；最终 Release 通用
+  Harness 又完成 3 + 3 轮，共 60/60 recovered、0 失败。
+- persistent 503 首轮 3 次耗尽后同一 live Producer 自动恢复、只产生一个
+  success；故障期间 local close 有界且下一次 open 能从 WAL 恢复，定向 2/2。
 
-- 本仓库的 Producer 代码已编写并经过静态审查；开发机（Linux）无
-  xcodebuild/swift/pod，**未编译、未运行任何测试**。
-- 所有测试（Contract/Bridge/Transport/Persistence/ConsumerIntegration）
-  当前状态是"已编写，执行待 macOS + Xcode"。
-- `Producer.open` 行为由 `BundledCoreAdapter`（PROVISIONAL 内存实现）提供；
-  其行为（封批即成功、`compressedBytes == rawBytes` 等）**不是**发布行为承诺。
-- Real Core 集成被 C Core 发布门禁阻塞（见 `Producer/CORE_VERSION`）。
-- 任何 BOE/真机/soak/性能证据当前均不存在。
+仍为 BLOCKED / 未验证：
+
+- Xcode 14.3.1 / Swift 5.8 legacy runner 与 iOS 13 真机。
+- STS 临时凭证；当前 BOE 材料只覆盖 AK/SK。
+- 真机 Data Protection/background/Instruments；App Store archive privacy report。
+- 隐私数据分类；远端 `0.0.2` tag 与发布动作。
+- 正式 2h Simulator soak v6/v7/v8/v9 分别因原始 requestID 日志、凭证从 STS
+  更新到 nil 后旧 token 残留、服务端响应体无界累积、资源配置允许创建数量失控
+  的 sender 线程而主动中止。上述缺陷均已红/绿修复；最终产品源码 `52963f2`
+  的 v10 尚未完成，不能计为通过。
+
+测试通过不等于可发布。仓库内冻结合同与门禁状态见
+[DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
+workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08-28.md`。
 
 ## 已知限制
 
-- **无自动 STS Provider**（P1）：仅支持静态 AK/SK/STS 初始化与整组原子更新；
-  凭证轮换需调用方自行调度 `updateCredentials`。
-- **无 Objective-C facade**（P1）：纯 Swift API。
-- **无 contextFlow**（P1）。
-- **无 XCFramework / binary SwiftPM / SDK 签名**（P1）：仅源码分发。
-- **`close` 语义**：成功 = 本地 worker/session 安全停止 + 本地持久化完成，
-  **不**表示远端全部送达；无 `CloseReport`、无远端终态 `flush`。
-- **`.immediate` 仍异步**：封批并唤醒 sender，但 `add` 不等待网络/ACK/服务端接收。
-- **无 exactly-once 承诺**；App 被强杀后不承诺继续实时上传。
-- **`BufferFullPolicy.block`** 在 `BundledCoreAdapter` 下降级为 `.reject`，
-  由 RealCoreAdapter 实现。
-- **无** `resumeDelivery` / `deliverySuspended-auth` / `retryDelayed` 公共状态机、
-  无 rich metrics（均为 P0 之外）。
-- `Producer`/`ProducerConfiguration` 未标注 `Sendable`（Swift 6 模式前需评估，
-  见 `DECISIONS.md` Wave 3 跟进项）。
+- 无自动 STS Provider、ObjC public facade、contextFlow、XCFramework、SDK
+  signature、rich metrics 或远端终态 flush。
+- 不承诺 exactly-once，也不承诺 App 被强杀后继续实时上传。
+- 调用方必须强持有 `Producer` 直到 `close` 完成；未 close 就释放只保证
+  best-effort 异步 destroy/不阻塞 deallocation，不保证剩余终态 callback。
+- v0.3.1 destination update wire API 没有 projectID 参数；单独修改 projectID
+  不会改变 sender target。
+- Core 基线是 upstream v0.3.1，但当前 vendored 源码包含 iOS 集成补丁：custom
+  transport retryability、内部符号可见性/LZ4 隐藏；不能描述为未修改上游包。
+- bridge-level `flock` 只能约束遵守该 Bridge 协议的 SDK 实例，不能约束绕过
+  Bridge 直接使用同一目录的其他 Core 实现。
+- `requestID` 是服务端控制的可观测字段。Transport 将其截断为 256 个字符，并把
+  非 `[A-Za-z0-9._:-]` 字符替换为下划线后再交给公开结果/错误；SDK 自有日志只
+  记录稳定 FNV-1a 指纹。受限文本仍由服务端选择，因此 endpoint 必须属于可信
+  服务边界，不能把源码审查表述为对任意恶意响应的绝对“零凭证反射”。
+- `CoreAdapter` 为 internal test seam，不属于消费者 API。
+- 每个请求当前都会通过 `NSLog` 输出脱敏诊断字段，没有 public 日志级别/关闭
+  开关；高频 Release 场景应在 Beta 前完成默认关闭或可注入 logger 设计。
+- C Core 会 secure-free 自有 SK/token buffer，但 Swift/Foundation/URLSession
+  可能产生系统管理副本；不承诺进程内所有凭证副本即时归零。
 
-## 示例
+## 文档与示例
 
-最小 iOS App 示例见 [`Examples/SwiftExample`](Examples/SwiftExample/README.md)。
+- 决策：[DECISIONS.md](DECISIONS.md)
+- 变更：[CHANGELOG.md](CHANGELOG.md)
+- Core 固定版本：[CORE_VERSION](CORE_VERSION)
+- 示例：[Examples/SwiftExample](Examples/SwiftExample/README.md)
+- 第三方声明：[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES)
 
-## 目录
-
-```
-Producer/
-├── DECISIONS.md            # 实施决策索引（仓库内权威）
-├── CORE_VERSION            # C Core 版本与门禁状态（BLOCKED）
-├── Sources/
-│   ├── VolcengineTLSProducer/  # Swift 公共 API（唯一公共产品）
-│   ├── TLSProducerBridge/      # ObjC 内部桥（非公共产品）
-│   └── CTLSProducerCore/       # C Core 占位 target
-├── Tests/                  # Contract/Bridge/Transport/Persistence/ConsumerIntegration
-└── Examples/SwiftExample/  # 最小 iOS App 示例
-```
-
-## 许可证
-
-Apache License 2.0，见仓库根 [LICENSE](../LICENSE)。第三方声明见
-[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES)。
+许可证：Apache License 2.0，见仓库根 [LICENSE](../LICENSE)。
