@@ -134,7 +134,8 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
   V4 canonical headers 包含 Host，显式 port 也属于 Host；因此跨端口不能安全复用
   原 Authorization。未来若需支持，必须由 Core 对新目标重新签名并配置允许端口，
   不能只放宽 URLSession delegate。
-- SDK 不直接记录 credentials、Authorization 或请求/响应 body；
+- SDK 默认不输出逐请求 transport 日志；内部诊断显式开启时也不直接记录
+  credentials、Authorization 或请求/响应 body；
   `Credentials.description/debugDescription` 固定脱敏；C 字符串拒绝 embedded NUL
   与 CR/LF；凭证整组更新传 `securityToken=nil` 会显式清除旧 STS token。
   服务端 `requestID` 在 256 字符/安全字符集规范化后进入公开结果/错误；SDK 日志
@@ -152,11 +153,11 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
 
 已验证：
 
-- iOS 26.5 与 iOS 26.3.1 arm64 Simulator 全量：250 total，244 passed，
+- iOS 26.5 与 iOS 26.3.1 arm64 Simulator 全量：251 total，245 passed，
   0 failed，6 个 opt-in 用例按设计 skipped。
 - 真实本地 HTTPS redirect 4/4；最终源码 BOE AK/SK 200 + 官方
   `x-tls-requestid` 贯通 public `SendResult`，随机错误 SK 映射 `.auth`，2/2。
-- ASan 与 TSan 全量均为 244 passed / 0 failed / 6 skipped。
+- ASan 与 TSan 全量均为 245 passed / 0 failed / 6 skipped。
 - SwiftPM 严格 Swift 6、iOS 13 deployment 产品目标：arm64/x86_64 ×
   Debug/Release 全部 build；
   x86_64 在 Apple Silicon 上只验证 build/link，不声称 runtime。
@@ -169,7 +170,8 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
 - 正式 2h Simulator soak v11 已通过：6908 accepted / observed / success、0
   failure、单 PID；RSS 覆盖率 96.81%、最大间隔 2 秒、首尾 5 分钟中位数下降
   2528 KiB、完整窗口斜率 -552.40 KiB/h；但它早于官方 requestID 响应头修复，
-  只作为修复前稳定性证据。最终 v12 尚未完成。
+  只作为修复前稳定性证据。v12 因 Release 逐请求日志默认开启而主动中止，最终
+  v13 尚未完成。
 
 仍为 BLOCKED / 未验证：
 
@@ -177,7 +179,8 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
 - STS 临时凭证；当前 BOE 材料只覆盖 AK/SK。
 - 真机 Data Protection/background/Instruments；App Store archive privacy report。
 - 隐私数据分类；远端 `0.0.2` tag 与发布动作。
-- 最终 2h Simulator soak v12。
+- 最终 2h Simulator soak v13；v12 因发现 Release 逐请求日志仍默认开启而主动中止，
+  不计作产品失败或通过。
 测试通过不等于可发布。仓库内冻结合同与门禁状态见
 [DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
 workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08-28.md`。
@@ -202,8 +205,9 @@ workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08
   记录稳定 FNV-1a 指纹。受限文本仍由服务端选择，因此 endpoint 必须属于可信
   服务边界，不能把源码审查表述为对任意恶意响应的绝对“零凭证反射”。
 - `CoreAdapter` 为 internal test seam，不属于消费者 API。
-- 每个请求当前都会通过 `NSLog` 输出脱敏诊断字段，没有 public 日志级别/关闭
-  开关；高频 Release 场景应在 Beta 前完成默认关闭或可注入 logger 设计。
+- 逐请求 transport 日志默认关闭；Bridge 内部诊断只有显式 opt-in 才会调用
+  `NSLog`。该开关不是 public SDK API；若未来需要消费者可配置日志，应设计可注入
+  logger，而不是重新打开 Release 默认日志。
 - C Core 会 secure-free 自有 SK/token buffer，但 Swift/Foundation/URLSession
   可能产生系统管理副本；不承诺进程内所有凭证副本即时归零。
 

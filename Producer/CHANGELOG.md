@@ -62,13 +62,15 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   raw-byte 限制，在服务端 10 MiB 绝对上限下保留 framing 余量。
 - 冻结 at-least-once 边界：retry/recovery 可产生重复；只有已持久化且存储完整、
   非 drop 策略的数据进入恢复重试，不把 local close 描述为远端 ACK。
+- 逐请求 transport `NSLog` 改为默认关闭；Bridge 内部诊断必须显式 opt-in，避免
+  Release 高频日志与无条件格式化开销。
 
 ### Verified distribution status
 
-- Xcode 26.6：iOS 26.5 / 26.3.1 arm64 Simulator 全量 250 total，244 passed，
+- Xcode 26.6：iOS 26.5 / 26.3.1 arm64 Simulator 全量 251 total，245 passed，
   0 failed，6 opt-in skipped；真实 redirect 4/4；最终源码 BOE AK/SK 200 + public
   requestID 与错误 SK `.auth` 2/2。
-- ASan/TSan 全量均为 244 passed / 0 failed / 6 skipped。
+- ASan/TSan 全量均为 245 passed / 0 failed / 6 skipped。
 - SwiftPM strict Swift 6、iOS 13 deployment：arm64/x86_64 × Debug/Release 产品
   build；外部 public lifecycle/resource/symbol consumer 通过。
 - CocoaPods 1.17.0 完整 `pod lib lint`、默认 static library consumer、static
@@ -81,13 +83,14 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   9.5 MiB、projectID 与 at-least-once 合同改变而主动中止。最终 v11 完整 7200 秒
   通过：6908 accepted / observed / success、0 failure、单 PID；RSS 覆盖率
   96.81%、最大间隔 2 秒、中位数增长 -2528 KiB、斜率 -552.40 KiB/h；但它早于
-  官方 requestID 响应头修复，最终 v12 尚未完成。
+  官方 requestID 响应头修复。v12 因随后发现 Release 逐请求日志仍默认开启而主动
+  中止；最终 v13 尚未完成。
 
 ### Release blockers
 
 - Xcode 14.3.1 / Swift 5.8、iOS 13 真机、STS、真机 Instruments/background/
   Data Protection、隐私数据分类/App Store privacy report 尚未完成。
-- 最终 2h Simulator soak v12 尚未完成。
+- 最终 2h Simulator soak v13 尚未完成。
 - 远端 `0.0.2` tag 尚未创建。
 - 当前仍是 Development Preview / release candidate source，不可标记 Beta/GA。
 

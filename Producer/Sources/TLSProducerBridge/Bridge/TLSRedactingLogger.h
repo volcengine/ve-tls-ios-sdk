@@ -25,7 +25,13 @@ FOUNDATION_EXPORT NSString *const TLSRedactedMarker;
 
 @interface TLSRedactingLogger : NSObject
 
+/// Process-wide diagnostic transport logging switch. Disabled by default so
+/// Release consumers never emit one NSLog line per request unless an internal
+/// diagnostic flow explicitly opts in. This Bridge type is not public SDK API.
+@property(class, atomic, assign, getter=isLoggingEnabled) BOOL loggingEnabled;
+
 /// Emits one redacted transport log line.
+/// This is a no-op while `loggingEnabled` is `NO` (the default).
 /// @param method HTTP method (e.g. "POST").
 /// @param URLString request URL; query/fragment are stripped before logging.
 /// @param status HTTP response status code (0 if no response).

@@ -16,6 +16,17 @@ final class BridgeObjCHelpersTests: XCTestCase {
         XCTAssertTrue(TLSRedactingLogger.runBuiltInSelfCheck())
     }
 
+    func testTransportLoggingIsDisabledByDefaultAndRequiresExplicitOptIn() {
+        XCTAssertFalse(TLSRedactingLogger.isLoggingEnabled)
+        defer { TLSRedactingLogger.isLoggingEnabled = false }
+
+        TLSRedactingLogger.isLoggingEnabled = true
+        XCTAssertTrue(TLSRedactingLogger.isLoggingEnabled)
+
+        TLSRedactingLogger.isLoggingEnabled = false
+        XCTAssertFalse(TLSRedactingLogger.isLoggingEnabled)
+    }
+
     func testMalformedURLFallbackRedaction() {
         // Malformed URL: fallback cuts at the first '?' or '#'.
         XCTAssertEqual(

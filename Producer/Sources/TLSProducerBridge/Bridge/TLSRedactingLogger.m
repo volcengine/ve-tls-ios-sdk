@@ -4,11 +4,21 @@
 
 #import "TLSRedactingLogger.h"
 
+#include <stdatomic.h>
 #include <stdint.h>
 
 NSString *const TLSRedactedMarker = @"***REDACTED***";
+static atomic_bool gTLSLoggingEnabled = ATOMIC_VAR_INIT(false);
 
 @implementation TLSRedactingLogger
+
++ (BOOL)isLoggingEnabled {
+    return atomic_load_explicit(&gTLSLoggingEnabled, memory_order_acquire);
+}
+
++ (void)setLoggingEnabled:(BOOL)loggingEnabled {
+    atomic_store_explicit(&gTLSLoggingEnabled, loggingEnabled, memory_order_release);
+}
 
 + (NSString *)redactedURLString:(NSString *)URLString {
     if (URLString.length == 0) {
@@ -138,6 +148,9 @@ NSString *const TLSRedactedMarker = @"***REDACTED***";
      durationInterval:(NSTimeInterval)duration
             requestID:(nullable NSString *)requestID
             byteCount:(NSInteger)byteCount {
+    if (![self isLoggingEnabled]) {
+        return;
+    }
     // The entry point accepts only predefined fields; callers cannot pass
     // headers or bodies. Every field is additionally run through the
     // redactor as defense in depth.

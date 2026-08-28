@@ -635,8 +635,9 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
                                                                   requestID:context.responseRequestID
                                                                       error:error];
     NSTimeInterval duration = CFAbsoluteTimeGetCurrent() - context.startTime;
-    // Redacted logging: method / stripped URL / status / duration /
-    // requestID / byte count only. Headers and bodies never reach the log.
+    // Disabled by default. When an internal diagnostic explicitly opts in,
+    // only method / stripped URL / status / duration / requestID fingerprint
+    // / byte count reach the logger. Headers and bodies never do.
     [TLSRedactingLogger logWithMethod:context.request.method
                             URLString:context.request.URLString
                                status:context.statusCode

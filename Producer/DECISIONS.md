@@ -76,8 +76,9 @@
   `x-tls-request-id` 拼写，二者均按大小写不敏感提取。
 - transport 响应体上限为 64 KiB；超限返回不可重试的稳定错误，不向 Core
   交付部分 body。
-- SDK redacting logger 当前每个请求调用 `NSLog`；字段安全不等于生产默认合适，
-  Beta 前应决定默认关闭或可注入日志门面。
+- SDK redacting logger 默认关闭；只有 Bridge 内部显式 opt-in 才调用 `NSLog`。
+  该开关不是 public API；未来若需消费者控制，使用可注入日志门面，不改变 Release
+  默认关闭合同。
 - 同一 persistent directory 由 `.ios-producer.lock` + `flock` 排除第二个活跃
   Bridge adapter；lock/lease 不跟随符号链接，失败按 persistence error 返回。
 - Core POSIX file-open 在平台支持时使用 `O_NOFOLLOW | O_CLOEXEC`，拒绝
@@ -132,12 +133,13 @@
 - 正式 2h Simulator soak v11 已通过：6908 accepted / observed / success、0
   failure、单 PID；RSS 覆盖率 96.81%、最大间隔 2 秒、首尾 5 分钟中位数下降
   2528 KiB、完整窗口斜率 -552.40 KiB/h；但它早于官方 requestID 响应头修复，
-  只作为修复前稳定性证据。最终 v12 尚未完成。
+  只作为修复前稳定性证据。v12 因 Release 逐请求日志默认开启而主动中止，最终
+  v13 尚未完成。
 
 ## 仍未完成的发布门禁
 
 - Xcode 14.3.1 / Swift 5.8 runner；iOS 13 真机。
 - 真机 background/Data Protection/Instruments；STS 临时凭证。
-- 最终 2h Simulator soak v12。
+- 最终 2h Simulator soak v13；v12 因逐请求日志默认开启而主动中止。
 - 隐私数据分类、archive privacy report、App Store Connect 校验。
 - 远端 tag、发布说明、最终 owner sign-off。

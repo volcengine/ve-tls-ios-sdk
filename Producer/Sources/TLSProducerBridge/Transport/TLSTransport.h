@@ -12,10 +12,11 @@
 //   rejected, so credentials are never replayed to a different target.
 // - TLS challenges use the system default trust evaluation only. There is
 //   intentionally no trust-all bypass and no certificate override switch.
-// - Logging goes through TLSRedactingLogger: only method, redacted URL,
-//   status, duration, request ID and byte counts are ever logged. Headers,
-//   bodies and Authorization values never reach the log, and NSError
-//   userInfo never contains credentials or raw bodies.
+// - Transport logging is disabled by default. Internal diagnostics may opt in
+//   through TLSRedactingLogger; only method, redacted URL, status, duration,
+//   request ID fingerprint and byte counts are then logged. Headers, bodies
+//   and Authorization values never reach the log, and NSError userInfo never
+//   contains credentials or raw bodies.
 // - Response bodies are capped at 64 KiB. Oversized responses terminate once
 //   with a non-retryable transport error and no partial body is returned.
 //
