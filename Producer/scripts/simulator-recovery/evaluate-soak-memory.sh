@@ -14,7 +14,7 @@ if [[ -z "$REPORT" || ! -f "$REPORT" ]]; then
   echo "FAIL: RSS report is missing" >&2
   exit 1
 fi
-if ! [[ "$REQUIRED_ELAPSED_SECONDS" =~ ^[0-9]+$ &&
+if ! [[ "$REQUIRED_ELAPSED_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ &&
         "$ELAPSED_TOLERANCE_SECONDS" =~ ^[0-9]+$ &&
         "$MIN_TREND_ELAPSED_SECONDS" =~ ^[1-9][0-9]*$ &&
         "$MIN_COVERAGE_PERCENT" =~ ^[1-9][0-9]*([.][0-9]+)?$ &&
@@ -43,6 +43,7 @@ stats=$(awk '
       first_elapsed=$1
       previous=$1
     } else {
+      if ($1 <= previous) invalid=1
       gap=$1-previous
       if (gap > max_gap) max_gap=gap
       previous=$1
@@ -68,8 +69,12 @@ stats=$(awk '
 ' "$REPORT")
 
 IFS=$'\t' read -r invalid count pid_count first_elapsed last_elapsed max_gap slope <<< "$stats"
-if [[ "$invalid" != "0" || "$count" -eq 0 ]]; then
+if [[ "$count" -eq 0 ]]; then
   echo "FAIL: RSS report contains no valid samples" >&2
+  exit 1
+fi
+if [[ "$invalid" != "0" ]]; then
+  echo "FAIL: RSS report contains invalid or non-increasing samples" >&2
   exit 1
 fi
 if [[ "$pid_count" -ne 1 ]]; then
@@ -80,12 +85,21 @@ if [[ "$first_elapsed" -ne 0 ]]; then
   echo "FAIL: RSS sampling did not begin at elapsed 0s" >&2
   exit 1
 fi
-if (( REQUIRED_ELAPSED_SECONDS > ELAPSED_TOLERANCE_SECONDS )); then
-  required_floor=$((REQUIRED_ELAPSED_SECONDS - ELAPSED_TOLERANCE_SECONDS))
-  if (( last_elapsed < required_floor )); then
-    echo "FAIL: RSS sampling ended at ${last_elapsed}s before required ${required_floor}s" >&2
-    exit 1
-  fi
+required_floor=$(awk -v required="$REQUIRED_ELAPSED_SECONDS" -v tolerance="$ELAPSED_TOLERANCE_SECONDS" '
+  BEGIN {
+    delta=required-tolerance
+    if (delta <= 0) {
+      print 0
+      exit
+    }
+    floor=int(delta)
+    if (delta > floor) floor++
+    print floor
+  }
+')
+if (( last_elapsed < required_floor )); then
+  echo "FAIL: RSS sampling ended at ${last_elapsed}s before required ${required_floor}s" >&2
+  exit 1
 fi
 
 expected_samples=$((last_elapsed + 1))
