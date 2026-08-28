@@ -74,7 +74,8 @@ public struct BatchConfiguration: Equatable, Sendable {
 
 /// In-memory buffer limits.
 public struct BufferConfiguration: Equatable, Sendable {
-    /// Max buffered bytes across all pending batches. Default 64 MiB (SLS).
+    /// Max buffered bytes across all pending batches. Default 64 MiB (SLS),
+    /// maximum 256 MiB per producer on iOS.
     public var maxBytes: Int
     /// Behavior when the buffer is full. Default `.reject` (SLS fail-fast).
     public var fullPolicy: BufferFullPolicy
@@ -110,9 +111,12 @@ public struct ProducerConfiguration: Sendable {
     /// value that violates the TLS service admission contract.
     internal static let maxBatchLogCount = 10_000
     internal static let maxBatchRawBytes = 10 * 1024 * 1024
+    internal static let maxBufferBytes = 256 * 1024 * 1024
+    internal static let maxSendConcurrency = 8
 
     public var batch: BatchConfiguration
     public var buffer: BufferConfiguration
+    /// Number of Core sender threads. Valid range: 1...8.
     public var sendConcurrency: Int
     public var compression: Compression
     public var persistence: Persistence
@@ -190,8 +194,9 @@ public struct ProducerConfiguration: Sendable {
         guard buffer.maxBytes > 0 else {
             throw ProducerError.configuration("buffer.maxBytes must be greater than 0")
         }
-        guard buffer.maxBytes <= Int(Int32.max) else {
-            throw ProducerError.configuration("buffer.maxBytes exceeds the C Core Int32 range")
+        guard buffer.maxBytes <= Self.maxBufferBytes else {
+            throw ProducerError.configuration(
+                "buffer.maxBytes must be at most \(Self.maxBufferBytes) bytes")
         }
         if buffer.fullPolicy == .block {
             try Self.validateMilliseconds(
@@ -204,8 +209,9 @@ public struct ProducerConfiguration: Sendable {
         guard sendConcurrency > 0 else {
             throw ProducerError.configuration("sendConcurrency must be greater than 0")
         }
-        guard sendConcurrency <= Int(Int32.max) else {
-            throw ProducerError.configuration("sendConcurrency exceeds the C Core Int32 range")
+        guard sendConcurrency <= Self.maxSendConcurrency else {
+            throw ProducerError.configuration(
+                "sendConcurrency must be at most \(Self.maxSendConcurrency)")
         }
         try Self.validateMilliseconds(
             connectTimeout,
@@ -293,8 +299,9 @@ public struct ProducerConfiguration: Sendable {
         guard buffer.maxBytes > 0 else {
             throw ProducerError.configuration("buffer.maxBytes must be greater than 0")
         }
-        guard buffer.maxBytes <= Int(Int32.max) else {
-            throw ProducerError.configuration("buffer.maxBytes exceeds the C Core Int32 range")
+        guard buffer.maxBytes <= Self.maxBufferBytes else {
+            throw ProducerError.configuration(
+                "buffer.maxBytes must be at most \(Self.maxBufferBytes) bytes")
         }
         if buffer.fullPolicy == .block {
             try Self.validateMilliseconds(
@@ -308,8 +315,9 @@ public struct ProducerConfiguration: Sendable {
         guard sendConcurrency > 0 else {
             throw ProducerError.configuration("sendConcurrency must be greater than 0")
         }
-        guard sendConcurrency <= Int(Int32.max) else {
-            throw ProducerError.configuration("sendConcurrency exceeds the C Core Int32 range")
+        guard sendConcurrency <= Self.maxSendConcurrency else {
+            throw ProducerError.configuration(
+                "sendConcurrency must be at most \(Self.maxSendConcurrency)")
         }
         try Self.validateMilliseconds(connectTimeout, name: "connectTimeout", allowZero: false)
         try Self.validateMilliseconds(requestTimeout, name: "requestTimeout", allowZero: false)

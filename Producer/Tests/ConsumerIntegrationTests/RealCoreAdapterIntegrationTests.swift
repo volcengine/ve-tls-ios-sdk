@@ -212,6 +212,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         maxLogCount: Int = 1024,
         maxRawBytes: Int = 1024 * 1024,
         maxBufferBytes: Int = 64 * 1024 * 1024,
+        sendConcurrency: Int = 1,
         linger: TimeInterval = 0.05,
         persistenceMode: TLSRealCoreAdapterPersistenceMode = .disabled,
         persistentDirectory: String? = nil
@@ -236,7 +237,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             lz4Enabled: lz4Enabled,
             sessionConfiguration: sessionConfiguration,
             bufferFullPolicy: 0,
-            sendConcurrency: 1,
+            sendConcurrency: sendConcurrency,
             bufferFullBlockTimeout: 1,
             persistenceMode: persistenceMode,
             persistentDirectory: persistentDirectory,
@@ -321,6 +322,23 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
                     TLSRealCoreAdapterErrorCode.invalidArgument.rawValue)
                 XCTAssertFalse(nsError.localizedDescription.contains("X-Injected"))
                 XCTAssertFalse(nsError.localizedDescription.contains("value"))
+            }
+        }
+    }
+
+    func testBridgeRejectsResourceConfigurationAboveIOSBounds() {
+        let factories: [() throws -> TLSRealCoreAdapter] = [
+            { try self.makeBridgeAdapter(maxBufferBytes: 256 * 1024 * 1024 + 1) },
+            { try self.makeBridgeAdapter(sendConcurrency: 9) },
+        ]
+
+        for factory in factories {
+            XCTAssertThrowsError(try factory()) { error in
+                let nsError = error as NSError
+                XCTAssertEqual(nsError.domain, TLSRealCoreAdapterErrorDomain)
+                XCTAssertEqual(
+                    nsError.code,
+                    TLSRealCoreAdapterErrorCode.invalidArgument.rawValue)
             }
         }
     }

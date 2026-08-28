@@ -34,6 +34,8 @@ static const int32_t kTLSPersistentMaxLogCount = 200000;
 static const int32_t kTLSPersistentMaxFileSize = 8 * 1024 * 1024;
 static const int32_t kTLSPersistentMaxFileCount = 32;
 static const int32_t kTLSPersistentMaxBytes = 256 * 1024 * 1024;
+static const NSInteger kTLSMaxBufferBytes = 256 * 1024 * 1024;
+static const NSInteger kTLSMaxSendConcurrency = 8;
 static NSString *const kTLSProcessLockFileName = @".ios-producer.lock";
 static NSString *const kTLSCoreLeaseFileName = @"lease";
 
@@ -764,7 +766,9 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         !TLSCheckedInt32(maxLogCount, YES, &cMaxLogCount) ||
         !TLSCheckedInt32(maxRawBytes, YES, &cMaxRawBytes) ||
         !TLSCheckedInt32(maxBufferBytes, YES, &cMaxBufferBytes) ||
+        maxBufferBytes > kTLSMaxBufferBytes ||
         !TLSCheckedInt32(sendConcurrency, YES, &cSendConcurrency) ||
+        sendConcurrency > kTLSMaxSendConcurrency ||
         !TLSCheckedMilliseconds(linger, NO, &cLinger) ||
         !TLSCheckedMilliseconds(connectTimeout, YES, &cConnectTimeout) ||
         !TLSCheckedMilliseconds(requestTimeout, YES, &cRequestTimeout) ||

@@ -157,10 +157,56 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
         }
     }
 
+    func testMobileBufferCapacityUpperBound() throws {
+        XCTAssertNoThrow(try ProducerConfiguration(
+            buffer: BufferConfiguration(maxBytes: 256 * 1024 * 1024)))
+        XCTAssertThrowsError(try ProducerConfiguration(
+            buffer: BufferConfiguration(maxBytes: 256 * 1024 * 1024 + 1))) { error in
+            assertConfigurationError(error, containing: "maxBytes")
+        }
+    }
+
     func testInvalidSendConcurrency() {
         XCTAssertThrowsError(try ProducerConfiguration(sendConcurrency: 0)) { error in
             assertConfigurationError(error, containing: "sendConcurrency")
         }
+    }
+
+    func testSenderConcurrencyUpperBound() throws {
+        XCTAssertNoThrow(try ProducerConfiguration(sendConcurrency: 8))
+        XCTAssertThrowsError(try ProducerConfiguration(sendConcurrency: 9)) { error in
+            assertConfigurationError(error, containing: "sendConcurrency")
+        }
+    }
+
+    func testResourceBoundsAreRevalidatedAfterMutationAtOpen() async throws {
+        var bufferConfiguration = try ProducerConfiguration()
+        bufferConfiguration.buffer.maxBytes = 256 * 1024 * 1024 + 1
+        let bufferAdapter = RecordingAdapter()
+        do {
+            _ = try await Producer.open(
+                adapter: bufferAdapter,
+                configuration: bufferConfiguration,
+                credentials: .testing)
+            XCTFail("expected mutated maxBytes to fail at open")
+        } catch let error as ProducerError {
+            assertConfigurationError(error, containing: "maxBytes")
+        }
+        XCTAssertEqual(bufferAdapter.openCallCount, 0)
+
+        var concurrencyConfiguration = try ProducerConfiguration()
+        concurrencyConfiguration.sendConcurrency = 9
+        let concurrencyAdapter = RecordingAdapter()
+        do {
+            _ = try await Producer.open(
+                adapter: concurrencyAdapter,
+                configuration: concurrencyConfiguration,
+                credentials: .testing)
+            XCTFail("expected mutated sendConcurrency to fail at open")
+        } catch let error as ProducerError {
+            assertConfigurationError(error, containing: "sendConcurrency")
+        }
+        XCTAssertEqual(concurrencyAdapter.openCallCount, 0)
     }
 
     func testInvalidTimeouts() {
