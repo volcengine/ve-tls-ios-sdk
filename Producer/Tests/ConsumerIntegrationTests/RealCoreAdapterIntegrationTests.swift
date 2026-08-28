@@ -328,6 +328,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
 
     func testBridgeRejectsResourceConfigurationAboveIOSBounds() {
         let factories: [() throws -> TLSRealCoreAdapter] = [
+            { try self.makeBridgeAdapter(maxRawBytes: 19 * 512 * 1024 + 1) },
             { try self.makeBridgeAdapter(maxBufferBytes: 256 * 1024 * 1024 + 1) },
             { try self.makeBridgeAdapter(sendConcurrency: 9) },
         ]
@@ -341,6 +342,31 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
                     TLSRealCoreAdapterErrorCode.invalidArgument.rawValue)
             }
         }
+    }
+
+    func testBridgeAcceptsRecommendedBatchRawByteCeiling() throws {
+        let adapter = try makeBridgeAdapter(maxRawBytes: 19 * 512 * 1024)
+        XCTAssertNoThrow(try adapter.close(withTimeout: 5))
+    }
+
+    func testBridgeRejectsHashKeyOutsideExact32LowercaseHexContract() throws {
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+        let adapter = try makeBridgeAdapter(linger: 60)
+        try adapter.open()
+        defer { try? adapter.close(withTimeout: 5) }
+
+        for hashKey in ["0", String(repeating: "A", count: 32), String(repeating: "f", count: 33)] {
+            XCTAssertThrowsError(try adapter.addLog(
+                withTimestamp: Int64(Date().timeIntervalSince1970 * 1000),
+                hashKey: hashKey,
+                contents: ["message": "invalid-hash-key"],
+                flush: false))
+        }
+        XCTAssertNoThrow(try adapter.addLog(
+            withTimestamp: Int64(Date().timeIntervalSince1970 * 1000),
+            hashKey: String(repeating: "f", count: 32),
+            contents: ["message": "valid-hash-key"],
+            flush: false))
     }
 
     func testRealCoreAdapterOpenClose() async throws {

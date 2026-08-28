@@ -23,8 +23,10 @@ public struct LogEvent: Equatable, Sendable {
     /// transport layer.
     public var timestamp: Date
 
-    /// Optional per-log hash key. When `nil`, the producer/Core default
-    /// (round-robin / configured default hash key) applies.
+    /// Optional per-log hash key. When present, it must be exactly 32
+    /// lowercase hexadecimal characters (`[0-9a-f]{32}`). When `nil`, the
+    /// producer/Core default (round-robin / configured default hash key)
+    /// applies.
     public var hashKey: String?
 
     /// Content fields. Keys must be non-empty strings; values follow the
@@ -56,15 +58,14 @@ public struct LogEvent: Equatable, Sendable {
                 violations.append("hashKey: must not contain embedded NUL characters")
             } else {
                 let bytes = hashKey.utf8
-                let isLowercaseHex = !bytes.isEmpty &&
-                    bytes.count <= 32 &&
+                let isLowercaseHex = bytes.count == 32 &&
                     bytes.allSatisfy { byte in
                         (byte >= 0x30 && byte <= 0x39) ||
                             (byte >= 0x61 && byte <= 0x66)
                     }
                 if !isLowercaseHex {
                     violations.append(
-                        "hashKey: must match non-empty lowercase hexadecimal [0-9a-f]{1,32}")
+                        "hashKey: must match lowercase hexadecimal [0-9a-f]{32}")
                 }
             }
         }

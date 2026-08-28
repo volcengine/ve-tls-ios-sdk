@@ -134,7 +134,7 @@ final class FakeCoreAdapterOpenAdmissionTests: XCTestCase {
         let callbackQueue = DispatchQueue(label: "test.linger-resched")
         let fake = FakeCoreAdapter()
         let config = try TestConfigurations.make(
-            maxLogCount: 100, maxRawBytes: 10_000_000, linger: 0.5,
+            maxLogCount: 100, maxRawBytes: 9_000_000, linger: 0.5,
             callbackQueue: callbackQueue)
         try fake.open(configuration: config, credentials: SampleCredentials.setA)
 

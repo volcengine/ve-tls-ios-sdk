@@ -189,7 +189,7 @@ final class FakeCoreAdapterCallbackTests: XCTestCase {
         let callbackQueue = DispatchQueue(label: "test.linger-cancel")
         let fake = makeFake(callbackQueue: callbackQueue)
         let config = try TestConfigurations.make(
-            maxLogCount: 100, maxRawBytes: 10_000_000, linger: 60,
+            maxLogCount: 100, maxRawBytes: 9_000_000, linger: 60,
             callbackQueue: callbackQueue)
         try fake.open(configuration: config, credentials: SampleCredentials.setA)
 

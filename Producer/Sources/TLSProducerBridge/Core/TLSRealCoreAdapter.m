@@ -34,6 +34,7 @@ static const int32_t kTLSPersistentMaxLogCount = 200000;
 static const int32_t kTLSPersistentMaxFileSize = 8 * 1024 * 1024;
 static const int32_t kTLSPersistentMaxFileCount = 32;
 static const int32_t kTLSPersistentMaxBytes = 256 * 1024 * 1024;
+static const NSInteger kTLSMaxBatchRawBytes = 19 * 512 * 1024;
 static const NSInteger kTLSMaxBufferBytes = 256 * 1024 * 1024;
 static const NSInteger kTLSMaxSendConcurrency = 8;
 static NSString *const kTLSProcessLockFileName = @".ios-producer.lock";
@@ -661,6 +662,24 @@ static BOOL TLSHasLineBreak(NSString *value) {
         [value rangeOfCharacterFromSet:[NSCharacterSet newlineCharacterSet]].location != NSNotFound;
 }
 
+static BOOL TLSValidHashKey(NSString *value) {
+    if (value == nil) {
+        return YES;
+    }
+    const char *bytes = value.UTF8String;
+    if (!bytes || strlen(bytes) != 32) {
+        return NO;
+    }
+    for (NSUInteger index = 0; index < 32; index++) {
+        unsigned char byte = (unsigned char)bytes[index];
+        if (!((byte >= '0' && byte <= '9') ||
+              (byte >= 'a' && byte <= 'f'))) {
+            return NO;
+        }
+    }
+    return YES;
+}
+
 static BOOL TLSValidEndpoint(NSString *endpoint) {
     if (TLSHasLineBreak(endpoint)) {
         return NO;
@@ -765,6 +784,7 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         TLSHasLineBreak(accessKeyID) || TLSHasLineBreak(accessKeySecret) || TLSHasLineBreak(securityToken) ||
         !TLSCheckedInt32(maxLogCount, YES, &cMaxLogCount) ||
         !TLSCheckedInt32(maxRawBytes, YES, &cMaxRawBytes) ||
+        maxRawBytes > kTLSMaxBatchRawBytes ||
         !TLSCheckedInt32(maxBufferBytes, YES, &cMaxBufferBytes) ||
         maxBufferBytes > kTLSMaxBufferBytes ||
         !TLSCheckedInt32(sendConcurrency, YES, &cSendConcurrency) ||
@@ -892,6 +912,7 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
     // Batch
     cConfig.log_count_per_package = cMaxLogCount;
     cConfig.log_bytes_per_package = cMaxRawBytes;
+    cConfig.agg_max_raw_bytes_per_request = cMaxRawBytes;
     cConfig.flush_interval_ms = cLinger;
 
     // Buffer
@@ -1021,6 +1042,16 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
             *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeClosed,
                                       VE_TLS_CLOSED,
                                       @"adapter is closed");
+        }
+        return NO;
+    }
+
+    if (!TLSValidHashKey(hashKey)) {
+        [self.stateLock unlock];
+        if (error) {
+            *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
+                                      VE_TLS_INVALID,
+                                      @"hash key must be 32 lowercase hexadecimal characters");
         }
         return NO;
     }

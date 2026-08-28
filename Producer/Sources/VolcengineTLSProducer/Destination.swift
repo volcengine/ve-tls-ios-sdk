@@ -13,9 +13,10 @@ import Foundation
 /// A destination is always replaced as a whole via
 /// `Producer.updateDestination(_:)`; there are no per-field setters.
 /// With the bundled C Core v0.3.1, wire routing is determined by endpoint,
-/// region and topic. `projectID` is validated and retained as metadata, but
-/// changing it alone does not retarget requests because that Core ABI has no
-/// project update parameter.
+/// region and topic. `projectID` is retained for future project-domain
+/// routing and receives only minimum transport-safe validation in this
+/// release. Changing it alone does not retarget requests because the bundled
+/// Core ABI has no project update parameter.
 /// Construction does not throw, so a destination can be built declaratively;
 /// validation runs at `Producer.open` / `updateDestination` time via
 /// `validate()`.
@@ -29,8 +30,10 @@ public struct Destination: Equatable, Sendable {
     /// Region ID, e.g. `cn-beijing`. Non-empty.
     public var region: String
 
-    /// TLS Project ID. Non-empty. Metadata-only with the bundled C Core
-    /// v0.3.1; it is not part of request routing in that Core version.
+    /// TLS Project ID. Reserved for future project-domain routing. This
+    /// release requires a non-empty value without NUL or line breaks, but
+    /// intentionally does not guess a service length or character set.
+    /// It is not part of request routing in bundled C Core v0.3.1.
     public var projectID: String
 
     /// TLS Topic ID. Non-empty.

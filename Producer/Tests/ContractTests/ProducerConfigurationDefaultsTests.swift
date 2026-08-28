@@ -97,7 +97,7 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
         XCTAssertNoThrow(try ProducerConfiguration(
             batch: BatchConfiguration(
                 maxLogCount: 10_000,
-                maxRawBytes: 10 * 1024 * 1024)))
+                maxRawBytes: 19 * 512 * 1024)))
     }
 
     func testBatchContractUpperBoundsAreRejected() {
@@ -106,7 +106,7 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
             assertConfigurationError(error, containing: "maxLogCount")
         }
         XCTAssertThrowsError(try ProducerConfiguration(
-            batch: BatchConfiguration(maxRawBytes: 10 * 1024 * 1024 + 1))) { error in
+            batch: BatchConfiguration(maxRawBytes: 19 * 512 * 1024 + 1))) { error in
             assertConfigurationError(error, containing: "maxRawBytes")
         }
     }
@@ -127,7 +127,7 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
         XCTAssertEqual(countAdapter.openCallCount, 0)
 
         var bytesConfiguration = try ProducerConfiguration()
-        bytesConfiguration.batch.maxRawBytes = 10 * 1024 * 1024 + 1
+        bytesConfiguration.batch.maxRawBytes = 19 * 512 * 1024 + 1
         let bytesAdapter = RecordingAdapter()
         do {
             _ = try await Producer.open(

@@ -518,7 +518,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
         let configuration = try ProducerConfiguration(
             batch: BatchConfiguration(
                 maxLogCount: 1,
-                maxRawBytes: 10 * 1024 * 1024,
+                maxRawBytes: 19 * 512 * 1024,
                 linger: 0),
             buffer: BufferConfiguration(
                 maxBytes: 64 * 1024 * 1024,

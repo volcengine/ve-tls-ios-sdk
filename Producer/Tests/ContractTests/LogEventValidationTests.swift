@@ -106,8 +106,12 @@ final class LogEventValidationTests: XCTestCase {
         }
     }
 
-    func testHashKeyMustBeLowercaseHexAndAtMost32Bytes() throws {
-        let valid = ["0", "0123456789abcdef", String(repeating: "a", count: 32)]
+    func testHashKeyMustBeExactly32LowercaseHexBytes() throws {
+        let valid = [
+            String(repeating: "0", count: 32),
+            "0123456789abcdef0123456789abcdef",
+            String(repeating: "f", count: 32),
+        ]
         for hashKey in valid {
             XCTAssertNoThrow(
                 try LogEvent(hashKey: hashKey, contents: ["k": .string("v")]).validate(),
@@ -116,6 +120,8 @@ final class LogEventValidationTests: XCTestCase {
 
         let invalid = [
             "",
+            "0",
+            "0123456789abcdef",
             "ABCDEF",
             "0123456789abcdef0123456789abcdef0",
             "g",
@@ -135,19 +141,20 @@ final class LogEventValidationTests: XCTestCase {
         }
     }
 
-    func testSingleLogAboveTenMiBRejectedEvenAtMaximumConfiguredBatch() async throws {
+    func testSingleLogAboveNinePointFiveMiBRejectedAtRecommendedBatchLimit() async throws {
+        let recommendedMaxRawBytes = 19 * 512 * 1024
         let recording = RecordingAdapter()
         let config = try ProducerConfiguration(
             batch: BatchConfiguration(
                 maxLogCount: 10_000,
-                maxRawBytes: 10 * 1024 * 1024,
+                maxRawBytes: recommendedMaxRawBytes,
                 linger: 3))
         let producer = try await Producer.open(
             adapter: recording,
             configuration: config,
             credentials: .testing)
 
-        let oversizedValue = String(repeating: "x", count: 10 * 1024 * 1024)
+        let oversizedValue = String(repeating: "x", count: recommendedMaxRawBytes)
         let oversized = LogEvent(contents: ["k": .string(oversizedValue)])
         XCTAssertThrowsError(try producer.add(oversized)) { error in
             XCTAssertEqual(error as? ProducerError, .singleLogTooLarge)

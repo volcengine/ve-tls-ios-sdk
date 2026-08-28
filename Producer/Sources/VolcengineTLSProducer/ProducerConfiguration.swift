@@ -59,6 +59,8 @@ public struct BatchConfiguration: Equatable, Sendable {
     /// Max logs per batch. Default 1024 (SLS iOS wrapper).
     public var maxLogCount: Int
     /// Max uncompressed bytes per batch. Default 1 MiB (SLS iOS wrapper).
+    /// The configurable ceiling is 9.5 MiB, retaining headroom below the
+    /// service's absolute 10 MiB request limit.
     public var maxRawBytes: Int
     /// Max wait before sealing a non-empty batch. Default 3 s (SLS iOS wrapper).
     public var linger: TimeInterval
@@ -110,7 +112,7 @@ public struct ProducerConfiguration: Sendable {
     /// the underlying C integer representation so callers cannot configure a
     /// value that violates the TLS service admission contract.
     internal static let maxBatchLogCount = 10_000
-    internal static let maxBatchRawBytes = 10 * 1024 * 1024
+    internal static let maxBatchRawBytes = 19 * 512 * 1024
     internal static let maxBufferBytes = 256 * 1024 * 1024
     internal static let maxSendConcurrency = 8
 
