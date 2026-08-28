@@ -92,6 +92,13 @@ public struct Destination: Equatable, Sendable {
             throw ProducerError.configuration(
                 "destination fields must not contain embedded NUL characters")
         }
+        guard endpoint.rangeOfCharacter(from: .newlines) == nil,
+              region.rangeOfCharacter(from: .newlines) == nil,
+              projectID.rangeOfCharacter(from: .newlines) == nil,
+              topicID.rangeOfCharacter(from: .newlines) == nil else {
+            throw ProducerError.configuration(
+                "destination fields must not contain line break characters")
+        }
     }
 
     /// Endpoint text is not secret, but error descriptions must stay free of

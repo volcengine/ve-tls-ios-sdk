@@ -44,6 +44,12 @@ public struct Credentials: Equatable, Sendable {
             throw ProducerError.configuration(
                 "credentials must not contain embedded NUL characters")
         }
+        guard accessKeyID.rangeOfCharacter(from: .newlines) == nil,
+              accessKeySecret.rangeOfCharacter(from: .newlines) == nil,
+              securityToken?.rangeOfCharacter(from: .newlines) == nil else {
+            throw ProducerError.configuration(
+                "credentials must not contain line break characters")
+        }
     }
 
     // MARK: - Redaction

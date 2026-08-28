@@ -192,6 +192,20 @@ final class DestinationValidationTests: XCTestCase {
         }
     }
 
+    func testDestinationFieldsWithHeaderLineBreaksRejected() {
+        for destination in [
+            Destination(endpoint: "https://host.example.com", region: "r\r\nX-Injected: value", projectID: "p", topicID: "t"),
+            Destination(endpoint: "https://host.example.com", region: "r", projectID: "p\nvalue", topicID: "t"),
+            Destination(endpoint: "https://host.example.com", region: "r", projectID: "p", topicID: "t\rvalue"),
+        ] {
+            XCTAssertThrowsError(try destination.validate()) { error in
+                assertConfigurationError(error, containing: "line break")
+                XCTAssertFalse(String(describing: error).contains("X-Injected"))
+                XCTAssertFalse(String(describing: error).contains("value"))
+            }
+        }
+    }
+
     // MARK: - updateDestination integration
 
     func testUpdateDestinationValidates() async throws {

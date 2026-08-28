@@ -15,7 +15,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         let lock = NSLock()
         var stubbedResponses: [String: (HTTPURLResponse, Data)] = [:]
         var hangingPaths: Set<String> = []
-        var requestLog: [(url: String, body: Data?)] = []
+        var requestLog: [(url: String, body: Data?, headers: [String: String])] = []
         var requestExpectation: XCTestExpectation?
     }
 
@@ -43,7 +43,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         registry.stubbedResponses.removeValue(forKey: path)
     }
 
-    static func recordedRequests() -> [(url: String, body: Data?)] {
+    static func recordedRequests() -> [(url: String, body: Data?, headers: [String: String])] {
         registry.lock.lock()
         defer { registry.lock.unlock() }
         return registry.requestLog
@@ -77,7 +77,10 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         Self.registry.lock.lock()
         let isHanging = Self.registry.hangingPaths.contains(path)
         let stub = Self.registry.stubbedResponses[path]
-        Self.registry.requestLog.append((url: request.url?.absoluteString ?? "", body: request.httpBody))
+        Self.registry.requestLog.append((
+            url: request.url?.absoluteString ?? "",
+            body: request.httpBody,
+            headers: request.allHTTPHeaderFields ?? [:]))
         let requestExpectation = Self.registry.requestExpectation
         Self.registry.requestExpectation = nil
         Self.registry.lock.unlock()
@@ -200,6 +203,10 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
 
     private func makeBridgeAdapter(
         endpoint: String = "https://stub.local",
+        region: String = "cn-beijing",
+        accessKeyID: String = "test-ak",
+        accessKeySecret: String = "test-sk",
+        securityToken: String? = "test-token",
         requestTimeout: TimeInterval = 15,
         lz4Enabled: Bool = true,
         maxLogCount: Int = 1024,
@@ -211,12 +218,12 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
     ) throws -> TLSRealCoreAdapter {
         try TLSRealCoreAdapter(
             endpoint: endpoint,
-            region: "cn-beijing",
+            region: region,
             projectID: "test-project",
             topicID: "test-topic",
-            accessKeyID: "test-ak",
-            accessKeySecret: "test-sk",
-            securityToken: "test-token",
+            accessKeyID: accessKeyID,
+            accessKeySecret: accessKeySecret,
+            securityToken: securityToken,
             source: "iOS",
             fileName: nil,
             tags: nil,
@@ -297,6 +304,27 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         }
     }
 
+    func testBridgeRejectsHeaderLineBreaksInHeaderBoundConfiguration() {
+        let factories: [() throws -> TLSRealCoreAdapter] = [
+            { try self.makeBridgeAdapter(region: "cn-beijing\r\nX-Injected: value") },
+            { try self.makeBridgeAdapter(accessKeyID: "ak\nX-Injected: value") },
+            { try self.makeBridgeAdapter(accessKeySecret: "sk\rvalue") },
+            { try self.makeBridgeAdapter(securityToken: "token\nX-Injected: value") },
+        ]
+
+        for factory in factories {
+            XCTAssertThrowsError(try factory()) { error in
+                let nsError = error as NSError
+                XCTAssertEqual(nsError.domain, TLSRealCoreAdapterErrorDomain)
+                XCTAssertEqual(
+                    nsError.code,
+                    TLSRealCoreAdapterErrorCode.invalidArgument.rawValue)
+                XCTAssertFalse(nsError.localizedDescription.contains("X-Injected"))
+                XCTAssertFalse(nsError.localizedDescription.contains("value"))
+            }
+        }
+    }
+
     func testRealCoreAdapterOpenClose() async throws {
         let config = try makeConfig()
         let adapter = try RealCoreAdapter(configuration: config, credentials: makeCredentials())
@@ -344,6 +372,48 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         try await adapter.close(timeout: 5)
     }
 
+    func testUpdateCredentialsFromTokenToNilRemovesTokenFromWire() async throws {
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+        let config = try makeConfig()
+        let producer = try await Producer.open(
+            configuration: config,
+            credentials: Credentials(
+                accessKeyID: "initial-ak",
+                accessKeySecret: "initial-sk",
+                securityToken: "old-sts-token"))
+
+        let firstRequest = expectation(description: "request with initial token")
+        RealCoreStubURLProtocol.expectNextRequest(firstRequest)
+        try producer.add(
+            LogEvent(contents: ["message": .string("before-clear")]),
+            mode: .immediate)
+        await fulfillment(of: [firstRequest], timeout: 5)
+
+        try producer.updateCredentials(Credentials(
+            accessKeyID: "rotated-ak",
+            accessKeySecret: "rotated-sk",
+            securityToken: nil))
+
+        let secondRequest = expectation(description: "request after token clear")
+        RealCoreStubURLProtocol.expectNextRequest(secondRequest)
+        try producer.add(
+            LogEvent(contents: ["message": .string("after-clear")]),
+            mode: .immediate)
+        await fulfillment(of: [secondRequest], timeout: 5)
+
+        let requests = RealCoreStubURLProtocol.recordedRequests()
+        XCTAssertGreaterThanOrEqual(requests.count, 2)
+        func securityToken(in headers: [String: String]) -> String? {
+            headers.first { $0.key.caseInsensitiveCompare("x-security-token") == .orderedSame }?.value
+        }
+        XCTAssertEqual(securityToken(in: requests[0].headers), "old-sts-token")
+        XCTAssertNil(
+            securityToken(in: requests[1].headers),
+            "whole-group replacement with nil must remove the old STS token")
+
+        try await producer.close(timeout: 5)
+    }
+
     func testUpdateDestinationSucceeds() async throws {
         let config = try makeConfig()
         let adapter = try RealCoreAdapter(configuration: config, credentials: makeCredentials())
@@ -357,6 +427,30 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         XCTAssertNoThrow(try adapter.updateDestination(newDest))
 
         try await adapter.close(timeout: 5)
+    }
+
+    func testBridgeRejectsHeaderLineBreaksOnUpdates() throws {
+        let adapter = try makeBridgeAdapter()
+        try adapter.open()
+        defer { try? adapter.close(withTimeout: 5) }
+
+        XCTAssertThrowsError(try adapter.updateCredentials(
+            "new-ak\r\nX-Injected: value",
+            accessKeySecret: "new-sk",
+            securityToken: "new-token")) { error in
+                XCTAssertEqual(
+                    (error as NSError).code,
+                    TLSRealCoreAdapterErrorCode.credentialsUpdateFailed.rawValue)
+        }
+        XCTAssertThrowsError(try adapter.updateDestination(
+            "https://stub2.local",
+            region: "cn-shanghai\nX-Injected: value",
+            projectID: "new-project",
+            topicID: "new-topic")) { error in
+                XCTAssertEqual(
+                    (error as NSError).code,
+                    TLSRealCoreAdapterErrorCode.destinationUpdateFailed.rawValue)
+        }
     }
 
     /// Releasing an unclosed adapter while its sender is blocked in the

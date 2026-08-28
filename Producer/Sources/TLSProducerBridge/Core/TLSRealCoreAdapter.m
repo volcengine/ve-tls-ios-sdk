@@ -653,7 +653,15 @@ static BOOL TLSCheckedMilliseconds(NSTimeInterval seconds,
     return YES;
 }
 
+static BOOL TLSHasLineBreak(NSString *value) {
+    return value != nil &&
+        [value rangeOfCharacterFromSet:[NSCharacterSet newlineCharacterSet]].location != NSNotFound;
+}
+
 static BOOL TLSValidEndpoint(NSString *endpoint) {
+    if (TLSHasLineBreak(endpoint)) {
+        return NO;
+    }
     NSURLComponents *components = endpoint.length > 0
         ? [NSURLComponents componentsWithString:endpoint]
         : nil;
@@ -750,6 +758,8 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
     int32_t cBlockTimeout = 0;
     if (!TLSValidEndpoint(endpoint) || region.length == 0 || projectID.length == 0 || topicID.length == 0 ||
         accessKeyID.length == 0 || accessKeySecret.length == 0 || source.length == 0 ||
+        TLSHasLineBreak(region) || TLSHasLineBreak(projectID) || TLSHasLineBreak(topicID) ||
+        TLSHasLineBreak(accessKeyID) || TLSHasLineBreak(accessKeySecret) || TLSHasLineBreak(securityToken) ||
         !TLSCheckedInt32(maxLogCount, YES, &cMaxLogCount) ||
         !TLSCheckedInt32(maxRawBytes, YES, &cMaxRawBytes) ||
         !TLSCheckedInt32(maxBufferBytes, YES, &cMaxBufferBytes) ||
@@ -1081,7 +1091,9 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         return NO;
     }
 
-    if (accessKeyID.length == 0 || accessKeySecret.length == 0) {
+    if (accessKeyID.length == 0 || accessKeySecret.length == 0 ||
+        TLSHasLineBreak(accessKeyID) || TLSHasLineBreak(accessKeySecret) ||
+        TLSHasLineBreak(securityToken)) {
         [self.stateLock unlock];
         if (error) {
             *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeCredentialsUpdateFailed,
@@ -1095,7 +1107,7 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         _producer,
         accessKeyID.UTF8String,
         accessKeySecret.UTF8String,
-        securityToken.UTF8String);
+        securityToken ? securityToken.UTF8String : "");
     [self.stateLock unlock];
 
     if (rc != VE_TLS_OK) {
@@ -1126,7 +1138,8 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         return NO;
     }
 
-    if (!TLSValidEndpoint(endpoint) || region.length == 0 || projectID.length == 0 || topicID.length == 0) {
+    if (!TLSValidEndpoint(endpoint) || region.length == 0 || projectID.length == 0 || topicID.length == 0 ||
+        TLSHasLineBreak(region) || TLSHasLineBreak(projectID) || TLSHasLineBreak(topicID)) {
         [self.stateLock unlock];
         if (error) {
             *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeDestinationUpdateFailed,

@@ -83,6 +83,21 @@ final class CredentialsRedactionTests: XCTestCase {
         }
     }
 
+    func testHeaderLineBreakCredentialsAreRejectedWithoutEchoingSecrets() {
+        for credentials in [
+            Credentials(accessKeyID: "ak\r\nX-Injected: value", accessKeySecret: "sk"),
+            Credentials(accessKeyID: "ak", accessKeySecret: "sk\nvalue"),
+            Credentials(accessKeyID: "ak", accessKeySecret: "sk", securityToken: "token\rvalue"),
+        ] {
+            XCTAssertThrowsError(try credentials.validate()) { error in
+                let description = String(describing: error)
+                XCTAssertTrue(description.contains("line break"))
+                XCTAssertFalse(description.contains("X-Injected"))
+                XCTAssertFalse(description.contains("value"))
+            }
+        }
+    }
+
     func testUpdateCredentialsDoesNotLeakViaErrors() async throws {
         let recording = RecordingAdapter()
         let producer = try await Producer.open(
