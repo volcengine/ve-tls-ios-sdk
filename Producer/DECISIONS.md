@@ -27,10 +27,12 @@
    不在调用方 MainActor 上执行。
 5. `.normal` 进入批量窗口；`.immediate` 封批并唤醒 sender；两者都不等待网络
    或服务端 ACK。
+   `LogEvent.hashKey` 为 `nil` 或精确 32 位小写十六进制（`[0-9a-f]{32}`）。
 6. `updateCredentials` 原子替换 AK/SK/STS 整组；`updateDestination` 使用
    current-target 语义，已接收 backlog 可能改投新 endpoint/region/topic。
    v0.3.1 update API 没有 projectID 参数，所以 projectID 只更新 SDK snapshot，
-   不改变 wire target。
+   不改变 wire target。projectID 是未来 project 域名路由的预留字段；当前只做
+   non-empty、NUL、CR/LF 最小安全校验，不猜测长度或字符集。
 7. `close(timeout:)` 成功只表示本地 worker/session 安全停止和本地持久化收尾；
    不表示全部远端送达。失败向调用方抛错并允许重试，同一 attempt 的并发 waiter
    获得同一结果。
@@ -44,7 +46,14 @@
 10. buffer `.reject` 忽略 blockTimeout；`.block` 使用 bounded blockTimeout。
 11. 调用方必须 retain Producer 直到 `close` 完成。未 close 就释放时，SDK 只
     保证异步 destroy 不阻塞释放线程并避免 UAF；尚未交付的 callback 可能丢弃。
-12. 不承诺 exactly-once，也不承诺 App 被强杀后继续实时上传。
+12. 交付模型保持 at-least-once：请求可因 retry/recovery/ACK 丢失而重放，重复日志
+    由业务接受，SDK 不做跨请求去重。`.buffered` / `.sync` 只对已达到 WAL durability
+    且存储完整、非 drop 策略的数据提供恢复重试；memory/disabled 进程死亡、WAL
+    丢失/损坏、admission 拒绝及策略明确丢弃不在承诺内。不承诺 exactly-once，也
+    不承诺 App 被强杀后继续实时上传。
+13. batch 默认仍为 1 MiB；public initializer/open 与 ObjC Bridge 的可配置上限为
+    9.5 MiB（9,961,472 bytes），并写入 Core 的 package 与 aggregate raw-byte
+    两个限制，在服务端 10 MiB 绝对上限下保留 framing 余量。
 
 ## 安全与传输
 
@@ -54,7 +63,9 @@
   credential store。
 - redirect 仅允许 normalized origin（scheme/host/effective port）以及签名覆盖的
   method/path/query/body 全部不变；其余 redirect 是不可重试终态，Authorization
-  不会被转发。
+  不会被转发。V4 将 Host（含显式 port）加入 canonical headers，跨端口直接复用
+  Authorization 会改变签名目标且可能把凭证发送给同 host 的另一服务；当前不放宽。
+  后续支持必须由 Core 对 redirect 目标重新签名并加端口 allowlist。
 - TLS challenge 使用系统默认信任；无 trust-all、证书 pinning 绕过或调试开关。
 - SDK 不直接记录 credentials、Authorization 或原始请求/响应 body；C string
   边界拒绝 embedded NUL 和 CR/LF。`securityToken=nil` 在整组凭证更新时表示
@@ -118,8 +129,8 @@
 
 - Xcode 14.3.1 / Swift 5.8 runner；iOS 13 真机。
 - 真机 background/Data Protection/Instruments；STS 临时凭证。
-- 正式 2h Simulator soak v10 的最终功能与 RSS 结果（尚未完成；v6/v7/v8/v9
+- 正式 2h Simulator soak v11 的最终功能与 RSS 结果（尚未完成；v6/v7/v8/v9
   分别因 requestID 日志、旧 STS token 残留、无界响应体和资源配置上限缺失而
-  主动中止）。
+  主动中止；v10 因最新公共合同改变而主动中止，不计 PASS）。
 - 隐私数据分类、archive privacy report、App Store Connect 校验。
 - 远端 tag、发布说明、最终 owner sign-off。

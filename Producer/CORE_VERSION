@@ -22,10 +22,11 @@ ios_integration_patches:
   - server-controlled request IDs are bounded/normalized and logs emit fingerprints only
   - nil STS rotation clears the previous token and header-bound CR/LF is rejected
   - NSURLSession response bodies are capped at 64 KiB and oversize is non-retryable
+  - Bridge enforces exact 32-lowercase-hex hash keys and a 9.5 MiB raw batch ceiling
 
 ownership_contract: C Core 管理自身 buffer/string；Bridge 对 HTTP response 字段做 allocator 对称释放
 symbol_contract: final consumer Mach-O 不导出 ve_tls_*/VE_TLS_LZ4_*/LZ4_*
 core_upstream_test_evidence: CI asan-ubsan 5/5, shared-abi, static-release (2026-08-27)
-ios_integration_evidence: Simulator full 246 total/240 passed/0 failed/6 opt-in skipped；ASan/TSan full 各 240 passed/0 failed/6 skipped；persistent live-retry/close-reopen 2/2；SwiftPM/Pod final symbol gates PASS；2h soak v10 pending（完成前不计 PASS）
+ios_integration_evidence: Simulator full 248 total/242 passed/0 failed/6 opt-in skipped；ASan/TSan full 各 242 passed/0 failed/6 skipped；persistent live-retry/close-reopen 2/2；SwiftPM/Pod final symbol gates PASS；2h soak v10 因合同变化中止，v11 pending（完成前不计 PASS）
 integrated_at: 2026-08-27
 remediated_at: 2026-08-28

@@ -55,13 +55,18 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   边界拒绝 header-bound 字段中的 CR/LF，避免换行注入且错误不回显输入。
 - transport 将响应体限制为 64 KiB；超限在追加前终止、清空部分 body、标记为
   不可重试，避免恶意或误配 endpoint 导致无界内存增长。
+- `LogEvent.hashKey` 在 public/Bridge 两层统一为精确 32 位小写十六进制；batch
+  可配置上限收紧为 9.5 MiB（9,961,472 bytes），同时写入 Core package/aggregate
+  raw-byte 限制，在服务端 10 MiB 绝对上限下保留 framing 余量。
+- 冻结 at-least-once 边界：retry/recovery 可产生重复；只有已持久化且存储完整、
+  非 drop 策略的数据进入恢复重试，不把 local close 描述为远端 ACK。
 
 ### Verified distribution status
 
-- Xcode 26.6：iOS 26.5 / 26.3.1 arm64 Simulator 全量 246 total，240 passed，
+- Xcode 26.6：iOS 26.5 / 26.3.1 arm64 Simulator 全量 248 total，242 passed，
   0 failed，6 opt-in skipped；真实 redirect 4/4；BOE AK/SK 2/2 证据早于最终
   auth-retain 补丁，最终源码精确复跑仍需凭证使用授权。
-- ASan/TSan 全量均为 240 passed / 0 failed / 6 skipped。
+- ASan/TSan 全量均为 242 passed / 0 failed / 6 skipped。
 - SwiftPM strict Swift 6、iOS 13 deployment：arm64/x86_64 × Debug/Release 产品
   build；外部 public lifecycle/resource/symbol consumer 通过。
 - CocoaPods 1.17.0 完整 `pod lib lint`、默认 static library consumer、static
@@ -70,14 +75,14 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   recovered 回归通过。
 - persistent retry-cycle live recovery 与 persisted-for-recovery close/reopen 定向
   2/2 通过；v6/v7/v8/v9 分别因 requestID 日志、旧 STS token 未清除、无界响应
-  体、未限制 sender 线程/移动端 buffer 资源包络而主动中止。最终产品源码
-  `52963f2` 的 2h Simulator soak v10 尚未完成，完成前不计 PASS。
+  体、未限制 sender 线程/移动端 buffer 资源包络而主动中止。v10 因最新 hashKey、
+  9.5 MiB、projectID 与 at-least-once 合同改变而主动中止；最终 v11 尚未完成。
 
 ### Release blockers
 
 - Xcode 14.3.1 / Swift 5.8、iOS 13 真机、STS、真机 Instruments/background/
   Data Protection、隐私数据分类/App Store privacy report 尚未完成。
-- 正式 2h Simulator soak v10 尚未完成，最终功能/RSS 结论仍是发布 blocker。
+- 正式 2h Simulator soak v11 尚未完成，最终功能/RSS 结论仍是发布 blocker。
 - 远端 `0.0.2` tag 尚未创建。
 - 当前仍是 Development Preview / release candidate source，不可标记 Beta/GA。
 

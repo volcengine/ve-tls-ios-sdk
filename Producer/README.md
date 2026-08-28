@@ -93,13 +93,15 @@ Public `open` 必须在 configuration 中携带 destination。所有 public muta
 | `Producer.open(...) async throws` | 校验配置/凭证/destination，在 utility executor 构造并 recover Real Core |
 | `add(_:mode:) throws` | 同步本地 admission；成功仅表示达到配置的 durability 边界 |
 | `updateCredentials(_:) throws` | AK/SK/STS 整组原子替换 |
-| `updateDestination(_:) throws` | 整组替换 current target；endpoint/region/topic 进入 v0.3.1 sender，projectID 保存在 SDK snapshot |
+| `updateDestination(_:) throws` | 整组替换 current target；endpoint/region/topic 进入 v0.3.1 sender，projectID 保存在 SDK snapshot，预留给未来 project 域名路由 |
 | `close(timeout:) async throws` | bounded 本地停止；并发 waiter 同结果；失败可重试；成功后幂等 |
 
 关键默认值：batch 1024 条 / 1 MiB / 3s，buffer 64 MiB `.reject`，
-sendConcurrency 1，LZ4，connect 10s，request 15s，maxLogAge 7d。移动端单实例
-资源合同限制 buffer 不超过 256 MiB、sendConcurrency 不超过 8；initializer 与
-open 边界都会重校验，Bridge 也独立拒绝越界值。
+sendConcurrency 1，LZ4，connect 10s，request 15s，maxLogAge 7d。可配置的
+`batch.maxRawBytes` 上限为 9.5 MiB（9,961,472 bytes），在服务端 10 MiB 绝对上限
+下保留 framing 余量。移动端单实例资源合同还限制 buffer 不超过 256 MiB、
+sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridge 也独立
+拒绝越界值。`LogEvent.hashKey` 若非 `nil`，必须精确匹配 `[0-9a-f]{32}`。
 
 持久化模式：
 
@@ -114,6 +116,13 @@ open 边界都会重校验，Bridge 也独立拒绝越界值。
   segment，超限 reject-new；尚无 public 调整项。
 - `.sync` 和 `BufferFullPolicy.block` 可能阻塞调用线程，不应在主线程使用。
 
+交付语义是 **at-least-once，而不是 exactly-once**：网络失败、进程恢复或 ACK
+丢失时，同一请求可能被重放，服务端可能看到重复日志，SDK 不提供跨请求去重。
+对于 `.buffered` / `.sync`，已完成持久化 admission 的数据会在 WAL 完整、存储仍
+可用且 expiry/auth 策略未选择 drop 的前提下恢复并继续重试。该承诺不覆盖
+`.disabled` / `.memory` 的进程死亡、调用方删除/损坏 WAL、admission 失败、容量
+拒绝或策略明确丢弃的数据；`close` 成功也不等于远端已经 ACK。
+
 ## 安全与隐私
 
 - endpoint 必须是纯 HTTPS origin：有 host，显式 port 必须在 1…65535，不允许
@@ -122,6 +131,9 @@ open 边界都会重校验，Bridge 也独立拒绝越界值。
   cookie 与 credential store。
 - redirect 只有在 normalized origin（scheme/host/effective port）以及签名覆盖的
   method/path/query/body 全部不变时才 follow；否则拒绝且不转发 Authorization。
+  V4 canonical headers 包含 Host，显式 port 也属于 Host；因此跨端口不能安全复用
+  原 Authorization。未来若需支持，必须由 Core 对新目标重新签名并配置允许端口，
+  不能只放宽 URLSession delegate。
 - SDK 不直接记录 credentials、Authorization 或请求/响应 body；
   `Credentials.description/debugDescription` 固定脱敏；C 字符串拒绝 embedded NUL
   与 CR/LF；凭证整组更新传 `securityToken=nil` 会显式清除旧 STS token。
@@ -140,12 +152,12 @@ open 边界都会重校验，Bridge 也独立拒绝越界值。
 
 已验证：
 
-- iOS 26.5 与 iOS 26.3.1 arm64 Simulator 全量：246 total，240 passed，
+- iOS 26.5 与 iOS 26.3.1 arm64 Simulator 全量：248 total，242 passed，
   0 failed，6 个 opt-in 用例按设计 skipped。
 - 真实本地 HTTPS redirect 4/4；BOE AK/SK 200 与随机错误 SK 401/403 映射
   2/2。BOE 证据早于最终 auth-retain 补丁；补丁不影响该 non-persistent wire
   路径，但最终源码精确复跑仍需凭证使用授权，不能把默认 skip 计作通过。
-- ASan 与 TSan 全量均为 240 passed / 0 failed / 6 skipped。
+- ASan 与 TSan 全量均为 242 passed / 0 failed / 6 skipped。
 - SwiftPM 严格 Swift 6、iOS 13 deployment 产品目标：arm64/x86_64 ×
   Debug/Release 全部 build；
   x86_64 在 Apple Silicon 上只验证 build/link，不声称 runtime。
@@ -164,8 +176,9 @@ open 边界都会重校验，Bridge 也独立拒绝越界值。
 - 隐私数据分类；远端 `0.0.2` tag 与发布动作。
 - 正式 2h Simulator soak v6/v7/v8/v9 分别因原始 requestID 日志、凭证从 STS
   更新到 nil 后旧 token 残留、服务端响应体无界累积、资源配置允许创建数量失控
-  的 sender 线程而主动中止。上述缺陷均已红/绿修复；最终产品源码 `52963f2`
-  的 v10 尚未完成，不能计为通过。
+  的 sender 线程而主动中止。上述缺陷均已红/绿修复；v10 在运行中因本轮冻结
+  hashKey / 9.5 MiB / projectID / at-least-once 合同而主动中止，不能计为通过。
+  最终 v11 尚未完成。
 
 测试通过不等于可发布。仓库内冻结合同与门禁状态见
 [DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
@@ -175,11 +188,13 @@ workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08
 
 - 无自动 STS Provider、ObjC public facade、contextFlow、XCFramework、SDK
   signature、rich metrics 或远端终态 flush。
-- 不承诺 exactly-once，也不承诺 App 被强杀后继续实时上传。
+- at-least-once 允许请求重放和重复日志；不承诺 exactly-once，也不承诺 App 被
+  强杀后继续实时上传。持久化恢复的前提与排除项见“持久化模式”。
 - 调用方必须强持有 `Producer` 直到 `close` 完成；未 close 就释放只保证
   best-effort 异步 destroy/不阻塞 deallocation，不保证剩余终态 callback。
-- v0.3.1 destination update wire API 没有 projectID 参数；单独修改 projectID
-  不会改变 sender target。
+- projectID 为未来 project 域名路由保留；当前只做 non-empty、NUL、CR/LF 的最小
+  安全校验，不猜测长度/字符集。v0.3.1 destination update wire API 没有
+  projectID 参数，单独修改 projectID 不会改变 sender target。
 - Core 基线是 upstream v0.3.1，但当前 vendored 源码包含 iOS 集成补丁：custom
   transport retryability、内部符号可见性/LZ4 隐藏；不能描述为未修改上游包。
 - bridge-level `flock` 只能约束遵守该 Bridge 协议的 SDK 实例，不能约束绕过
