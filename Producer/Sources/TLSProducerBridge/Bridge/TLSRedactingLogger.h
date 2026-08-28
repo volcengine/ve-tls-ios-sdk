@@ -30,7 +30,8 @@ FOUNDATION_EXPORT NSString *const TLSRedactedMarker;
 /// @param URLString request URL; query/fragment are stripped before logging.
 /// @param status HTTP response status code (0 if no response).
 /// @param duration request duration in seconds.
-/// @param requestID optional request identifier; nil is logged as "-".
+/// @param requestID optional request identifier; only a stable fingerprint is
+/// logged, never the server-provided value itself. nil is logged as "-".
 /// @param byteCount number of bytes sent (or 0 if not applicable).
 + (void)logWithMethod:(NSString *)method
             URLString:(NSString *)URLString
@@ -38,6 +39,18 @@ FOUNDATION_EXPORT NSString *const TLSRedactedMarker;
      durationInterval:(NSTimeInterval)duration
             requestID:(nullable NSString *)requestID
             byteCount:(NSInteger)byteCount;
+
+/// Bounds a server-provided request identifier to 256 characters and replaces
+/// characters outside `[A-Za-z0-9._:-]` with `_`. Returns nil for nil/empty.
+/// The normalized value is safe for structured API/error fields, but it is
+/// still server-controlled and must not be emitted verbatim by the SDK logger.
++ (nullable NSString *)normalizedRequestID:(nullable NSString *)requestID
+    NS_SWIFT_NAME(normalizedRequestID(_:));
+
+/// Returns a stable, non-cryptographic fingerprint for log correlation. The
+/// original/normalized request identifier is never included in the result.
++ (NSString *)requestIDFingerprintForLogging:(nullable NSString *)requestID
+    NS_SWIFT_NAME(requestIDFingerprintForLogging(_:));
 
 /// Strips query and fragment from a URL string. Unit-test hook.
 + (NSString *)redactedURLString:(NSString *)URLString;

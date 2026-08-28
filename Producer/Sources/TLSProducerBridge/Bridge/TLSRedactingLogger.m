@@ -4,6 +4,8 @@
 
 #import "TLSRedactingLogger.h"
 
+#include <stdint.h>
+
 NSString *const TLSRedactedMarker = @"***REDACTED***";
 
 @implementation TLSRedactingLogger
@@ -92,6 +94,44 @@ NSString *const TLSRedactedMarker = @"***REDACTED***";
     return out;
 }
 
++ (nullable NSString *)normalizedRequestID:(nullable NSString *)requestID {
+    if (requestID.length == 0) {
+        return nil;
+    }
+    static NSCharacterSet *allowed;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        allowed = [NSCharacterSet characterSetWithCharactersInString:
+            @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-"];
+    });
+    NSUInteger length = MIN(requestID.length, (NSUInteger)256);
+    NSMutableString *normalized = [NSMutableString stringWithCapacity:length];
+    for (NSUInteger index = 0; index < length; index++) {
+        unichar character = [requestID characterAtIndex:index];
+        if ([allowed characterIsMember:character]) {
+            [normalized appendFormat:@"%C", character];
+        } else {
+            [normalized appendString:@"_"];
+        }
+    }
+    return normalized.length > 0 ? normalized : nil;
+}
+
++ (NSString *)requestIDFingerprintForLogging:(nullable NSString *)requestID {
+    NSString *normalized = [self normalizedRequestID:requestID];
+    if (normalized.length == 0) {
+        return @"-";
+    }
+    NSData *data = [normalized dataUsingEncoding:NSUTF8StringEncoding];
+    const uint8_t *bytes = data.bytes;
+    uint64_t hash = UINT64_C(14695981039346656037);
+    for (NSUInteger index = 0; index < data.length; index++) {
+        hash ^= bytes[index];
+        hash *= UINT64_C(1099511628211);
+    }
+    return [NSString stringWithFormat:@"fnv1a64-%016llx", (unsigned long long)hash];
+}
+
 + (void)logWithMethod:(NSString *)method
             URLString:(NSString *)URLString
                status:(NSInteger)status
@@ -104,10 +144,8 @@ NSString *const TLSRedactedMarker = @"***REDACTED***";
     NSString *safeMethod = [self maskSensitiveTokensInString:method ?: @"-"];
     NSString *safeURL = [self maskSensitiveTokensInString:
         [self redactedURLString:URLString ?: @""]];
-    NSString *safeRequestID = requestID.length > 0
-        ? [self maskSensitiveTokensInString:requestID]
-        : @"-";
-    NSLog(@"[TLSProducer] method=%@ url=%@ status=%ld duration_ms=%.1f requestID=%@ bytes=%ld",
+    NSString *safeRequestID = [self requestIDFingerprintForLogging:requestID];
+    NSLog(@"[TLSProducer] method=%@ url=%@ status=%ld duration_ms=%.1f requestIDHash=%@ bytes=%ld",
           safeMethod,
           safeURL,
           (long)status,
@@ -130,6 +168,23 @@ NSString *const TLSRedactedMarker = @"***REDACTED***";
         return NO;
     }
     if (![masked containsString:TLSRedactedMarker]) {
+        return NO;
+    }
+    NSString *serverControlled = [@"rid/with spaces/" stringByAppendingString:
+        [@"A" stringByPaddingToLength:300 withString:@"A" startingAtIndex:0]];
+    NSString *normalizedRequestID = [self normalizedRequestID:serverControlled];
+    if (normalizedRequestID.length != 256 ||
+        ![normalizedRequestID hasPrefix:@"rid_with_spaces_"] ||
+        [normalizedRequestID containsString:@"/"] ||
+        [normalizedRequestID containsString:@" "]) {
+        return NO;
+    }
+    NSString *fingerprint = [self requestIDFingerprintForLogging:serverControlled];
+    if ([fingerprint containsString:serverControlled] ||
+        ![fingerprint isEqualToString:
+            [self requestIDFingerprintForLogging:serverControlled]] ||
+        [fingerprint isEqualToString:
+            [self requestIDFingerprintForLogging:@"different-request-id"]]) {
         return NO;
     }
     // Clean input must be reported as clean.

@@ -2202,6 +2202,4 @@ retry_keyed_after_auth_update:
         ve_tls_key_queue_finish(producer, kq);
         producer->config.platform.mutex_unlock(producer->mutex);
     }
-    ve_tls_sender_thread_cache_clear();
-    return NULL;
 }

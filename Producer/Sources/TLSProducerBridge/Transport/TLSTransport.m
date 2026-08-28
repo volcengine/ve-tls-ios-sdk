@@ -438,8 +438,10 @@ willPerformHTTPRedirection:(NSHTTPURLResponse *)response
     BOOL samePort = ([self effectivePortForURL:originalURL] ==
                      [self effectivePortForURL:nextURL]);
     BOOL noUserInfo = nextComponents.user == nil && nextComponents.password == nil;
+    // HTTP methods are case-sensitive tokens and are part of the V4 canonical
+    // request. A case-only change is therefore a signature-changing redirect.
     BOOL sameMethod = context.request.method.length > 0 && request.HTTPMethod.length > 0 &&
-        [context.request.method caseInsensitiveCompare:request.HTTPMethod] == NSOrderedSame;
+        [context.request.method isEqualToString:request.HTTPMethod];
     BOOL samePath = originalComponents != nil && nextComponents != nil &&
         [(originalComponents.percentEncodedPath ?: @"")
             isEqualToString:(nextComponents.percentEncodedPath ?: @"")];
@@ -633,7 +635,7 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
         if ([[key lowercaseString] isEqualToString:kTLSTransportRequestIDHeader]) {
             id value = headers[key];
             if ([value isKindOfClass:[NSString class]] && ((NSString *)value).length > 0) {
-                return (NSString *)value;
+                return [TLSRedactingLogger normalizedRequestID:(NSString *)value];
             }
         }
     }

@@ -652,6 +652,21 @@ final class TLSTransportTests: XCTestCase {
         XCTAssertEqual(response?.requestID, "rid-mixed-case")
     }
 
+    func testRequestIDIsBoundedAndNormalizedBeforeLeavingTransport() {
+        let serverControlled = "rid/with spaces/" + String(repeating: "A", count: 300)
+        TLSTestStubURLProtocol.setBehavior(
+            .success(requestID: serverControlled),
+            forPath: "/rid-normalized")
+
+        let response = performSync(makeRequest(path: "/rid-normalized"))
+
+        XCTAssertEqual(response?.statusCode, 200)
+        XCTAssertEqual(response?.requestID?.count, 256)
+        XCTAssertTrue(response?.requestID?.hasPrefix("rid_with_spaces_") == true)
+        XCTAssertFalse(response?.requestID?.contains("/") == true)
+        XCTAssertFalse(response?.requestID?.contains(" ") == true)
+    }
+
     func testMissingRequestIDYieldsNil() {
         TLSTestStubURLProtocol.setBehavior(.success(), forPath: "/rid-none")
 

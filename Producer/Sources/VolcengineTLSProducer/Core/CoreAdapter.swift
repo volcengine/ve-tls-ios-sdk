@@ -19,7 +19,10 @@ import Foundation
 ///   `configuration.callbackQueue` passed to `open(configuration:credentials:)`,
 ///   and MUST NOT be invoked while holding any lock that `add`, `close`, or
 ///   `update*` may acquire (no deadlock, no reentrancy).
-/// - Each accepted batch produces exactly one terminal `SendResult`.
+/// - A batch produces at most one terminal `SendResult` for one live
+///   producer. A durable retry-delayed batch may instead be persisted during
+///   local close and recovered by a later producer, so the old handler is not
+///   promised a synthetic terminal result.
 /// - `close(timeout:)` bounds local shutdown work (worker stop, local
 ///   persistence flush) and throws if the Core cannot complete that work; it
 ///   must not promise remote delivery of accepted logs.

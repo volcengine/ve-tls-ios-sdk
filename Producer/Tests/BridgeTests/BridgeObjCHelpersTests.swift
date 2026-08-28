@@ -38,6 +38,25 @@ final class BridgeObjCHelpersTests: XCTestCase {
             "https://host.example/path")
     }
 
+    func testRequestIDNormalizationAndFingerprintNeverEchoRawServerText() {
+        let serverControlled = "rid/with spaces/" + String(repeating: "A", count: 300)
+        let normalized = TLSRedactingLogger.normalizedRequestID(serverControlled)
+        XCTAssertEqual(normalized?.count, 256)
+        XCTAssertTrue(normalized?.hasPrefix("rid_with_spaces_") == true)
+        XCTAssertFalse(normalized?.contains("/") == true)
+        XCTAssertFalse(normalized?.contains(" ") == true)
+
+        let fingerprint = TLSRedactingLogger.requestIDFingerprintForLogging(serverControlled)
+        XCTAssertTrue(fingerprint.hasPrefix("fnv1a64-"))
+        XCTAssertFalse(fingerprint.contains(serverControlled))
+        XCTAssertEqual(
+            fingerprint,
+            TLSRedactingLogger.requestIDFingerprintForLogging(serverControlled))
+        XCTAssertNotEqual(
+            fingerprint,
+            TLSRedactingLogger.requestIDFingerprintForLogging("different-request-id"))
+    }
+
     func testSerialQueueFactoryLabelAndQoS() {
         let queue = TLSSerialQueueFactory.serialQueue(withSuffix: "test")
         XCTAssertEqual(
