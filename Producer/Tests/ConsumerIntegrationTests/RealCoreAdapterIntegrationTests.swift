@@ -1149,6 +1149,80 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         try recovered.close(withTimeout: 5)
     }
 
+    /// `dealloc` uses Core destroy rather than the public close path. Once a
+    /// persistent task is in a long cross-cycle delay, destroy must honor the
+    /// Core `stop` flag, release that live task, and eventually release the
+    /// bridge directory lock without waiting for the retry timer.
+    func testPersistentDelayedRetryDeallocationReleasesDirectory() async throws {
+        let producerID = "bridge-destroy-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        RealCoreStubURLProtocol.setResponse(
+            statusCode: 503,
+            requestID: "retry-before-destroy",
+            forPath: "/PutLogs")
+        weak var releasedAdapter: TLSRealCoreAdapter?
+        var adapter: TLSRealCoreAdapter? = try makeBridgeAdapter(
+            requestTimeout: 0.2,
+            maxLogCount: 1,
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)
+        releasedAdapter = adapter
+        try adapter?.open()
+        try addImmediateLog(
+            to: try XCTUnwrap(adapter),
+            value: "retry-destroy")
+
+        // Five exhausted request cycles put the task on a cross-cycle delay
+        // whose minimum jittered duration is over 2.6 seconds. This makes the
+        // old `closing`-only destroy bug deterministic while keeping the
+        // regression bounded.
+        let requestDeadline = Date().addingTimeInterval(25)
+        while RealCoreStubURLProtocol.recordedRequests().count < 15,
+              Date() < requestDeadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertGreaterThanOrEqual(
+            RealCoreStubURLProtocol.recordedRequests().count,
+            15,
+            "five bounded retry cycles must complete")
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        adapter = nil
+        for _ in 0..<50 where releasedAdapter != nil {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertNil(releasedAdapter, "adapter deallocation must remain non-blocking")
+
+        RealCoreStubURLProtocol.setResponse(
+            statusCode: 200,
+            requestID: "retry-after-destroy-recovery",
+            forPath: "/PutLogs")
+        let reopenDeadline = Date().addingTimeInterval(2)
+        var reopened: TLSRealCoreAdapter?
+        var lastOpenError: Error?
+        while reopened == nil, Date() < reopenDeadline {
+            do {
+                reopened = try makeBridgeAdapter(
+                    requestTimeout: 0.2,
+                    maxLogCount: 1,
+                    persistenceMode: .buffered,
+                    persistentDirectory: directory.path)
+            } catch {
+                lastOpenError = error
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+        }
+        guard let reopened else {
+            XCTFail("async Core destroy did not release the directory lock: \(String(describing: lastOpenError))")
+            return
+        }
+        try reopened.open()
+        try reopened.close(withTimeout: 5)
+    }
+
     /// A highly repetitive payload must take the LZ4 branch and report a
     /// smaller compressed byte count while preserving the raw count.
     func testLZ4CallbackReportsCompressedBytes() async throws {

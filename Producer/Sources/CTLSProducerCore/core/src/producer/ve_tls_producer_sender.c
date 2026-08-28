@@ -1389,11 +1389,13 @@ int ve_tls_sender_step(ve_tls_producer * producer) {
     int64_t now0 = producer->config.platform.time_ms ? producer->config.platform.time_ms() : 0;
     ve_tls_delayed_promote_due(
         producer,
-        producer->closing && producer->persistent ? INT64_MAX : now0);
+        (producer->closing || producer->stop) && producer->persistent
+            ? INT64_MAX
+            : now0);
     kq = ve_tls_ready_pop(producer);
     if (kq) {
         (void)ve_tls_key_queue_pop_task(kq, &task);
-        if (producer->closing && producer->persistent &&
+        if ((producer->closing || producer->stop) && producer->persistent &&
             task.persistent_retry_cycle > 0) {
             producer->config.platform.mutex_unlock(producer->mutex);
             ve_tls_sender_release_task(producer, &task);
@@ -1848,11 +1850,13 @@ next_task:
             int wait_sendq_ms = 0;
             ve_tls_delayed_promote_due(
                 producer,
-                producer->closing && producer->persistent ? INT64_MAX : now0);
+                (producer->closing || producer->stop) && producer->persistent
+                    ? INT64_MAX
+                    : now0);
             kq = ve_tls_ready_pop(producer);
             if (kq) {
                 (void)ve_tls_key_queue_pop_task(kq, &task);
-                if (producer->closing && producer->persistent &&
+                if ((producer->closing || producer->stop) && producer->persistent &&
                     task.persistent_retry_cycle > 0) {
                     producer->config.platform.mutex_unlock(producer->mutex);
                     ve_tls_sender_release_task(producer, &task);
