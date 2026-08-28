@@ -64,6 +64,8 @@ typedef NS_ENUM(NSInteger, TLSTransportErrorCode) {
     /// Generic URL-loading failure (DNS/TLS/connection/...). The original
     /// NSURLError code is recorded under TLSTransportErrorUnderlyingCodeKey.
     TLSTransportErrorCodeTransportFailure = 2106,
+    /// The server response body exceeded the fixed transport safety limit.
+    TLSTransportErrorCodeResponseTooLarge = 2107,
 };
 
 /// userInfo key: HTTP status code (NSNumber) when a response was received.

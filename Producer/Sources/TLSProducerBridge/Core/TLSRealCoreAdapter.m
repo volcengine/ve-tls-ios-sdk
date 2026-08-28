@@ -420,7 +420,8 @@ static int tls_http_do_request_inner(ve_tls_http_client *client,
         } else if ([requestError.domain isEqualToString:TLSTransportErrorDomain] &&
                    (requestError.code == TLSTransportErrorCodeInvalidURL ||
                     requestError.code == TLSTransportErrorCodeInvalidConfiguration ||
-                    requestError.code == TLSTransportErrorCodeCancelled)) {
+                    requestError.code == TLSTransportErrorCodeCancelled ||
+                    requestError.code == TLSTransportErrorCodeResponseTooLarge)) {
             resp->error_message = strdup("HTTP request rejected");
             resp->transport_retryable = 0;
         } else {

@@ -754,6 +754,32 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         try adapter.close(withTimeout: 5)
     }
 
+    func testOversizedHTTPResponseIsNonRetryableAndEmitsOneTerminalResult() async throws {
+        RealCoreStubURLProtocol.setResponse(
+            statusCode: 200,
+            body: Data(repeating: 0x41, count: 64 * 1024 + 1),
+            requestID: "request-oversized",
+            forPath: "/PutLogs")
+        let adapter = try makeBridgeAdapter(requestTimeout: 1, maxLogCount: 1)
+        let callback = BridgeCallbackCollector()
+        let callbackExpectation = expectation(description: "oversized response result")
+        installCallback(on: adapter, collector: callback, expectation: callbackExpectation)
+        try adapter.open()
+
+        try addImmediateLog(to: adapter, value: "oversized-response")
+        await fulfillment(of: [callbackExpectation], timeout: 5)
+
+        let result = try XCTUnwrap(callback.first)
+        XCTAssertNotEqual(result.result, 0)
+        XCTAssertEqual(result.transportCode, TLSTransportErrorCode.responseTooLarge.rawValue)
+        XCTAssertFalse(result.retryable)
+        XCTAssertEqual(result.errorMessage, "HTTP transport failed")
+        XCTAssertEqual(callback.count, 1)
+        XCTAssertEqual(RealCoreStubURLProtocol.recordedRequests().count, 1)
+
+        try adapter.close(withTimeout: 5)
+    }
+
     /// A zero-budget close while a request is in flight must throw and leave
     /// the Core retryable. Once the request reaches its own bounded timeout,
     /// a later close is allowed to complete and only then reports isClosed.

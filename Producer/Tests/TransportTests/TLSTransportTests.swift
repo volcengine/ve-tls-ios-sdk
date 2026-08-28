@@ -336,6 +336,34 @@ final class TLSTransportTests: XCTestCase {
         }
     }
 
+    func testOversizedResponseBodyIsRejectedWithoutReturningPartialBytes() {
+        let oversizedBody = Data(repeating: 0x41, count: 64 * 1024 + 1)
+        TLSTestStubURLProtocol.setBehavior(
+            .success(requestID: "rid-oversized", body: oversizedBody),
+            forPath: "/oversized-response")
+
+        let response = performSync(makeRequest(path: "/oversized-response"))
+
+        let error = response?.error as NSError?
+        XCTAssertEqual(error?.domain, TLSTransportErrorDomain)
+        XCTAssertEqual(error?.code, 2107)
+        XCTAssertTrue(response?.body.isEmpty ?? false)
+        XCTAssertEqual(response?.requestID, "rid-oversized")
+    }
+
+    func testResponseBodyAtSafetyLimitIsAccepted() {
+        let bodyAtLimit = Data(repeating: 0x42, count: 64 * 1024)
+        TLSTestStubURLProtocol.setBehavior(
+            .success(requestID: "rid-at-limit", body: bodyAtLimit),
+            forPath: "/response-at-limit")
+
+        let response = performSync(makeRequest(path: "/response-at-limit"))
+
+        XCTAssertNil(response?.error)
+        XCTAssertEqual(response?.body, bodyAtLimit)
+        XCTAssertEqual(response?.requestID, "rid-at-limit")
+    }
+
     // MARK: Redirect
 
     func testCustomProtocolCanDeliverSimulatedSameOriginFinalResponse() {

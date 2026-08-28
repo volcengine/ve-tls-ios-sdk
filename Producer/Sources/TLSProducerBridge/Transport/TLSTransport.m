@@ -17,6 +17,7 @@ NSString *const TLSTransportErrorUnderlyingCodeKey = @"TLSTransportErrorUnderlyi
 /// Session-wide default for timeoutIntervalForRequest when the caller
 /// configuration leaves it unset. Best-effort connect budget only (§8.3).
 static NSTimeInterval const kTLSTransportDefaultTimeoutIntervalForRequest = 15.0;
+static NSUInteger const kTLSTransportMaxResponseBodyBytes = 64 * 1024;
 static NSString *const kTLSTransportQueueSuffix = @"transport";
 static NSString *const kTLSTransportRequestIDHeader = @"x-tls-request-id";
 
@@ -384,6 +385,17 @@ didReceiveResponse:(NSURLResponse *)response
         context.responseHeaders = httpResponse.allHeaderFields;
         context.responseRequestID = [self requestIDFromHeaders:httpResponse.allHeaderFields];
     }
+    if (response.expectedContentLength > (int64_t)kTLSTransportMaxResponseBodyBytes) {
+        NSError *error = [self transportErrorWithCode:TLSTransportErrorCodeResponseTooLarge
+                                          description:@"response body exceeded safety limit"
+                                           statusCode:context.statusCode
+                                            requestID:context.responseRequestID
+                                       underlyingCode:nil];
+        [context.accumulatedBody setLength:0];
+        [self completeContext:context withError:error];
+        completionHandler(NSURLSessionResponseCancel);
+        return;
+    }
     completionHandler(NSURLSessionResponseAllow);
 }
 
@@ -392,6 +404,20 @@ didReceiveResponse:(NSURLResponse *)response
     didReceiveData:(NSData *)data {
     TLSRequestContext *context = self.contextsByTaskID[@(dataTask.taskIdentifier)];
     if (context == nil || context.state == TLSTransportRequestStateTerminal) {
+        return;
+    }
+    NSUInteger accumulatedLength = context.accumulatedBody.length;
+    if (accumulatedLength > kTLSTransportMaxResponseBodyBytes ||
+        data.length > kTLSTransportMaxResponseBodyBytes - accumulatedLength) {
+        NSURLSessionDataTask *task = context.task;
+        NSError *error = [self transportErrorWithCode:TLSTransportErrorCodeResponseTooLarge
+                                          description:@"response body exceeded safety limit"
+                                           statusCode:context.statusCode
+                                            requestID:context.responseRequestID
+                                       underlyingCode:nil];
+        [context.accumulatedBody setLength:0];
+        [self completeContext:context withError:error];
+        [task cancel];
         return;
     }
     [context.accumulatedBody appendData:data];
