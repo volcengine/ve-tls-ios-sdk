@@ -802,6 +802,166 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         try adapter.close(withTimeout: 5)
     }
 
+    /// Exhausting one bounded retry cycle must not strand a durable batch
+    /// until the process restarts. Retry-cycle failures are non-terminal for
+    /// persistent delivery; the same live producer must retry later and emit
+    /// exactly one success when the transport recovers.
+    func testPersistentRetryExhaustionResumesWithoutRestart() async throws {
+        let producerID = "bridge-retry-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        RealCoreStubURLProtocol.setResponse(
+            statusCode: 503,
+            requestID: "retry-cycle-exhausted",
+            forPath: "/PutLogs")
+        let resumedSuccess = expectation(
+            description: "persistent batch resumes in the same process")
+        let prematureFailure = expectation(
+            description: "retry-cycle exhaustion is not a terminal failure")
+        prematureFailure.isInverted = true
+        let callback = BridgeCallbackCollector()
+
+        let adapter = try makeBridgeAdapter(
+            requestTimeout: 0.2,
+            maxLogCount: 1,
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)
+        adapter.onSendResult = {
+            result, rawBytes, compressedBytes, httpCode, errorCode, errorMessage,
+            requestID, transportKind, transportCode, retryable, startID, endID in
+            callback.append(BridgeCallbackPayload(
+                result: result,
+                rawBytes: rawBytes,
+                compressedBytes: compressedBytes,
+                httpCode: httpCode,
+                errorCode: errorCode,
+                errorMessage: errorMessage,
+                requestID: requestID,
+                transportKind: transportKind,
+                transportCode: transportCode,
+                retryable: retryable,
+                startID: startID,
+                endID: endID))
+            if result == 0 {
+                resumedSuccess.fulfill()
+            } else {
+                prematureFailure.fulfill()
+            }
+        }
+        try adapter.open()
+        try addImmediateLog(to: adapter, value: "retry-exhaustion")
+
+        let requestDeadline = Date().addingTimeInterval(12)
+        while RealCoreStubURLProtocol.recordedRequests().count < 3,
+              Date() < requestDeadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertGreaterThanOrEqual(
+            RealCoreStubURLProtocol.recordedRequests().count,
+            3,
+            "the first bounded retry cycle must complete")
+        await fulfillment(of: [prematureFailure], timeout: 0.2)
+
+        let resumedRequest = expectation(
+            description: "old WAL batch is attempted again")
+        RealCoreStubURLProtocol.expectNextRequest(resumedRequest)
+        RealCoreStubURLProtocol.setResponse(
+            statusCode: 200,
+            requestID: "retry-cycle-resumed",
+            forPath: "/PutLogs")
+
+        await fulfillment(of: [resumedRequest, resumedSuccess], timeout: 5)
+        XCTAssertEqual(callback.count, 1)
+        XCTAssertEqual(callback.first?.result, 0)
+        XCTAssertEqual(callback.first?.requestID, "retry-cycle-resumed")
+        try adapter.close(withTimeout: 5)
+    }
+
+    /// A durable retry delayed for a later network window must not turn
+    /// `close` into a remote-delivery wait. Closing releases only the live
+    /// task; the WAL remains available to the next producer recovery.
+    func testPersistentRetryDelayDoesNotBlockLocalClose() async throws {
+        let producerID = "bridge-close-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        RealCoreStubURLProtocol.setResponse(
+            statusCode: 503,
+            requestID: "retry-before-close",
+            forPath: "/PutLogs")
+        let callback = BridgeCallbackCollector()
+        let adapter = try makeBridgeAdapter(
+            requestTimeout: 0.2,
+            maxLogCount: 1,
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)
+        adapter.onSendResult = {
+            result, rawBytes, compressedBytes, httpCode, errorCode, errorMessage,
+            requestID, transportKind, transportCode, retryable, startID, endID in
+            callback.append(BridgeCallbackPayload(
+                result: result,
+                rawBytes: rawBytes,
+                compressedBytes: compressedBytes,
+                httpCode: httpCode,
+                errorCode: errorCode,
+                errorMessage: errorMessage,
+                requestID: requestID,
+                transportKind: transportKind,
+                transportCode: transportCode,
+                retryable: retryable,
+                startID: startID,
+                endID: endID))
+        }
+        try adapter.open()
+        try addImmediateLog(to: adapter, value: "retry-close")
+
+        let requestDeadline = Date().addingTimeInterval(12)
+        while RealCoreStubURLProtocol.recordedRequests().count < 3,
+              Date() < requestDeadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertGreaterThanOrEqual(
+            RealCoreStubURLProtocol.recordedRequests().count,
+            3,
+            "the first bounded retry cycle must complete")
+
+        let closeStarted = Date()
+        try adapter.close(withTimeout: 2)
+        XCTAssertLessThan(Date().timeIntervalSince(closeStarted), 2)
+        XCTAssertEqual(
+            callback.count,
+            0,
+            "persisted-for-recovery is not a terminal delivery result")
+
+        RealCoreStubURLProtocol.setResponse(
+            statusCode: 200,
+            requestID: "retry-after-close-recovery",
+            forPath: "/PutLogs")
+        let recoveredSuccess = expectation(
+            description: "next producer recovers the delayed WAL batch")
+        let recoveredCallback = BridgeCallbackCollector()
+        let recovered = try makeBridgeAdapter(
+            requestTimeout: 0.2,
+            maxLogCount: 1,
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)
+        installCallback(
+            on: recovered,
+            collector: recoveredCallback,
+            expectation: recoveredSuccess)
+        try recovered.open()
+        await fulfillment(of: [recoveredSuccess], timeout: 5)
+        XCTAssertEqual(recoveredCallback.count, 1)
+        XCTAssertEqual(recoveredCallback.first?.result, 0)
+        XCTAssertEqual(
+            recoveredCallback.first?.requestID,
+            "retry-after-close-recovery")
+        try recovered.close(withTimeout: 5)
+    }
+
     /// A highly repetitive payload must take the LZ4 branch and report a
     /// smaller compressed byte count while preserving the raw count.
     func testLZ4CallbackReportsCompressedBytes() async throws {
