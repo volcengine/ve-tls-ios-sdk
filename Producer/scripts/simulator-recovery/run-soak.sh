@@ -23,6 +23,7 @@ RUN_ID=${TLS_SIMULATOR_RUN_ID:-"$(date +%Y%m%dT%H%M%S)-soak"}
 SAFE_RUN_ID=$(printf '%s' "$RUN_ID" | tr -c 'A-Za-z0-9._-' '_')
 MEMORY_REPORT_DIR="$PACKAGE_ROOT/.build/simulator-recovery-reports"
 MEMORY_REPORT="$MEMORY_REPORT_DIR/soak-memory-${SAFE_RUN_ID}.tsv"
+MEMORY_EVALUATOR="$SCRIPT_DIR/evaluate-soak-memory.sh"
 
 if [[ "${TLS_SIMULATOR_RECOVERY_OPT_IN:-}" != "1" ]]; then
   echo "REFUSED: set TLS_SIMULATOR_RECOVERY_OPT_IN=1 to run the soak" >&2
@@ -192,21 +193,27 @@ if [[ -n "$memory_summary" ]]; then
   echo "RSS: $memory_summary"
   echo "Memory report: $MEMORY_REPORT"
 else
-  echo "SKIP: host RSS sampling was unavailable; callback soak assertions still ran."
+  echo "FAIL: host RSS sampling was unavailable" >&2
 fi
+memory_gate_status=0
+"$MEMORY_EVALUATOR" "$MEMORY_REPORT" || memory_gate_status=$?
 
 outcome=$(plutil -extract outcome raw -o - "$RESULT_FILE" 2>/dev/null || true)
 accepted=$(plutil -extract acceptedLogCount raw -o - "$RESULT_FILE" 2>/dev/null || true)
 observed=$(plutil -extract observedResultCount raw -o - "$RESULT_FILE" 2>/dev/null || true)
 successes=$(plutil -extract successCount raw -o - "$RESULT_FILE" 2>/dev/null || true)
 failures=$(plutil -extract failureCount raw -o - "$RESULT_FILE" 2>/dev/null || true)
-if [[ "$outcome" == "completed" && "$accepted" == "$observed" && "$accepted" == "$successes" && "$failures" == "0" ]]; then
+if [[ "$outcome" == "completed" && "$accepted" == "$observed" && "$accepted" == "$successes" && "$failures" == "0" && "$memory_gate_status" == "0" ]]; then
   echo "PASS: soak completed accepted=${accepted:-?} observed=${observed:-?} successes=${successes:-?} failures=${failures:-?}"
   exit 0
 fi
 if [[ "$outcome" == "blocked" ]]; then
   echo "BLOCKED: soak did not receive SendResult callbacks" >&2
   exit 3
+fi
+if [[ "$memory_gate_status" != "0" ]]; then
+  echo "FAIL: soak callbacks completed but RSS gate failed" >&2
+  exit 1
 fi
 echo "FAIL: soak outcome=${outcome:-missing} accepted=${accepted:-?} observed=${observed:-?}" >&2
 exit 1
