@@ -2,7 +2,9 @@
 set -euo pipefail
 
 REPORT=${1:-}
-MIN_ELAPSED_SECONDS=${TLS_SOAK_MEMORY_MIN_ELAPSED_SECONDS:-900}
+REQUIRED_ELAPSED_SECONDS=${TLS_SOAK_MEMORY_REQUIRED_ELAPSED_SECONDS:-${TLS_SIMULATOR_SOAK_DURATION_SECONDS:-0}}
+ELAPSED_TOLERANCE_SECONDS=${TLS_SOAK_MEMORY_ELAPSED_TOLERANCE_SECONDS:-5}
+MIN_TREND_ELAPSED_SECONDS=${TLS_SOAK_MEMORY_MIN_TREND_ELAPSED_SECONDS:-900}
 MIN_COVERAGE_PERCENT=${TLS_SOAK_MEMORY_MIN_COVERAGE_PERCENT:-95}
 MAX_GAP_SECONDS=${TLS_SOAK_MEMORY_MAX_GAP_SECONDS:-10}
 MAX_MEDIAN_GROWTH_KB=${TLS_SOAK_MEMORY_MAX_MEDIAN_GROWTH_KB:-8192}
@@ -12,7 +14,9 @@ if [[ -z "$REPORT" || ! -f "$REPORT" ]]; then
   echo "FAIL: RSS report is missing" >&2
   exit 1
 fi
-if ! [[ "$MIN_ELAPSED_SECONDS" =~ ^[1-9][0-9]*$ &&
+if ! [[ "$REQUIRED_ELAPSED_SECONDS" =~ ^[0-9]+$ &&
+        "$ELAPSED_TOLERANCE_SECONDS" =~ ^[0-9]+$ &&
+        "$MIN_TREND_ELAPSED_SECONDS" =~ ^[1-9][0-9]*$ &&
         "$MIN_COVERAGE_PERCENT" =~ ^[1-9][0-9]*([.][0-9]+)?$ &&
         "$MAX_GAP_SECONDS" =~ ^[1-9][0-9]*$ &&
         "$MAX_MEDIAN_GROWTH_KB" =~ ^-?[0-9]+([.][0-9]+)?$ &&
@@ -76,9 +80,12 @@ if [[ "$first_elapsed" -ne 0 ]]; then
   echo "FAIL: RSS sampling did not begin at elapsed 0s" >&2
   exit 1
 fi
-if (( last_elapsed < MIN_ELAPSED_SECONDS )); then
-  echo "SKIP: RSS trend gate needs at least ${MIN_ELAPSED_SECONDS}s; observed ${last_elapsed}s"
-  exit 0
+if (( REQUIRED_ELAPSED_SECONDS > ELAPSED_TOLERANCE_SECONDS )); then
+  required_floor=$((REQUIRED_ELAPSED_SECONDS - ELAPSED_TOLERANCE_SECONDS))
+  if (( last_elapsed < required_floor )); then
+    echo "FAIL: RSS sampling ended at ${last_elapsed}s before required ${required_floor}s" >&2
+    exit 1
+  fi
 fi
 
 expected_samples=$((last_elapsed + 1))
@@ -94,6 +101,10 @@ fi
 if (( max_gap > MAX_GAP_SECONDS )); then
   echo "FAIL: RSS max sample gap ${max_gap}s exceeds ${MAX_GAP_SECONDS}s" >&2
   exit 1
+fi
+if (( last_elapsed < MIN_TREND_ELAPSED_SECONDS )); then
+  echo "PASS: RSS sampling gate pid_count=${pid_count} samples=${count}/${expected_samples} coverage=${coverage}% max_gap=${max_gap}s; trend skipped below ${MIN_TREND_ELAPSED_SECONDS}s"
+  exit 0
 fi
 
 median_for_range() {
