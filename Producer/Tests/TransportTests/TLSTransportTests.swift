@@ -680,6 +680,23 @@ final class TLSTransportTests: XCTestCase {
         XCTAssertEqual(response?.requestID, "rid-mixed-case")
     }
 
+    func testOfficialTLSRequestIDHeaderIsExtracted() {
+        TLSTestStubURLProtocol.setBehavior(
+            Behavior(
+                statusCode: 200,
+                headers: ["X-Tls-Requestid": "rid-official-header"],
+                body: Data(),
+                delay: 0,
+                neverRespond: false,
+                redirectLocation: nil),
+            forPath: "/rid-official")
+
+        let response = performSync(makeRequest(path: "/rid-official"))
+
+        XCTAssertEqual(response?.statusCode, 200)
+        XCTAssertEqual(response?.requestID, "rid-official-header")
+    }
+
     func testRequestIDIsBoundedAndNormalizedBeforeLeavingTransport() {
         let serverControlled = "rid/with spaces/" + String(repeating: "A", count: 300)
         TLSTestStubURLProtocol.setBehavior(

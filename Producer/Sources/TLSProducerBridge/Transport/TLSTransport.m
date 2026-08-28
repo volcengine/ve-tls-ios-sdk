@@ -19,7 +19,8 @@ NSString *const TLSTransportErrorUnderlyingCodeKey = @"TLSTransportErrorUnderlyi
 static NSTimeInterval const kTLSTransportDefaultTimeoutIntervalForRequest = 15.0;
 static NSUInteger const kTLSTransportMaxResponseBodyBytes = 64 * 1024;
 static NSString *const kTLSTransportQueueSuffix = @"transport";
-static NSString *const kTLSTransportRequestIDHeader = @"x-tls-request-id";
+static NSString *const kTLSTransportRequestIDHeader = @"x-tls-requestid";
+static NSString *const kTLSTransportLegacyRequestIDHeader = @"x-tls-request-id";
 
 #pragma mark - Request context
 
@@ -649,7 +650,8 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
     }
 }
 
-/// Extracts x-tls-request-id case-insensitively.
+/// Extracts the TLS request ID case-insensitively. The service contract uses
+/// `x-tls-requestid`; retain the older hyphenated spelling for compatibility.
 - (nullable NSString *)requestIDFromHeaders:(NSDictionary *)headers {
     if (![headers isKindOfClass:[NSDictionary class]] || headers.count == 0) {
         return nil;
@@ -658,7 +660,9 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
         if (![key isKindOfClass:[NSString class]]) {
             continue;
         }
-        if ([[key lowercaseString] isEqualToString:kTLSTransportRequestIDHeader]) {
+        NSString *lowercaseKey = [key lowercaseString];
+        if ([lowercaseKey isEqualToString:kTLSTransportRequestIDHeader] ||
+            [lowercaseKey isEqualToString:kTLSTransportLegacyRequestIDHeader]) {
             id value = headers[key];
             if ([value isKindOfClass:[NSString class]] && ((NSString *)value).length > 0) {
                 return [TLSRedactingLogger normalizedRequestID:(NSString *)value];

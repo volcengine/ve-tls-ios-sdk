@@ -73,7 +73,7 @@ typedef NS_ENUM(NSInteger, TLSTransportErrorCode) {
 /// userInfo key: HTTP status code (NSNumber) when a response was received.
 FOUNDATION_EXPORT NSString *const TLSTransportErrorStatusCodeKey;
 
-/// userInfo key: `x-tls-request-id` value (NSString) when available.
+/// userInfo key: TLS `x-tls-requestid` value (NSString) when available.
 FOUNDATION_EXPORT NSString *const TLSTransportErrorRequestIDKey;
 
 /// userInfo key: underlying NSURLError code (NSNumber) when mapped.

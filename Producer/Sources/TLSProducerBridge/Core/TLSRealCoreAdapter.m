@@ -359,6 +359,7 @@ static int tls_http_do_request_inner(ve_tls_http_client *client,
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __block NSHTTPURLResponse *httpResponse = nil;
     __block NSData *responseData = nil;
+    __block NSString *responseRequestID = nil;
     __block NSError *requestError = nil;
 
     NSString *requestID = [context.transport performRequest:tlsRequest
@@ -370,6 +371,7 @@ static int tls_http_do_request_inner(ve_tls_http_client *client,
                                          headerFields:response.headers]
             : nil;
         responseData = response.body;
+        responseRequestID = response.requestID;
         requestError = response.error;
         dispatch_semaphore_signal(sem);
     }];
@@ -464,18 +466,8 @@ static int tls_http_do_request_inner(ve_tls_http_client *client,
             return -1;
         }
     }
-    NSString *reqID = nil;
-    for (NSString *key in httpResponse.allHeaderFields) {
-        if ([[key lowercaseString] isEqualToString:@"x-tls-request-id"]) {
-            id value = httpResponse.allHeaderFields[key];
-            if ([value isKindOfClass:[NSString class]]) {
-                reqID = value;
-            }
-            break;
-        }
-    }
-    if (reqID) {
-        resp->request_id = strdup(reqID.UTF8String);
+    if (responseRequestID) {
+        resp->request_id = strdup(responseRequestID.UTF8String);
     }
 
     return 0;

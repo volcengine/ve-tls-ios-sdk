@@ -24,6 +24,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
     static func setResponse(statusCode: Int,
                             body: Data = Data(),
                             requestID: String? = "stub-req-001",
+                            requestIDHeaderName: String = "x-tls-request-id",
                             forPath path: String) {
         registry.lock.lock()
         defer { registry.lock.unlock() }
@@ -31,7 +32,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
             url: URL(string: "https://stub.local\(path)")!,
             statusCode: statusCode,
             httpVersion: "HTTP/1.1",
-            headerFields: requestID.map { ["x-tls-request-id": $0] })!
+            headerFields: requestID.map { [requestIDHeaderName: $0] })!
         registry.stubbedResponses[path] = (response, body)
         registry.hangingPaths.remove(path)
     }
@@ -821,6 +822,28 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         XCTAssertEqual(callback.count, 1)
         XCTAssertEqual(RealCoreStubURLProtocol.recordedRequests().count, 1)
 
+        try adapter.close(withTimeout: 5)
+    }
+
+    func testOfficialTLSRequestIDHeaderReachesCoreCallback() async throws {
+        RealCoreStubURLProtocol.setResponse(
+            statusCode: 200,
+            requestID: "request-official-header",
+            requestIDHeaderName: "X-Tls-Requestid",
+            forPath: "/PutLogs")
+        let adapter = try makeBridgeAdapter(requestTimeout: 1, maxLogCount: 1)
+        let callback = BridgeCallbackCollector()
+        let callbackExpectation = expectation(description: "official request ID callback")
+        installCallback(on: adapter, collector: callback, expectation: callbackExpectation)
+        try adapter.open()
+
+        try addImmediateLog(to: adapter, value: "official-request-id")
+        await fulfillment(of: [callbackExpectation], timeout: 5)
+
+        let result = try XCTUnwrap(callback.first)
+        XCTAssertEqual(result.result, 0)
+        XCTAssertEqual(result.requestID, "request-official-header")
+        XCTAssertEqual(callback.count, 1)
         try adapter.close(withTimeout: 5)
     }
 

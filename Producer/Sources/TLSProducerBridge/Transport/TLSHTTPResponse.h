@@ -29,9 +29,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// Accumulated response body. Empty when no body was received.
 @property (nonatomic, readonly, copy) NSData *body;
 
-/// Value of the `x-tls-request-id` response header, extracted
-/// case-insensitively. Nil when the header was absent or no response was
-/// received.
+/// Value of the official `x-tls-requestid` response header (or the legacy
+/// `x-tls-request-id` spelling), extracted case-insensitively. Nil when the
+/// header was absent or no response was received.
 @property (nullable, nonatomic, readonly, copy) NSString *requestID;
 
 /// Transport-level error (timeout / cancelled / redirect-rejected /

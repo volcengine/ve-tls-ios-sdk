@@ -152,12 +152,11 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
 
 已验证：
 
-- iOS 26.5 与 iOS 26.3.1 arm64 Simulator 全量：248 total，242 passed，
+- iOS 26.5 与 iOS 26.3.1 arm64 Simulator 全量：250 total，244 passed，
   0 failed，6 个 opt-in 用例按设计 skipped。
-- 真实本地 HTTPS redirect 4/4；BOE AK/SK 200 与随机错误 SK 401/403 映射
-  2/2。BOE 证据早于最终 auth-retain 补丁；补丁不影响该 non-persistent wire
-  路径，但最终源码精确复跑仍需凭证使用授权，不能把默认 skip 计作通过。
-- ASan 与 TSan 全量均为 242 passed / 0 failed / 6 skipped。
+- 真实本地 HTTPS redirect 4/4；最终源码 BOE AK/SK 200 + 官方
+  `x-tls-requestid` 贯通 public `SendResult`，随机错误 SK 映射 `.auth`，2/2。
+- ASan 与 TSan 全量均为 244 passed / 0 failed / 6 skipped。
 - SwiftPM 严格 Swift 6、iOS 13 deployment 产品目标：arm64/x86_64 ×
   Debug/Release 全部 build；
   x86_64 在 Apple Silicon 上只验证 build/link，不声称 runtime。
@@ -169,8 +168,8 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
   success；故障期间 local close 有界且下一次 open 能从 WAL 恢复，定向 2/2。
 - 正式 2h Simulator soak v11 已通过：6908 accepted / observed / success、0
   failure、单 PID；RSS 覆盖率 96.81%、最大间隔 2 秒、首尾 5 分钟中位数下降
-  2528 KiB、完整窗口斜率 -552.40 KiB/h。v6/v7/v8/v9 的产品缺陷与 v10 的合同
-  变更中止均保留为历史证据，不冒充通过。
+  2528 KiB、完整窗口斜率 -552.40 KiB/h；但它早于官方 requestID 响应头修复，
+  只作为修复前稳定性证据。最终 v12 尚未完成。
 
 仍为 BLOCKED / 未验证：
 
@@ -178,6 +177,7 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
 - STS 临时凭证；当前 BOE 材料只覆盖 AK/SK。
 - 真机 Data Protection/background/Instruments；App Store archive privacy report。
 - 隐私数据分类；远端 `0.0.2` tag 与发布动作。
+- 最终 2h Simulator soak v12。
 测试通过不等于可发布。仓库内冻结合同与门禁状态见
 [DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
 workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08-28.md`。

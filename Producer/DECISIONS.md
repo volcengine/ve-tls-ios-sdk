@@ -10,8 +10,8 @@
 - Public `Producer.open` 只使用 Real C Core，不存在无 destination 时静默降级为
   内存实现。
 - Xcode 26.6 Simulator、严格 Swift 6、SwiftPM consumer、CocoaPods lint/consumer、
-  BOE AK/SK、本地 HTTPS redirect、sanitizer 与进程级 recovery 已有证据；BOE
-  最终源码精确复跑仍需凭证使用授权。
+  最终源码 BOE AK/SK + public requestID、本地 HTTPS redirect、sanitizer 与进程级
+  recovery 已有证据。
 - Xcode 14.3.1、iOS 13 真机、STS、隐私数据分类/App Store report 和远端 tag
   仍是发布阻断。
 
@@ -72,6 +72,8 @@
   显式清除旧 token。服务端 `requestID` 在截断为 256 个字符并收敛到
   `[A-Za-z0-9._:-]` 字符集后进入公开结果/错误；SDK 日志只记录稳定指纹，不记录
   文本。endpoint 仍必须属于可信服务边界，恶意服务端反射不在绝对零泄漏承诺内。
+- TLS 官方响应头为 `x-tls-requestid`；transport 与 Core bridge 同时兼容已有的
+  `x-tls-request-id` 拼写，二者均按大小写不敏感提取。
 - transport 响应体上限为 64 KiB；超限返回不可重试的稳定错误，不向 Core
   交付部分 body。
 - SDK redacting logger 当前每个请求调用 `NSLog`；字段安全不等于生产默认合适，
@@ -129,12 +131,13 @@
 
 - 正式 2h Simulator soak v11 已通过：6908 accepted / observed / success、0
   failure、单 PID；RSS 覆盖率 96.81%、最大间隔 2 秒、首尾 5 分钟中位数下降
-  2528 KiB、完整窗口斜率 -552.40 KiB/h。v6/v7/v8/v9 的产品缺陷与 v10 的合同
-  变更中止均保留为历史证据，不冒充通过。
+  2528 KiB、完整窗口斜率 -552.40 KiB/h；但它早于官方 requestID 响应头修复，
+  只作为修复前稳定性证据。最终 v12 尚未完成。
 
 ## 仍未完成的发布门禁
 
 - Xcode 14.3.1 / Swift 5.8 runner；iOS 13 真机。
 - 真机 background/Data Protection/Instruments；STS 临时凭证。
+- 最终 2h Simulator soak v12。
 - 隐私数据分类、archive privacy report、App Store Connect 校验。
 - 远端 tag、发布说明、最终 owner sign-off。

@@ -30,7 +30,7 @@ import VolcengineTLSProducer
 ///   TLS_BOE_REQUIRE_REQUEST_ID=1 (or VE_TLS_REQUIRE_REQUEST_ID=1)
 ///
 /// `TLS_BOE_REQUIRE_REQUEST_ID=1` should be set only when the BOE service
-/// contract guarantees `x-tls-request-id` for a successful PutLogs response.
+/// contract guarantees `x-tls-requestid` for a successful PutLogs response.
 final class RealBOEIntegrationTests: XCTestCase {
 
     private struct Fixture {
