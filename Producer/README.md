@@ -167,6 +167,10 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
   Harness 又完成 3 + 3 轮，共 60/60 recovered、0 失败。
 - persistent 503 首轮 3 次耗尽后同一 live Producer 自动恢复、只产生一个
   success；故障期间 local close 有界且下一次 open 能从 WAL 恢复，定向 2/2。
+- 正式 2h Simulator soak v11 已通过：6908 accepted / observed / success、0
+  failure、单 PID；RSS 覆盖率 96.81%、最大间隔 2 秒、首尾 5 分钟中位数下降
+  2528 KiB、完整窗口斜率 -552.40 KiB/h。v6/v7/v8/v9 的产品缺陷与 v10 的合同
+  变更中止均保留为历史证据，不冒充通过。
 
 仍为 BLOCKED / 未验证：
 
@@ -174,12 +178,6 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
 - STS 临时凭证；当前 BOE 材料只覆盖 AK/SK。
 - 真机 Data Protection/background/Instruments；App Store archive privacy report。
 - 隐私数据分类；远端 `0.0.2` tag 与发布动作。
-- 正式 2h Simulator soak v6/v7/v8/v9 分别因原始 requestID 日志、凭证从 STS
-  更新到 nil 后旧 token 残留、服务端响应体无界累积、资源配置允许创建数量失控
-  的 sender 线程而主动中止。上述缺陷均已红/绿修复；v10 在运行中因本轮冻结
-  hashKey / 9.5 MiB / projectID / at-least-once 合同而主动中止，不能计为通过。
-  最终 v11 尚未完成。
-
 测试通过不等于可发布。仓库内冻结合同与门禁状态见
 [DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
 workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08-28.md`。

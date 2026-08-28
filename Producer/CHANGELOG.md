@@ -76,13 +76,14 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
 - persistent retry-cycle live recovery 与 persisted-for-recovery close/reopen 定向
   2/2 通过；v6/v7/v8/v9 分别因 requestID 日志、旧 STS token 未清除、无界响应
   体、未限制 sender 线程/移动端 buffer 资源包络而主动中止。v10 因最新 hashKey、
-  9.5 MiB、projectID 与 at-least-once 合同改变而主动中止；最终 v11 尚未完成。
+  9.5 MiB、projectID 与 at-least-once 合同改变而主动中止。最终 v11 完整 7200 秒
+  通过：6908 accepted / observed / success、0 failure、单 PID；RSS 覆盖率
+  96.81%、最大间隔 2 秒、中位数增长 -2528 KiB、斜率 -552.40 KiB/h。
 
 ### Release blockers
 
 - Xcode 14.3.1 / Swift 5.8、iOS 13 真机、STS、真机 Instruments/background/
   Data Protection、隐私数据分类/App Store privacy report 尚未完成。
-- 正式 2h Simulator soak v11 尚未完成，最终功能/RSS 结论仍是发布 blocker。
 - 远端 `0.0.2` tag 尚未创建。
 - 当前仍是 Development Preview / release candidate source，不可标记 Beta/GA。
 

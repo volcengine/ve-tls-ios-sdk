@@ -125,12 +125,16 @@
   purpose，并验证 SwiftPM/CocoaPods archive 生成的 privacy report 与 App Store
   Connect 结果。
 
+## 模拟器稳定性证据
+
+- 正式 2h Simulator soak v11 已通过：6908 accepted / observed / success、0
+  failure、单 PID；RSS 覆盖率 96.81%、最大间隔 2 秒、首尾 5 分钟中位数下降
+  2528 KiB、完整窗口斜率 -552.40 KiB/h。v6/v7/v8/v9 的产品缺陷与 v10 的合同
+  变更中止均保留为历史证据，不冒充通过。
+
 ## 仍未完成的发布门禁
 
 - Xcode 14.3.1 / Swift 5.8 runner；iOS 13 真机。
 - 真机 background/Data Protection/Instruments；STS 临时凭证。
-- 正式 2h Simulator soak v11 的最终功能与 RSS 结果（尚未完成；v6/v7/v8/v9
-  分别因 requestID 日志、旧 STS token 残留、无界响应体和资源配置上限缺失而
-  主动中止；v10 因最新公共合同改变而主动中止，不计 PASS）。
 - 隐私数据分类、archive privacy report、App Store Connect 校验。
 - 远端 tag、发布说明、最终 owner sign-off。
