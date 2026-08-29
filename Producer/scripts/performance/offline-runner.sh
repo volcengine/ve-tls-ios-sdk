@@ -213,6 +213,7 @@ run_matrix() {
     TLS_PERF_ENFORCE_GATE="$enforce_gate" \
         "$runner_root/tls/Producer/scripts/performance/run-comparison.sh"
     (cd "$evidence_root" && shasum -a 256 -c SHA256SUMS)
+    finalize
 }
 
 start_matrix() {
