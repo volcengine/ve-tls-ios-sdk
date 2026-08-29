@@ -18,10 +18,18 @@ read_metadata() {
     sed -n '1p' "$path"
 }
 
+select_developer_dir() {
+    local developer_dir
+    developer_dir=$(read_metadata developer-dir.txt)
+    [[ -d "$developer_dir" ]] || die "sealed DEVELOPER_DIR does not exist: $developer_dir"
+    export DEVELOPER_DIR="$developer_dir"
+}
+
 verify_runner() {
     [[ -f "$runner_root/RUNNER_SHA256SUMS" ]] || die "RUNNER_SHA256SUMS is missing"
     (cd "$runner_root" && shasum -a 256 -c RUNNER_SHA256SUMS >/dev/null)
     printf '%s\n' 'PASS: sealed runner file checksums verified'
+    select_developer_dir
 
     local expected_tls_sha
     local expected_sls_sha
@@ -42,15 +50,12 @@ verify_runner() {
 }
 
 verify_host() {
-    local developer_dir
     local expected_machine
     local expected_runtime
     local simulator_id
     local actual_xcode
     local actual_runtime
-    developer_dir=$(read_metadata developer-dir.txt)
-    [[ -d "$developer_dir" ]] || die "sealed DEVELOPER_DIR does not exist: $developer_dir"
-    export DEVELOPER_DIR="$developer_dir"
+    select_developer_dir
     expected_machine=$(read_metadata machine.txt)
     expected_runtime=$(read_metadata simulator-runtime.txt)
     simulator_id=$(read_metadata simulator-id.txt)
