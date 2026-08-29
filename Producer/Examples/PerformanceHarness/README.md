@@ -9,8 +9,8 @@ API 和 `AliyunLogProducer` 4.3.4 Objective-C 公共 admission API，用同一�
 
 ## 固定合同
 
-- 每条日志逻辑大小精确为 1,024 bytes（10 个 ASCII key/value 字段）；对象构造在
-  计时区间之外，P99 只统计公共 `add` 调用。
+- 每条日志逻辑大小精确为 1,024 bytes（10 个 ASCII key/value 字段）；对象构造与
+  公共 `add` 分别记录 P99，正式 admission gate 只使用 `add` P99。
 - LZ4、单 sender、默认 1,024 logs / 1 MiB / 3s batch、64 MiB buffer。
 - `memory` 与 buffered `persistent`；100、300 logs/s。
 - 本地 TLS 1.2+、HTTP/1.1 keep-alive、固定 5ms 服务端响应延迟。
@@ -69,7 +69,7 @@ TLS_PERF_OUTPUT_DIR=<durable-output-directory> \
 Producer/scripts/performance/run-comparison.sh
 ```
 
-输出包含每轮全部 latency 样本、measurement epoch 内的 host `ps` CPU/RSS 样本、
+输出包含每轮全部 input-construction/add latency 样本、measurement epoch 内的 host `ps` CPU/RSS 样本、
 App 计数、服务端计数、进程终止标记、源码 SHA、Xcode/Simulator 信息、分析结果和
 `SHA256SUMS`。不要只把产物放在 `/tmp`；CI 必须上传整个输出目录。
 
@@ -79,5 +79,6 @@ App 计数、服务端计数、进程终止标记、源码 SHA、Xcode/Simulator
 (cd <durable-output-directory> && shasum -a 256 -c SHA256SUMS)
 ```
 
-CPU/RSS 是 App 进程指标，不是 Producer 内部 buffer 使用量。短窗口和共享宿主会
+CPU/RSS 是 App 进程指标，不是 Producer 内部 buffer 使用量；CPU 同时包含输入对象
+构造、SDK admission 与后台发送，不能把它误称为 Core-only CPU。短窗口和共享宿主会
 产生噪声，只有固定硬件、空闲宿主、正式窗口和完整三次重复可作为发布 gate。

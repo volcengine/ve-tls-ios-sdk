@@ -72,6 +72,12 @@ def validate_run(run_dir):
     latencies = app.get("latenciesNanoseconds", [])
     if len(latencies) != app.get("expectedMeasuredAdmissions"):
         failures.append("latency sample count differs from expected measured admissions")
+    input_construction_latencies = app.get(
+        "inputConstructionLatenciesNanoseconds", [])
+    if app.get("schemaVersion", 1) >= 2 and \
+            len(input_construction_latencies) != app.get("expectedMeasuredAdmissions"):
+        failures.append(
+            "input construction sample count differs from expected measured admissions")
     if app.get("admissionSuccess") != app.get("expectedTotalAdmissions"):
         failures.append("total admission success differs from expected")
     if app.get("admissionFailure") != 0:
@@ -115,6 +121,9 @@ def validate_run(run_dir):
         "sdk": app["sdk"],
         "mode": app["mode"],
         "rate": app["rate"],
+        "p99InputConstructionMicroseconds": (
+            percentile_nearest_rank(input_construction_latencies, 0.99) / 1000.0
+            if input_construction_latencies else None),
         "p99AddMicroseconds": percentile_nearest_rank(latencies, 0.99) / 1000.0,
         "meanCPUPercent": statistics.fmean(item[0] for item in process),
         "peakRSSKiB": max(item[1] for item in process),
@@ -129,7 +138,7 @@ def validate_run(run_dir):
 
 
 def ratio(numerator, denominator):
-    if denominator == 0:
+    if numerator is None or denominator is None or denominator == 0:
         return None
     return numerator / denominator
 
@@ -172,8 +181,14 @@ def main():
             sdk_runs = grouped.get((mode, rate, sdk), [])
             if not sdk_runs:
                 raise SystemExit("missing %s runs for %s/%s" % (sdk, mode, rate))
+            construction_values = [
+                run["p99InputConstructionMicroseconds"] for run in sdk_runs
+                if run["p99InputConstructionMicroseconds"] is not None]
             values[sdk] = {
                 "runCount": len(sdk_runs),
+                "medianP99InputConstructionMicroseconds": (
+                    statistics.median(construction_values)
+                    if len(construction_values) == len(sdk_runs) else None),
                 "medianP99AddMicroseconds": statistics.median(
                     run["p99AddMicroseconds"] for run in sdk_runs),
                 "medianMeanCPUPercent": statistics.median(
@@ -184,6 +199,9 @@ def main():
         if values["tls"]["runCount"] != values["sls"]["runCount"]:
             raise SystemExit("TLS/SLS run counts differ for %s/%s" % (mode, rate))
         ratios = {
+            "inputConstructionP99": ratio(
+                values["tls"]["medianP99InputConstructionMicroseconds"],
+                values["sls"]["medianP99InputConstructionMicroseconds"]),
             "p99Add": ratio(
                 values["tls"]["medianP99AddMicroseconds"],
                 values["sls"]["medianP99AddMicroseconds"]),
@@ -195,7 +213,8 @@ def main():
                 values["sls"]["medianPeakRSSKiB"]),
         }
         comparison_passed = all(
-            value is not None and value <= LIMIT for value in ratios.values())
+            ratios[name] is not None and ratios[name] <= LIMIT
+            for name in ("p99Add", "cpu", "rss"))
         gate_passed = gate_passed and comparison_passed
         comparisons.append({
             "mode": mode,
@@ -207,11 +226,12 @@ def main():
         })
 
     summary = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "sourceBuildBaseline": "AliyunLogProducer 4.3.4 with only Simulator EXCLUDED_ARCHS cleared",
         "metricBoundary": {
             "latency": "public add call only; log object creation excluded",
-            "cpu": "mean host ps process percent during app measurement epoch",
+            "inputConstruction": "per-log public input object construction, reported separately and not gated",
+            "cpu": "mean host ps process percent during app measurement epoch; includes input construction, SDK admission, and background work",
             "rss": "peak host process RSS KiB during app measurement epoch",
             "delivery": "admission, terminal callback, and server request counters are separate",
         },
@@ -231,15 +251,15 @@ def main():
         "",
         "SLS is source-built with only its arm64 Simulator exclusion cleared; this is not official package evidence.",
         "",
-        "| Mode | Rate | P99 ratio | CPU ratio | RSS ratio | <= 1.20 |",
-        "| --- | ---: | ---: | ---: | ---: | --- |",
+        "| Mode | Rate | Input build P99 ratio | Add P99 ratio | CPU ratio | RSS ratio | Gate <= 1.20 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for item in comparisons:
         ratios = item["tlsToSLSRatios"]
         rendered = ["n/a" if ratios[name] is None else "%.3f" % ratios[name]
-                    for name in ("p99Add", "cpu", "rss")]
-        lines.append("| %s | %d | %s | %s | %s | %s |" % (
-            item["mode"], item["rate"], rendered[0], rendered[1], rendered[2],
+                    for name in ("inputConstructionP99", "p99Add", "cpu", "rss")]
+        lines.append("| %s | %d | %s | %s | %s | %s | %s |" % (
+            item["mode"], item["rate"], rendered[0], rendered[1], rendered[2], rendered[3],
             "PASS" if item["gatePassed"] else "FAIL"))
     lines.extend([
         "",

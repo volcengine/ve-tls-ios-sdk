@@ -210,6 +210,8 @@ private final class PerformanceRunner: @unchecked Sendable {
 
         var latenciesNanoseconds: [Int64] = []
         latenciesNanoseconds.reserveCapacity(totalMeasured)
+        var inputConstructionLatenciesNanoseconds: [Int64] = []
+        inputConstructionLatenciesNanoseconds.reserveCapacity(totalMeasured)
         var admissionSuccess = 0
         var admissionFailure = 0
         var measurementAdmissionSuccess = 0
@@ -228,12 +230,16 @@ private final class PerformanceRunner: @unchecked Sendable {
             let immediate = index == totalExpected - 1
             let started: UInt64
             let elapsed: UInt64
+            let inputConstructionStarted = DispatchTime.now().uptimeNanoseconds
+            let inputConstructionElapsed: UInt64
             let accepted: Bool
             if input.sdk == .tls {
                 guard let producer = tlsProducer else {
                     throw InputError.invalid("tls_producer")
                 }
                 let event = makeTLSEvent(index: index)
+                inputConstructionElapsed =
+                    DispatchTime.now().uptimeNanoseconds - inputConstructionStarted
                 started = DispatchTime.now().uptimeNanoseconds
                 do {
                     try producer.add(event, mode: immediate ? .immediate : .normal)
@@ -247,6 +253,8 @@ private final class PerformanceRunner: @unchecked Sendable {
                     throw InputError.invalid("sls_client")
                 }
                 let log = client.prepareLog(index: UInt(index))
+                inputConstructionElapsed =
+                    DispatchTime.now().uptimeNanoseconds - inputConstructionStarted
                 started = DispatchTime.now().uptimeNanoseconds
                 accepted = client.add(log: log, immediate: immediate)
                 elapsed = DispatchTime.now().uptimeNanoseconds - started
@@ -258,6 +266,8 @@ private final class PerformanceRunner: @unchecked Sendable {
                 admissionFailure += 1
             }
             if index >= totalWarmup {
+                inputConstructionLatenciesNanoseconds.append(
+                    Int64(inputConstructionElapsed))
                 latenciesNanoseconds.append(Int64(elapsed))
                 if accepted {
                     measurementAdmissionSuccess += 1
@@ -299,7 +309,7 @@ private final class PerformanceRunner: @unchecked Sendable {
             snapshot: snapshotProvider)
 
         let result: [String: Any] = [
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "status": "completed",
             "sdk": input.sdk.rawValue,
             "mode": input.mode.rawValue,
@@ -322,6 +332,8 @@ private final class PerformanceRunner: @unchecked Sendable {
             "measurementAdmissionFailure": measurementAdmissionFailure,
             "measurementStartEpochMilliseconds": measurementStartEpochMilliseconds,
             "measurementEndEpochMilliseconds": measurementEndEpochMilliseconds,
+            "inputConstructionLatenciesNanoseconds":
+                inputConstructionLatenciesNanoseconds,
             "latenciesNanoseconds": latenciesNanoseconds,
             "terminalSuccess": terminal.success,
             "terminalFailure": terminal.failure,
@@ -382,7 +394,7 @@ private final class PerformanceRunner: @unchecked Sendable {
 
     private func writeFailureResult() {
         try? writeResult([
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "status": "failed",
             "failureCode": "run_failed",
         ])
