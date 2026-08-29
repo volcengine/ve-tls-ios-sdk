@@ -16,6 +16,7 @@
 # Environment:
 #   IOS_SIMULATOR_DESTINATION  explicit xcodebuild destination override
 #   IOS_SIMULATOR_ARCH         default arm64
+#   IOS_DEPLOYMENT_TARGET      SwiftPM minimum iOS target, default 13.0
 #
 # No skipped or blocked step is presented as a test pass. The script exits
 # non-zero when a required tool/target exists but its verification fails, or
@@ -137,13 +138,18 @@ run_swiftpm_ios_build() {
         return
     fi
 
-    local build_root cache arch triple
+    local build_root cache arch deployment_target triple
     if ! resolve_ios_sdk; then
         mark_blocked "iPhoneSimulator SDK could not be resolved by xcrun."
         return
     fi
     arch="${IOS_SIMULATOR_ARCH:-arm64}"
-    triple="${arch}-apple-ios${IOS_SDK_VERSION}-simulator"
+    deployment_target="${IOS_DEPLOYMENT_TARGET:-13.0}"
+    if [[ ! "${deployment_target}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+        mark_fail "invalid IOS_DEPLOYMENT_TARGET: ${deployment_target}."
+        return
+    fi
+    triple="${arch}-apple-ios${deployment_target}-simulator"
     build_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-ios-build.XXXXXX")"
     cache="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-ios-cache.XXXXXX")"
     ran=1
@@ -153,7 +159,7 @@ run_swiftpm_ios_build() {
         --sdk "${IOS_SDK}" \
         --triple "${triple}" \
         -Xswiftc -swift-version -Xswiftc 6; then
-        echo "PASS: SwiftPM strict Swift 6 iOS Simulator library build (${triple})."
+        echo "PASS: SwiftPM strict Swift 6 iOS Simulator library build (${triple}, SDK ${IOS_SDK_VERSION})."
     else
         mark_fail "SwiftPM iOS Simulator library build failed (${triple})."
     fi
@@ -171,13 +177,19 @@ run_external_swiftpm_consumer() {
         return
     fi
 
-    local consumer_root consumer_build consumer_cache package_identity arch triple
+    local consumer_root consumer_build consumer_cache package_identity arch deployment_target triple
     consumer_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-consumer.XXXXXX")"
     consumer_build="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-consumer-build.XXXXXX")"
     consumer_cache="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-consumer-cache.XXXXXX")"
     package_identity="$(basename "${REPO_ROOT}")"
     arch="${IOS_SIMULATOR_ARCH:-arm64}"
-    triple="${arch}-apple-ios${IOS_SDK_VERSION}-simulator"
+    deployment_target="${IOS_DEPLOYMENT_TARGET:-13.0}"
+    if [[ ! "${deployment_target}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+        mark_fail "invalid IOS_DEPLOYMENT_TARGET: ${deployment_target}."
+        rm -rf "${consumer_root}" "${consumer_build}" "${consumer_cache}"
+        return
+    fi
+    triple="${arch}-apple-ios${deployment_target}-simulator"
 
     mkdir -p "${consumer_root}/Sources/TLSConsumerSmoke"
     # This fixture is generated under /tmp at verification time; it is not a
@@ -239,7 +251,7 @@ run_external_swiftpm_consumer() {
         local consumer_binary resource_copy
         resource_copy="$(find "${consumer_build}" -type f -name 'PrivacyInfo.xcprivacy' -print -quit 2>/dev/null || true)"
         if [[ -n "${resource_copy}" ]]; then
-            echo "PASS: external strict Swift 6 consumer built the public lifecycle (${triple}); dependency settings were accepted and the privacy resource was copied."
+            echo "PASS: external strict Swift 6 consumer built the public lifecycle (${triple}, SDK ${IOS_SDK_VERSION}); dependency settings were accepted and the privacy resource was copied."
         else
             mark_fail "external SwiftPM build succeeded but PrivacyInfo.xcprivacy was not found in the built resource output."
         fi
