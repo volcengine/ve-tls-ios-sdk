@@ -167,7 +167,10 @@
   优化后的 clean 24 组只剩 persistent 300 CPU `1.272×` 失败；剖析确认显式
   `sendConcurrency=1` 曾被 Core 误当 auto 并展开成 2 sender + 2 pack worker。
   修复为精确 1+1 后该组 6 轮定向复测 CPU `1.083×`、add P99 `0.762×`、RSS
-  `1.114×` 全过，但新 clean SHA 的完整 24 组与正式 5 分钟 warm-up + 30 分钟测量
+  `1.114×` 全过；独立 Linux 开发机固定 vCPU/NUMA 的 C persistent 5×2 复测中，
+  task 数从 6 降到 4，250/1000 logs/s 的 user-space task-clock 中位数分别下降
+  12.08%/13.30%，确认该回归属于 C Core 线程语义而非 Mac 独有噪声。但新 clean
+  SHA 的完整 24 组与正式 5 分钟 warm-up + 30 分钟测量
   仍未完成。Intel x86_64 Simulator 功能全量已通过，但不能替代性能矩阵。该版本 public destroy
   在 arm64 实测会对已由 C Core 释放的 config 再做 `CFRelease` 并 SIGTRAP；临时
   A/B 必须每组进程隔离、跳过 SLS destroy，并明确不构成其生命周期通过证据。

@@ -115,7 +115,9 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   source-build override 在 admission 优化后的 clean 24 组中，memory 100/300 与
   persistent 100 全过，persistent 300 的 add P99 `1.002×`、RSS `1.118×` 通过，
   CPU `1.272×` 失败。线程 auto/explicit 冲突修复后，该组 6 轮定向复测为 CPU
-  `1.083×`、add P99 `0.762×`、RSS `1.114×` 全过，但仍需在新 clean SHA 重跑
+  `1.083×`、add P99 `0.762×`、RSS `1.114×` 全过。独立 Linux 开发机固定
+  vCPU/NUMA 的 C persistent 复测确认 task 数 6→4，250/1000 logs/s 的
+  user-space task-clock 中位数分别下降 12.08%/13.30%，但仍需在新 clean SHA 重跑
   完整 24 组；短矩阵不替代正式时长，Intel 功能全量通过也不能替代正式性能矩阵。
 - 远端 `0.0.2` tag 尚未创建。
 - 当前仍是 Development Preview / release candidate source，不可标记 Beta/GA。

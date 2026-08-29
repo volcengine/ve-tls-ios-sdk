@@ -211,7 +211,10 @@ sendConcurrency 不超过 8；正整数是精确线程数，Core 只把 0 作为
   `1.002×`、RSS `1.118×` 通过，但 CPU `1.272×` 失败。剖析发现 Core 把显式
   `sendConcurrency=1` 误当 auto，实际启动 2 sender + 2 pack worker；修复为精确
   1+1 后，该组 6 轮定向复测为 CPU `1.083×`、add P99 `0.762×`、RSS `1.114×`
-  全过。仍须在新 clean SHA 重跑完整 24 组，随后才可执行每组 5 分钟 + 30 分钟
+  全过。独立 Linux 开发机固定 vCPU/NUMA 的 C persistent 5×2 交错复测进一步
+  确认线程数从 6 降到 4，250/1000 logs/s 的 user-space task-clock 中位数分别
+  下降 12.08%/13.30%；这证明 C Core 因果，但不替代 iOS/SLS A/B。仍须在新
+  clean SHA 重跑完整 24 组，随后才可执行每组 5 分钟 + 30 分钟
   正式矩阵；Intel 功能全量通过不能替代性能结果。
 测试通过不等于可发布。仓库内冻结合同与门禁状态见
 [DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
