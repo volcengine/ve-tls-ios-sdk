@@ -47,7 +47,7 @@ internal final class BundledCoreAdapter: CoreAdapter, @unchecked Sendable {
     private var configuration: ProducerConfiguration?
 
     // Current (unsealed) batch.
-    private var batchEvents: [LogEvent] = []
+    private var batchEvents: [PreparedLogEvent] = []
     private var batchRawBytes: Int = 0
 
     // Total bytes admitted but not yet reported via a terminal callback.
@@ -76,7 +76,7 @@ internal final class BundledCoreAdapter: CoreAdapter, @unchecked Sendable {
         state = .open
     }
 
-    func add(_ event: LogEvent, mode: AddMode) throws {
+    func add(_ event: PreparedLogEvent, mode: AddMode) throws {
         lock.lock()
         defer { lock.unlock() }
         switch state {
@@ -88,7 +88,7 @@ internal final class BundledCoreAdapter: CoreAdapter, @unchecked Sendable {
             throw ProducerError.invalidState
         }
 
-        let size = event.estimatedRawBytes()
+        let size = event.rawBytes
         let bufferMax = configuration?.buffer.maxBytes ?? (64 * 1024 * 1024)
         if bufferedBytes + size > bufferMax {
             throw ProducerError.bufferFull

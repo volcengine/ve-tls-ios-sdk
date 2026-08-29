@@ -300,23 +300,16 @@ public final class Producer: @unchecked Sendable {
         let state = withStateLock { self.state }
         try requireReadyState(state)
 
-        // Validate before touching the adapter: an invalid event must never
-        // reach the Core after the lifecycle state has been checked.
-        try log.validate()
-        guard !log.contents.isEmpty else {
-            throw ProducerError.invalidLog([
-                "contents: must contain at least one field"
-            ])
-        }
-
-        let estimatedRawBytes = log.estimatedRawBytes()
-        if estimatedRawBytes > snapshot.batch.maxRawBytes ||
-            estimatedRawBytes > ProducerConfiguration.maxBatchRawBytes {
+        // Validate and encode exactly once before touching the adapter: an
+        // invalid event must never reach the Core after the lifecycle state
+        // has been checked.
+        let prepared = try log.prepareForAdmission()
+        if prepared.rawBytes > snapshot.batch.maxRawBytes ||
+            prepared.rawBytes > ProducerConfiguration.maxBatchRawBytes {
             throw ProducerError.singleLogTooLarge
         }
 
-        // `log` is a value-type copy — the snapshot is taken here.
-        try adapter.add(log, mode: mode)
+        try adapter.add(prepared, mode: mode)
     }
 
     /// Atomically replaces the whole credentials group.

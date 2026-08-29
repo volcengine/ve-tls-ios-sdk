@@ -166,25 +166,23 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
         installLifecycleManagerIfNeeded()
     }
 
-    func add(_ event: LogEvent, mode: AddMode) throws {
+    func add(_ event: PreparedLogEvent, mode: AddMode) throws {
         try ensureOpen()
-
-        var contents: [String: String] = [:]
-        contents.reserveCapacity(event.contents.count)
-        for (key, value) in event.contents {
-            contents[key] = try value.encodedString()
-        }
-
-        let timestampMs = Int64(event.timestamp.timeIntervalSince1970 * 1_000)
         do {
             try adapter.addLog(
-                withTimestamp: timestampMs,
-                hashKey: event.hashKey,
-                contents: contents,
+                withTimestamp: event.timestampMilliseconds,
+                hashKey: event.event.hashKey,
+                contents: event.encodedContents,
                 flush: mode == .immediate)
         } catch {
             throw Self.mapBridgeError(error, operation: .add)
         }
+    }
+
+    /// Internal test convenience for exercising this adapter without the
+    /// `Producer` facade. Public admission always passes a prepared snapshot.
+    func add(_ event: LogEvent, mode: AddMode) throws {
+        try add(event.prepareForAdmission(), mode: mode)
     }
 
     func updateCredentials(_ credentials: Credentials) throws {

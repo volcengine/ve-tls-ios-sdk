@@ -179,6 +179,53 @@ final class LogEventValidationTests: XCTestCase {
         XCTAssertNoThrow(try event.validate())
     }
 
+    func testAdmissionPreparationProducesOneImmutableWireSnapshot() throws {
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000.123)
+        let event = LogEvent(
+            timestamp: timestamp,
+            hashKey: "0123456789abcdef0123456789abcdef",
+            contents: [
+                "plain": .string("value"),
+                "nested": .dictionary(["b": .string("two"), "a": .signedInt(1)]),
+            ])
+
+        let prepared = try event.prepareForAdmission()
+
+        XCTAssertEqual(prepared.event, event)
+        XCTAssertEqual(prepared.timestampMilliseconds, 1_700_000_000_123)
+        XCTAssertEqual(prepared.encodedContents["plain"], "value")
+        XCTAssertEqual(prepared.encodedContents["nested"], "{\"a\":1,\"b\":\"two\"}")
+        XCTAssertEqual(
+            prepared.rawBytes,
+            "plain".utf8.count + "value".utf8.count
+                + "nested".utf8.count + "{\"a\":1,\"b\":\"two\"}".utf8.count)
+    }
+
+    func testInvalidLogStillPrecedesOversizeRejection() async throws {
+        let recording = RecordingAdapter()
+        let config = try ProducerConfiguration(
+            batch: BatchConfiguration(maxLogCount: 1024, maxRawBytes: 16, linger: 3))
+        let producer = try await Producer.open(
+            adapter: recording,
+            configuration: config,
+            credentials: .testing)
+
+        let event = LogEvent(contents: [
+            "large": .string(String(repeating: "x", count: 100)),
+            "invalid": .double(.nan),
+        ])
+        XCTAssertThrowsError(try producer.add(event)) { error in
+            guard case ProducerError.invalidLog(let paths) = error else {
+                XCTFail("expected invalidLog before size rejection, got \(error)")
+                return
+            }
+            XCTAssertTrue(paths.contains { $0.hasPrefix("invalid:") })
+        }
+        XCTAssertTrue(recording.addCalls.isEmpty)
+
+        try await producer.close(timeout: 1)
+    }
+
     // MARK: - Snapshot semantics
 
     func testAddSnapshotsValue() async throws {
@@ -198,6 +245,8 @@ final class LogEventValidationTests: XCTestCase {
         XCTAssertEqual(recording.addCalls.count, 1)
         XCTAssertEqual(recording.addCalls[0].event.contents["k"], .string("v1"))
         XCTAssertNil(recording.addCalls[0].event.contents["other"])
+        XCTAssertEqual(recording.addCalls[0].prepared.encodedContents["k"], "v1")
+        XCTAssertEqual(recording.addCalls[0].prepared.rawBytes, 3)
 
         try await producer.close(timeout: 1)
     }

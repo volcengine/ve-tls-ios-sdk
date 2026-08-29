@@ -39,7 +39,7 @@ protocol CoreAdapter: AnyObject {
     /// Admits one pre-validated, pre-snapshotted event. `.immediate` seals
     /// the current batch and wakes the sender; admission never waits for the
     /// network or an ACK.
-    func add(_ event: LogEvent, mode: AddMode) throws
+    func add(_ event: PreparedLogEvent, mode: AddMode) throws
 
     /// Atomically replaces the whole credentials group.
     func updateCredentials(_ credentials: Credentials) throws

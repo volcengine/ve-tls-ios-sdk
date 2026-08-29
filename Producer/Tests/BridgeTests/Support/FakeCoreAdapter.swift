@@ -8,7 +8,7 @@
 //   - CoreAdapter is an internal protocol visible here through @testable.
 //   - ProducerConfiguration carries an optional initial destination and is
 //     revalidated at open.
-//   - LogEvent.estimatedRawBytes() is used for facade-equivalent accounting.
+//   - PreparedLogEvent.rawBytes is used for facade-equivalent accounting.
 //
 // Semantics implemented here mirror the frozen P0 contracts:
 //   - add(.normal) enters the batch window; the batch seals when
@@ -31,7 +31,7 @@
 import Foundation
 @testable import VolcengineTLSProducer
 
-public final class FakeCoreAdapter: CoreAdapter, @unchecked Sendable {
+final class FakeCoreAdapter: CoreAdapter, @unchecked Sendable {
 
     // MARK: - Test observation surface
 
@@ -187,7 +187,7 @@ public final class FakeCoreAdapter: CoreAdapter, @unchecked Sendable {
         self.state = .ready
     }
 
-    public func add(_ event: LogEvent, mode: AddMode) throws {
+    func add(_ prepared: PreparedLogEvent, mode: AddMode) throws {
         lock.lock()
         defer { lock.unlock() }
         switch state {
@@ -202,11 +202,9 @@ public final class FakeCoreAdapter: CoreAdapter, @unchecked Sendable {
             throw stub
         }
 
-        admitted.append(event)
-        currentBatchEvents.append(event)
-        // Use the same internal bookkeeping as Producer (visible via
-        // @testable) so Fake rawBytes match the facade's accounting.
-        currentBatchRawBytes += event.estimatedRawBytes()
+        admitted.append(prepared.event)
+        currentBatchEvents.append(prepared.event)
+        currentBatchRawBytes += prepared.rawBytes
 
         switch mode {
         case .immediate:
@@ -226,6 +224,11 @@ public final class FakeCoreAdapter: CoreAdapter, @unchecked Sendable {
                 scheduleLingerLocked()
             }
         }
+    }
+
+    /// Test-only convenience for exercising the fake without the facade.
+    public func add(_ event: LogEvent, mode: AddMode) throws {
+        try add(event.prepareForAdmission(), mode: mode)
     }
 
     public func updateCredentials(_ credentials: Credentials) throws {
