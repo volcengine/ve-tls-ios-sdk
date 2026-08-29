@@ -202,8 +202,13 @@ final class FakeCoreAdapter: CoreAdapter, @unchecked Sendable {
             throw stub
         }
 
-        admitted.append(prepared.event)
-        currentBatchEvents.append(prepared.event)
+        let event = LogEvent(
+            timestamp: Date(
+                timeIntervalSince1970: Double(prepared.timestampMilliseconds) / 1_000),
+            hashKey: prepared.hashKey,
+            contents: prepared.encodedContents.mapValues(LogValue.string))
+        admitted.append(event)
+        currentBatchEvents.append(event)
         currentBatchRawBytes += prepared.rawBytes
 
         switch mode {

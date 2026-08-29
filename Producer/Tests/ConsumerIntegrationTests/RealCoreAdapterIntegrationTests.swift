@@ -370,6 +370,37 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             flush: false))
     }
 
+    func testBridgeInterleavedFieldsRejectOddCount() throws {
+        let adapter = try makeBridgeAdapter(linger: 60)
+        try adapter.open()
+        defer { try? adapter.close(withTimeout: 5) }
+
+        XCTAssertThrowsError(try adapter.addLog(
+            withTimestamp: Int64(Date().timeIntervalSince1970 * 1000),
+            hashKey: nil,
+            fields: ["message"],
+            flush: false)) { error in
+            let nsError = error as NSError
+            XCTAssertEqual(nsError.domain, TLSRealCoreAdapterErrorDomain)
+            XCTAssertEqual(nsError.code, TLSRealCoreAdapterErrorCode.addFailed.rawValue)
+        }
+    }
+
+    func testBridgeInterleavedFieldsAcceptStackAndHeapPairCounts() throws {
+        let adapter = try makeBridgeAdapter(linger: 60)
+        try adapter.open()
+        defer { try? adapter.close(withTimeout: 5) }
+
+        for count in [16, 17] {
+            let fields = (0..<count).flatMap { ["key-\($0)", "value-\($0)"] }
+            XCTAssertNoThrow(try adapter.addLog(
+                withTimestamp: Int64(Date().timeIntervalSince1970 * 1000),
+                hashKey: nil,
+                fields: fields,
+                flush: false))
+        }
+    }
+
     func testRealCoreAdapterOpenClose() async throws {
         let config = try makeConfig()
         let adapter = try RealCoreAdapter(configuration: config, credentials: makeCredentials())

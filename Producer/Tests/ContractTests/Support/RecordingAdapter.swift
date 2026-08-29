@@ -17,7 +17,7 @@ final class RecordingAdapter: CoreAdapter, @unchecked Sendable {
 
     private let lock = NSLock()
     private var _openCallCount = 0
-    private var _addCalls: [(event: LogEvent, prepared: PreparedLogEvent, mode: AddMode)] = []
+    private var _addCalls: [(prepared: PreparedLogEvent, mode: AddMode)] = []
     private var _updateCredentialsCalls: [Credentials] = []
     private var _updateDestinationCalls: [Destination] = []
     private var _closeCallCount = 0
@@ -51,7 +51,7 @@ final class RecordingAdapter: CoreAdapter, @unchecked Sendable {
         return _openCallCount
     }
 
-    var addCalls: [(event: LogEvent, prepared: PreparedLogEvent, mode: AddMode)] {
+    var addCalls: [(prepared: PreparedLogEvent, mode: AddMode)] {
         lock.lock(); defer { lock.unlock() }
         return _addCalls
     }
@@ -96,7 +96,7 @@ final class RecordingAdapter: CoreAdapter, @unchecked Sendable {
 
     func add(_ event: PreparedLogEvent, mode: AddMode) throws {
         lock.lock()
-        _addCalls.append((event.event, event, mode))
+        _addCalls.append((event, mode))
         let error = addError
         lock.unlock()
         if let error = error {

@@ -191,14 +191,36 @@ final class LogEventValidationTests: XCTestCase {
 
         let prepared = try event.prepareForAdmission()
 
-        XCTAssertEqual(prepared.event, event)
+        XCTAssertTrue(event.hasCachedAdmissionSnapshot)
         XCTAssertEqual(prepared.timestampMilliseconds, 1_700_000_000_123)
+        XCTAssertEqual(prepared.hashKey, event.hashKey)
+        XCTAssertEqual(prepared.encodedKeys.count, 2)
+        XCTAssertEqual(prepared.encodedValues.count, 2)
         XCTAssertEqual(prepared.encodedContents["plain"], "value")
         XCTAssertEqual(prepared.encodedContents["nested"], "{\"a\":1,\"b\":\"two\"}")
         XCTAssertEqual(
             prepared.rawBytes,
             "plain".utf8.count + "value".utf8.count
                 + "nested".utf8.count + "{\"a\":1,\"b\":\"two\"}".utf8.count)
+    }
+
+    func testAdmissionPreparationCacheInvalidatesOnMutation() throws {
+        var event = LogEvent(
+            hashKey: String(repeating: "0", count: 32),
+            contents: ["key": .string("before")])
+        XCTAssertTrue(event.hasCachedAdmissionSnapshot)
+
+        event.contents["key"] = .string("after")
+        XCTAssertFalse(event.hasCachedAdmissionSnapshot)
+
+        let prepared = try event.prepareForAdmission()
+        XCTAssertEqual(prepared.hashKey, String(repeating: "0", count: 32))
+        XCTAssertEqual(prepared.encodedContents, ["key": "after"])
+    }
+
+    func testInvalidAndEmptyEventsDoNotCacheAdmissionSnapshot() {
+        XCTAssertFalse(LogEvent(contents: [:]).hasCachedAdmissionSnapshot)
+        XCTAssertFalse(LogEvent(contents: ["key": .double(.nan)]).hasCachedAdmissionSnapshot)
     }
 
     func testInvalidLogStillPrecedesOversizeRejection() async throws {
@@ -243,9 +265,8 @@ final class LogEventValidationTests: XCTestCase {
         event.contents["other"] = .signedInt(2)
 
         XCTAssertEqual(recording.addCalls.count, 1)
-        XCTAssertEqual(recording.addCalls[0].event.contents["k"], .string("v1"))
-        XCTAssertNil(recording.addCalls[0].event.contents["other"])
         XCTAssertEqual(recording.addCalls[0].prepared.encodedContents["k"], "v1")
+        XCTAssertNil(recording.addCalls[0].prepared.encodedContents["other"])
         XCTAssertEqual(recording.addCalls[0].prepared.rawBytes, 3)
 
         try await producer.close(timeout: 1)

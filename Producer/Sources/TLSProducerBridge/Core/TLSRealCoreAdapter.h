@@ -130,6 +130,14 @@ typedef void (^TLSRealCoreAdapterSendResultHandler)(
                       flush:(BOOL)flush
                       error:(NSError * _Nullable * _Nullable)error;
 
+/// Production performance path. `fields` is an immutable non-empty array of
+/// alternating key/value strings and therefore must have an even count.
+- (BOOL)addLogWithTimestamp:(int64_t)timestampMs
+                    hashKey:(nullable NSString *)hashKey
+                     fields:(NSArray<NSString *> *)fields
+                      flush:(BOOL)flush
+                      error:(NSError * _Nullable * _Nullable)error;
+
 /// Updates credentials (whole-group atomic replacement).
 - (BOOL)updateCredentials:(NSString *)accessKeyID
            accessKeySecret:(NSString *)accessKeySecret

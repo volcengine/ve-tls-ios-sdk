@@ -21,17 +21,28 @@ public struct LogEvent: Equatable, Sendable {
 
     /// Event time. Unix epoch milliseconds are derived from this date by the
     /// transport layer.
-    public var timestamp: Date
+    public var timestamp: Date {
+        didSet { cachedAdmissionSnapshot = nil }
+    }
 
     /// Optional per-log hash key. When present, it must be exactly 32
     /// lowercase hexadecimal characters (`[0-9a-f]{32}`). When `nil`, the
     /// producer/Core default (round-robin / configured default hash key)
     /// applies.
-    public var hashKey: String?
+    public var hashKey: String? {
+        didSet { cachedAdmissionSnapshot = nil }
+    }
 
     /// Content fields. Keys must be non-empty strings; values follow the
     /// `LogValue` encoding rules.
-    public var contents: [String: LogValue]
+    public var contents: [String: LogValue] {
+        didSet { cachedAdmissionSnapshot = nil }
+    }
+
+    /// Valid non-empty events are encoded once when built. Public fields stay
+    /// mutable; every mutation invalidates this value before a later add can
+    /// observe it, preserving LogEvent value semantics.
+    private var cachedAdmissionSnapshot: PreparedLogEvent?
 
     public init(timestamp: Date = Date(),
                 hashKey: String? = nil,
@@ -39,12 +50,23 @@ public struct LogEvent: Equatable, Sendable {
         self.timestamp = timestamp
         self.hashKey = hashKey
         self.contents = contents
+        self.cachedAdmissionSnapshot = nil
+        self.cachedAdmissionSnapshot = try? prepare(requireNonEmptyContents: true)
+    }
+
+    public static func == (lhs: LogEvent, rhs: LogEvent) -> Bool {
+        lhs.timestamp == rhs.timestamp &&
+            lhs.hashKey == rhs.hashKey &&
+            lhs.contents == rhs.contents
     }
 
     /// Validates every field of this event. If any field is invalid, the whole
     /// event is rejected with `ProducerError.invalidLog` listing the violating
     /// field paths; partial admission never happens.
     internal func validate() throws {
+        if cachedAdmissionSnapshot != nil {
+            return
+        }
         _ = try prepare(requireNonEmptyContents: false)
     }
 
@@ -52,7 +74,15 @@ public struct LogEvent: Equatable, Sendable {
     /// value encoding, timestamp conversion, and raw-byte accounting deliberately
     /// happen in one traversal so `Producer.add` never repeats this work.
     internal func prepareForAdmission() throws -> PreparedLogEvent {
-        try prepare(requireNonEmptyContents: true)
+        if let cachedAdmissionSnapshot {
+            return cachedAdmissionSnapshot
+        }
+        return try prepare(requireNonEmptyContents: true)
+    }
+
+    /// Internal observability for contract tests; not part of the public API.
+    internal var hasCachedAdmissionSnapshot: Bool {
+        cachedAdmissionSnapshot != nil
     }
 
     private func prepare(requireNonEmptyContents: Bool) throws -> PreparedLogEvent {
@@ -68,23 +98,19 @@ public struct LogEvent: Equatable, Sendable {
             encodedTimestampMilliseconds = Int64(timestampMilliseconds)
         }
         if let hashKey {
-            if hashKey.contains("\0") {
-                violations.append("hashKey: must not contain embedded NUL characters")
-            } else {
-                let bytes = hashKey.utf8
-                let isLowercaseHex = bytes.count == 32 &&
-                    bytes.allSatisfy { byte in
-                        (byte >= 0x30 && byte <= 0x39) ||
-                            (byte >= 0x61 && byte <= 0x66)
-                    }
-                if !isLowercaseHex {
-                    violations.append(
-                        "hashKey: must match lowercase hexadecimal [0-9a-f]{32}")
+            let bytes = hashKey.utf8
+            let isLowercaseHex = bytes.count == 32 &&
+                bytes.allSatisfy { byte in
+                    (byte >= 0x30 && byte <= 0x39) ||
+                        (byte >= 0x61 && byte <= 0x66)
                 }
+            if !isLowercaseHex {
+                violations.append(
+                    "hashKey: must match lowercase hexadecimal [0-9a-f]{32}")
             }
         }
-        var encodedContents: [String: String] = [:]
-        encodedContents.reserveCapacity(contents.count)
+        var encodedFields: [String] = []
+        encodedFields.reserveCapacity(contents.count * 2)
         var rawBytes = 0
         for (key, value) in contents {
             // Keys must be non-empty UTF-8 strings (Beta design §5.3).
@@ -92,13 +118,14 @@ public struct LogEvent: Equatable, Sendable {
                 violations.append("<empty-key>: key must be a non-empty UTF-8 string")
                 continue
             }
-            if key.contains("\0") {
+            if key.utf8.contains(0) {
                 violations.append("\(key): key must not contain embedded NUL characters")
                 continue
             }
             do {
                 let encoded = try value.encodedString()
-                encodedContents[key] = encoded
+                encodedFields.append(key)
+                encodedFields.append(encoded)
                 rawBytes = Self.saturatingAdd(rawBytes, key.utf8.count)
                 rawBytes = Self.saturatingAdd(rawBytes, encoded.utf8.count)
             } catch {
@@ -114,9 +141,9 @@ public struct LogEvent: Equatable, Sendable {
             ])
         }
         return PreparedLogEvent(
-            event: self,
             timestampMilliseconds: encodedTimestampMilliseconds,
-            encodedContents: encodedContents,
+            hashKey: hashKey,
+            encodedFields: encodedFields,
             rawBytes: rawBytes)
     }
 
@@ -140,12 +167,32 @@ public struct LogEvent: Equatable, Sendable {
     }
 }
 
-/// Package-internal, immutable admission snapshot. Keeping the original value
-/// alongside the wire-ready representation preserves test observability while
-/// ensuring every Core field comes from the same value-semantic snapshot.
+/// Package-internal, immutable admission snapshot. Fields are flattened once
+/// at the Swift boundary so the ObjC bridge never has to enumerate and look up
+/// values in a lazily bridged Swift dictionary on every admission.
 internal struct PreparedLogEvent: Equatable, Sendable {
-    let event: LogEvent
     let timestampMilliseconds: Int64
-    let encodedContents: [String: String]
+    let hashKey: String?
+    /// Alternating key/value strings: `[key0, value0, key1, value1, ...]`.
+    let encodedFields: [String]
     let rawBytes: Int
+
+    var encodedKeys: [String] {
+        stride(from: 0, to: encodedFields.count, by: 2).map { encodedFields[$0] }
+    }
+
+    var encodedValues: [String] {
+        stride(from: 1, to: encodedFields.count, by: 2).map { encodedFields[$0] }
+    }
+
+    /// Test/debug convenience. Production RealCore admission consumes the
+    /// interleaved field array directly and does not materialize this dictionary.
+    var encodedContents: [String: String] {
+        var result: [String: String] = [:]
+        result.reserveCapacity(encodedFields.count / 2)
+        for index in stride(from: 0, to: encodedFields.count, by: 2) {
+            result[encodedFields[index]] = encodedFields[index + 1]
+        }
+        return result
+    }
 }

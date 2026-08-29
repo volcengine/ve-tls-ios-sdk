@@ -171,8 +171,8 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
         do {
             try adapter.addLog(
                 withTimestamp: event.timestampMilliseconds,
-                hashKey: event.event.hashKey,
-                contents: event.encodedContents,
+                hashKey: event.hashKey,
+                fields: event.encodedFields,
                 flush: mode == .immediate)
         } catch {
             throw Self.mapBridgeError(error, operation: .add)
