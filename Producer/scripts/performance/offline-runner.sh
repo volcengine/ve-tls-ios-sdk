@@ -127,10 +127,10 @@ run_matrix() {
 
     [[ -d "$run_root" ]] || die "run directory does not exist: $run_root"
     sealed_profile=$(read_metadata profile.txt)
-    if [[ "$profile" == short && "$sealed_profile" != short ]]; then
-        die "sealed $sealed_profile runner cannot execute the short profile"
+    if [[ "$profile" != smoke && "$profile" != "$sealed_profile" ]]; then
+        die "sealed $sealed_profile runner cannot execute the $profile profile"
     fi
-    [[ "$profile" == smoke || "$profile" == short ]] \
+    [[ "$profile" == smoke || "$profile" == short || "$profile" == long ]] \
         || die "unsupported requested runner profile: $profile"
     simulator_id=$(read_metadata simulator-id.txt)
     disk_max=$(read_metadata host-disk-max-mbps.txt)
@@ -149,6 +149,14 @@ run_matrix() {
         short)
             warmup_seconds=10
             measure_seconds=30
+            repeats=3
+            rates="100 300"
+            modes="memory persistent"
+            enforce_gate=1
+            ;;
+        long)
+            warmup_seconds=300
+            measure_seconds=1800
             repeats=3
             rates="100 300"
             modes="memory persistent"
@@ -233,10 +241,10 @@ start_matrix() {
     local run_root
     local controller_pid
     sealed_profile=$(read_metadata profile.txt)
-    if [[ "$profile" == short && "$sealed_profile" != short ]]; then
-        die "sealed $sealed_profile runner cannot execute the short profile"
+    if [[ "$profile" != smoke && "$profile" != "$sealed_profile" ]]; then
+        die "sealed $sealed_profile runner cannot execute the $profile profile"
     fi
-    [[ "$profile" == smoke || "$profile" == short ]] \
+    [[ "$profile" == smoke || "$profile" == short || "$profile" == long ]] \
         || die "unsupported requested runner profile: $profile"
     timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
     run_root="$state_root/tls-performance-${profile}-${timestamp}"

@@ -28,7 +28,8 @@ die() {
 [[ ! -e "$output_archive" && ! -e "${output_archive}.sha256" ]] \
     || die "output archive or checksum already exists"
 [[ -d "$(dirname -- "$output_archive")" ]] || die "output directory does not exist"
-[[ "$profile" == smoke || "$profile" == short ]] || die "profile must be smoke or short"
+[[ "$profile" == smoke || "$profile" == short || "$profile" == long ]] \
+    || die "profile must be smoke, short, or long"
 [[ "$simulator_id" =~ ^[0-9A-Fa-f-]{36}$ ]] || die "TLS_OFFLINE_SIMULATOR_ID must be one exact UUID"
 [[ "$simulator_runtime" =~ ^com\.apple\.CoreSimulator\.SimRuntime\.[A-Za-z0-9-]+$ ]] \
     || die "invalid simulator runtime identifier"

@@ -13,13 +13,14 @@ DNS、BOE 或互联网，也不会读取 `.real_boe_info.env`。
   Xcode/Simulator 架构；随后关闭其他 Simulator，只启动固定的 18.5 device。
 - runner 与每次结果目录都会创建 `.metadata_never_index`，降低 Spotlight 对源码、
   DerivedData 和高频证据文件的后台索引干扰。
-- `short` profile 在运行前静置 5 分钟，并要求 CPU idle 单样本不低于 90%、
-  5 次平均不低于 92%、磁盘总吞吐不高于 1 MB/s。任何门禁失败都会停止测试并
-  封存失败现场，不会带着污染继续跑。
+- 所有 profile 在运行前按归档 metadata 固定的时长静置，并执行 metadata 固定的
+  CPU idle 与磁盘吞吐门禁。任何门禁失败都会停止测试并封存失败现场，不会带着
+  污染继续跑。
 - `short` profile 固定执行 10 秒 warmup + 30 秒 measurement、2 rates × 2 modes ×
   2 SDKs × 3 repeats，共 24 个独立 App 进程，并启用 TLS/SLS `<= 1.20` 比值门禁。
-- 本包不会自动启动 14 小时正式矩阵。短矩阵、功能回归和证据复核完成前，不得把
-  本包改造成自动串跑正式矩阵。
+- `long` profile 使用同一 24-case 矩阵，每个 case 固定 300 秒 warmup + 1800 秒
+  measurement，总测量窗口约 14 小时；它只能通过 sealed `long` 包显式执行
+  `start`，不会由 `short` 自动串跑。
 
 ## 断网前验收
 
@@ -45,8 +46,9 @@ cd tls-offline-performance-<profile>-<sha>
 
 sealed `short` 包的 `smoke` 先执行同一包、同一 Xcode 和同一 x86_64 App 构建路径下
 的 1 秒 warmup + 2 秒 measurement（memory/100 lps/TLS+SLS），用于断连前验证
-runner plumbing；它不属于性能基线。`start` 才执行 sealed profile（short 包为 24
-轮）。两者都使用 `nohup` + `caffeinate -dims` 脱离终端运行，断开 SSH 不会终止测试。
+runner plumbing；它不属于性能基线。`start` 才执行 sealed profile（short/long
+均为 24 轮，时间窗口不同）。两者都使用 `nohup` + `caffeinate -dims` 脱离终端运行，
+断开 SSH 不会终止测试。
 不要关机、重启或删除专用 Simulator。结果写在 runner 上级目录的
 `tls-performance-<profile>-<UTC>/`，结束时无论通过或失败都会生成：
 
