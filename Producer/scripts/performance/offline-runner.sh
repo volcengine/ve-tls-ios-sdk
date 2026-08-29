@@ -238,7 +238,7 @@ start_matrix() {
     printf '%s\n' "$run_root" >"$state_root/.tls-performance-last-run"
     /usr/bin/nohup /usr/bin/caffeinate -dims \
         "$script_path" run "$run_root" "$profile" \
-        >"$run_root/controller.log" 2>&1 &
+        >"$run_root/controller.log" 2>&1 </dev/null &
     controller_pid=$!
     printf '%s\n' "$controller_pid" >"$run_root/controller.pid"
     printf 'STARTED profile=%s pid=%s output=%s\n' \
