@@ -111,20 +111,51 @@ if /usr/bin/grep -n '/Pods/Target Support Files/' "$pods_project" >/dev/null 2>&
     die "prepared fixture still contains an unsealed support-files path"
 fi
 
-replace_prepared_path() {
+replace_prepared_path_if_present() {
     local source_path=$1
     local replacement=$2
     local files
     files=$(/usr/bin/grep -rl -F -- "$source_path" "$prepared_fixture" || true)
-    [[ -n "$files" ]] || die "prepared fixture did not record expected path: $source_path"
+    [[ -n "$files" ]] || return 1
     while IFS= read -r file; do
         SOURCE_PATH_VALUE="$source_path" REPLACEMENT_VALUE="$replacement" \
             perl -pi -e 's/\Q$ENV{SOURCE_PATH_VALUE}\E/$ENV{REPLACEMENT_VALUE}/g' "$file"
     done <<<"$files"
 }
 
-replace_prepared_path "$runner_root/tls" '__TLS_SDK_ROOT__'
-replace_prepared_path "$runner_root/sls" '__SLS_SDK_ROOT__'
+replace_prepared_root() {
+    local source_path=$1
+    local replacement=$2
+    local physical_path
+    local replaced=0
+    physical_path=$(cd -- "$source_path" && pwd -P)
+    if replace_prepared_path_if_present "$physical_path" "$replacement"; then
+        replaced=1
+    fi
+    if [[ "$source_path" != "$physical_path" ]] \
+        && replace_prepared_path_if_present "$source_path" "$replacement"; then
+        replaced=1
+    fi
+    [[ "$replaced" == 1 ]] \
+        || die "prepared fixture did not record expected path: $source_path"
+}
+
+replace_prepared_root "$runner_root/tls" '__TLS_SDK_ROOT__'
+replace_prepared_root "$runner_root/sls" '__SLS_SDK_ROOT__'
+tokenized_path_files=$(
+    /usr/bin/grep -rl \
+        -e '__TLS_SDK_ROOT__' \
+        -e '__SLS_SDK_ROOT__' \
+        "$prepared_fixture" || true
+)
+[[ -n "$tokenized_path_files" ]] \
+    || die "prepared fixture has no tokenized SDK paths"
+while IFS= read -r tokenized_path_file; do
+    perl -pi -e '
+        s#(?:\.\./)*\.\.__TLS_SDK_ROOT__#__TLS_SDK_ROOT__#g;
+        s#(?:\.\./)*\.\.__SLS_SDK_ROOT__#__SLS_SDK_ROOT__#g;
+    ' "$tokenized_path_file"
+done <<<"$tokenized_path_files"
 find "$prepared_fixture/Pods/Target Support Files" -type f -name '*.xcconfig' \
     -exec perl -pi -e '
         s#\$\{PODS_ROOT\}(?:/\.\.)+__TLS_SDK_ROOT__#__TLS_SDK_ROOT__#g;
@@ -135,8 +166,16 @@ if /usr/bin/grep -r -E \
     "$prepared_fixture" >/dev/null 2>&1; then
     die "prepared fixture contains a non-canonical SDK path token"
 fi
-if /usr/bin/grep -r -F -- "$staging_root" "$prepared_fixture" >/dev/null 2>&1; then
-    die "prepared fixture still contains a packaging-host staging path"
+staging_root_physical=$(cd -- "$staging_root" && pwd -P)
+for sealed_staging_path in "$staging_root_physical" "$staging_root"; do
+    if /usr/bin/grep -r -F -- "$sealed_staging_path" "$prepared_fixture" >/dev/null 2>&1; then
+        die "prepared fixture still contains a packaging-host staging path"
+    fi
+done
+if /usr/bin/grep -r -E \
+    '\.\.__(TLS|SLS)_SDK_ROOT__' \
+    "$prepared_fixture" >/dev/null 2>&1; then
+    die "prepared fixture contains an SDK token joined to parent traversal"
 fi
 if /usr/bin/grep -r -F -- "$package_root" "$prepared_fixture" >/dev/null 2>&1; then
     die "prepared fixture still contains the packaging-host TLS path"
