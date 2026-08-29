@@ -14,7 +14,8 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
 - 修复 persistent 批次处于跨轮退避时直接 destroy 只置 `stop`、sender 仅检查
   `closing` 导致 worker join 等待延迟计时器的问题；内存任务释放，WAL 保持未 ACK
   供下次 recover。该修复最初落在 C Core `persistent` 本地提交 `613b38d`；当前
-  包含后续 admission 与精确线程数修复的本地 feature tip 为 `430d7fc`，尚未推送。
+  包含后续 admission、精确线程数与 sealed-batch ownership transfer 修复的本地
+  feature tip 为 `b043657`，尚未推送。
 - `RealCoreAdapter` + `TLSRealCoreAdapter`：Swift/ObjC/C 生命周期、per-instance
   URLSession transport、结构化错误和终态 callback。
 - Public destination-at-open、持久化模式、bounded buffer block timeout、
@@ -29,6 +30,9 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   构造/recover Core；配置突变在 open 边界重新验证并复制。
 - 修复 HTTP timeout 丢失、response allocator 泄漏、URLSession 配置旁路、错误
   原文泄漏、timeout/cancel 竞态与 late callback/context 生命周期。
+- sealed batch 直接把 builder allocation 转移给 send task，避免约 1 MiB 批次在
+  wire framing 时再分配并复制第二份 buffer；snapshot/export 仍保留复制语义，
+  realloc/metadata 分配失败保持 builder 原状。
 - 未 close 就释放 adapter 时，Core destroy 转移到 utility queue 并保活 raw
   callback/HTTP context；该路径只保证安全清理，不承诺剩余 callback。
 - redirect 收紧为 normalized origin + 完整 signed target 不变；拒绝跨 host、
@@ -115,7 +119,10 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   source-build override 在 admission 优化后的 clean 24 组中，memory 100/300 与
   persistent 100 全过，persistent 300 的 add P99 `1.002×`、RSS `1.118×` 通过，
   CPU `1.272×` 失败。线程 auto/explicit 冲突修复后，该组 6 轮定向复测为 CPU
-  `1.083×`、add P99 `0.762×`、RSS `1.114×` 全过。独立 Linux 开发机固定
+  `1.083×`、add P99 `0.762×`、RSS `1.114×` 全过。随后 memory 300 的 Intel
+  定向证据 RSS `1.242×` 失败；sealed-batch ownership transfer 后，精确
+  `2ed85f0` arm64 同合同 6 轮 CPU `1.158×`、add P99 `0.559×`、RSS `1.119×`
+  全过。前后硬件不同，只使用各自同机 TLS/SLS 比值，不横比绝对 RSS。独立 Linux 开发机固定
   vCPU/NUMA 的 C persistent 复测确认 task 数 6→4，250/1000 logs/s 的
   user-space task-clock 中位数分别下降 12.08%/13.30%，但仍需在新 clean SHA 重跑
   完整 24 组；短矩阵不替代正式时长，Intel 功能全量通过也不能替代正式性能矩阵。

@@ -129,8 +129,8 @@
   delayed retry、destroy/stop 有界释放、POSIX no-follow，以及 package-internal /
   LZ4 hidden visibility。
 - Core 行为与 POSIX 补丁从 `origin/persistent@c7fa2fa` 之上的本地提交
-  `613b38d` 起整理；加入 admission 优化与精确线程数修复后的当前 feature tip 为
-  `430d7fc`，仍未 push/merge/tag，不能写成已发布上游版本。
+  `613b38d` 起整理；加入 admission、精确线程数与 sealed-batch ownership transfer
+  修复后的当前 feature tip 为 `b043657`，仍未 push/merge/tag，不能写成已发布上游版本。
 - Bridge 另补齐 effective `retry_policy.max_attempts`、NSURLSession transport、
   structured error、persistent directory lock 和 autorelease pool；retryable
   persistent batch 在有界 cycle 后进入最长 5 分钟的 jittered delayed retry。
@@ -167,7 +167,11 @@
   优化后的 clean 24 组只剩 persistent 300 CPU `1.272×` 失败；剖析确认显式
   `sendConcurrency=1` 曾被 Core 误当 auto 并展开成 2 sender + 2 pack worker。
   修复为精确 1+1 后该组 6 轮定向复测 CPU `1.083×`、add P99 `0.762×`、RSS
-  `1.114×` 全过；独立 Linux 开发机固定 vCPU/NUMA 的 C persistent 5×2 复测中，
+  `1.114×` 全过。随后 memory 300 定向复测暴露 RSS `1.242×`；sealed batch 改为
+  转移 builder allocation 后，精确 `2ed85f0` 的 arm64 同合同 6 轮 CPU
+  `1.158×`、add P99 `0.559×`、RSS `1.119×` 全过。该前后证据来自不同硬件，
+  因此只比较每次同机 TLS/SLS 比值，不比较绝对 RSS。独立 Linux 开发机固定
+  vCPU/NUMA 的 C persistent 5×2 复测中，
   task 数从 6 降到 4，250/1000 logs/s 的 user-space task-clock 中位数分别下降
   12.08%/13.30%，确认该回归属于 C Core 线程语义而非 Mac 独有噪声。但新 clean
   SHA 的完整 24 组与正式 5 分钟 warm-up + 30 分钟测量
