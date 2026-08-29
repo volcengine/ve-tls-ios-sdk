@@ -48,7 +48,6 @@ verify_host() {
     local simulator_id
     local actual_xcode
     local actual_runtime
-    local simulator_machine
     developer_dir=$(read_metadata developer-dir.txt)
     [[ -d "$developer_dir" ]] || die "sealed DEVELOPER_DIR does not exist: $developer_dir"
     export DEVELOPER_DIR="$developer_dir"
@@ -88,9 +87,6 @@ raise SystemExit(1)
     )
     [[ "$actual_runtime" == "$expected_runtime" ]] \
         || die "simulator runtime $actual_runtime does not match $expected_runtime"
-    simulator_machine=$(xcrun simctl spawn "$simulator_id" uname -m)
-    [[ "$simulator_machine" == "$expected_machine" ]] \
-        || die "simulator architecture $simulator_machine does not match $expected_machine"
 }
 
 write_partial_checksums() {
@@ -108,8 +104,9 @@ write_partial_checksums() {
 
 run_matrix() {
     local run_root=$1
+    local profile=$2
     local evidence_root="$run_root/evidence"
-    local profile
+    local sealed_profile
     local simulator_id
     local warmup_seconds
     local measure_seconds
@@ -125,7 +122,12 @@ run_matrix() {
     local result_archive_hash="${result_archive}.sha256"
 
     [[ -d "$run_root" ]] || die "run directory does not exist: $run_root"
-    profile=$(read_metadata profile.txt)
+    sealed_profile=$(read_metadata profile.txt)
+    if [[ "$profile" == short && "$sealed_profile" != short ]]; then
+        die "sealed $sealed_profile runner cannot execute the short profile"
+    fi
+    [[ "$profile" == smoke || "$profile" == short ]] \
+        || die "unsupported requested runner profile: $profile"
     simulator_id=$(read_metadata simulator-id.txt)
     disk_max=$(read_metadata host-disk-max-mbps.txt)
     cpu_min=$(read_metadata host-cpu-min-idle-percent.txt)
@@ -177,6 +179,7 @@ run_matrix() {
     : >"$run_root/.metadata_never_index"
     {
         printf 'profile=%s\n' "$profile"
+        printf 'sealed_profile=%s\n' "$sealed_profile"
         printf 'network_contract=loopback-only\n'
         printf 'prepared_fixture=yes\n'
         printf 'cocoapods_required_at_run_time=no\n'
@@ -194,6 +197,7 @@ run_matrix() {
     TMPDIR="$run_root/tmp/" \
     TLS_PERF_SLS_ROOT="$runner_root/sls" \
     TLS_PERF_PREPARED_FIXTURE_ROOT="$runner_root/prepared-fixture" \
+    TLS_PERF_EXPECT_APP_ARCH="$(read_metadata machine.txt)" \
     TLS_PERF_SIMULATOR_ID="$simulator_id" \
     TLS_PERF_OUTPUT_DIR="$evidence_root" \
     TLS_PERF_WARMUP_SECONDS="$warmup_seconds" \
@@ -212,13 +216,19 @@ run_matrix() {
 }
 
 start_matrix() {
+    local profile=$1
     verify_runner
     verify_host
-    local profile
+    local sealed_profile
     local timestamp
     local run_root
     local controller_pid
-    profile=$(read_metadata profile.txt)
+    sealed_profile=$(read_metadata profile.txt)
+    if [[ "$profile" == short && "$sealed_profile" != short ]]; then
+        die "sealed $sealed_profile runner cannot execute the short profile"
+    fi
+    [[ "$profile" == smoke || "$profile" == short ]] \
+        || die "unsupported requested runner profile: $profile"
     timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
     run_root="$state_root/tls-performance-${profile}-${timestamp}"
     [[ ! -e "$run_root" ]] || die "run directory already exists: $run_root"
@@ -226,7 +236,7 @@ start_matrix() {
     : >"$run_root/.metadata_never_index"
     printf '%s\n' "$run_root" >"$state_root/.tls-performance-last-run"
     /usr/bin/nohup /usr/bin/caffeinate -dims \
-        "$script_path" run "$run_root" \
+        "$script_path" run "$run_root" "$profile" \
         >"$run_root/controller.log" 2>&1 &
     controller_pid=$!
     printf '%s\n' "$controller_pid" >"$run_root/controller.pid"
@@ -262,7 +272,10 @@ show_status() {
 
 case "${1:-start}" in
     start)
-        start_matrix
+        start_matrix "$(read_metadata profile.txt)"
+        ;;
+    smoke)
+        start_matrix smoke
         ;;
     status)
         show_status
@@ -273,10 +286,10 @@ case "${1:-start}" in
         printf '%s\n' 'PASS: sealed offline runner and Intel host verified'
         ;;
     run)
-        [[ $# == 2 ]] || die "internal run mode requires one output directory"
-        run_matrix "$2"
+        [[ $# == 3 ]] || die "internal run mode requires output directory and profile"
+        run_matrix "$2" "$3"
         ;;
     *)
-        die "usage: $0 [start|status|verify]"
+        die "usage: $0 [smoke|start|status|verify]"
         ;;
 esac

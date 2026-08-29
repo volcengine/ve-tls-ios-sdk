@@ -6,6 +6,7 @@ package_root=$(cd -- "$script_dir/../../.." && pwd)
 harness_source="$package_root/Producer/Examples/PerformanceHarness"
 sls_root=${TLS_PERF_SLS_ROOT:-"$package_root/../aliyun-log-ios-sdk"}
 prepared_fixture_root=${TLS_PERF_PREPARED_FIXTURE_ROOT:-}
+expected_app_arch=${TLS_PERF_EXPECT_APP_ARCH:-}
 output_root=${TLS_PERF_OUTPUT_DIR:-"$package_root/.build/performance-reports/$(date +%Y%m%d-%H%M%S)"}
 warmup_seconds=${TLS_PERF_WARMUP_SECONDS:-10}
 measure_seconds=${TLS_PERF_MEASURE_SECONDS:-30}
@@ -39,6 +40,8 @@ die() {
 [[ "$require_idle_host" == 0 || "$require_idle_host" == 1 ]] || die "TLS_PERF_REQUIRE_IDLE_HOST must be 0 or 1"
 [[ "$nsurlsessiond_max_bytes_per_second" =~ ^[0-9]+$ ]] \
     || die "TLS_PERF_NSURLSESSIOND_MAX_BYTES_PER_SECOND must be a non-negative integer"
+[[ -z "$expected_app_arch" || "$expected_app_arch" == arm64 || "$expected_app_arch" == x86_64 ]] \
+    || die "TLS_PERF_EXPECT_APP_ARCH must be arm64 or x86_64"
 [[ "$host_cpu_idle_samples" =~ ^[1-9][0-9]*$ ]] \
     || die "TLS_PERF_HOST_CPU_IDLE_SAMPLES must be a positive integer"
 [[ "$host_disk_samples" =~ ^[1-9][0-9]*$ ]] \
@@ -372,6 +375,17 @@ xcodebuild \
 
 app_path="$derived_data/Build/Products/Release-iphonesimulator/PerformanceHarness.app"
 [[ -d "$app_path" ]] || die "built app not found: $app_path"
+app_binary="$app_path/PerformanceHarness"
+[[ -f "$app_binary" ]] || die "built app binary not found: $app_binary"
+app_archs=$(xcrun lipo -archs "$app_binary")
+{
+    printf 'binary=%s\n' "$app_binary"
+    printf 'architectures=%s\n' "$app_archs"
+    printf 'required_architecture=%s\n' "${expected_app_arch:-not-enforced}"
+} >"$output_root/app-architecture.txt"
+if [[ -n "$expected_app_arch" && "$app_archs" != "$expected_app_arch" ]]; then
+    die "built app architectures '$app_archs' do not equal '$expected_app_arch'"
+fi
 
 cert_dir="$fixture_root/certificates"
 "$package_root/Producer/scripts/test-support/make-test-ca.sh" "$cert_dir" \
@@ -547,6 +561,7 @@ python3 "$fixture_root/analyze_results.py" "${analyzer_arguments[@]}"
     tls-head.txt tls-status.txt tls-head-end.txt tls-status-end.txt \
     sls-head.txt sls-status.txt sls-head-end.txt sls-status-end.txt sls-tag.txt \
     xcode-version.txt simulator.txt host-preflight.txt host-postflight.txt \
+    app-architecture.txt \
     host-idle-preflight.txt host-idle-pre-runs.txt host-idle-postflight.txt \
     host-resources-preflight.txt host-resources-pre-runs.txt host-resources-postflight.txt \
     pod-install.log xcodebuild.log certificate-paths.txt ca-install.log server.log \

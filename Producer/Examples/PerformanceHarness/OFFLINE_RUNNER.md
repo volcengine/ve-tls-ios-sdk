@@ -8,7 +8,7 @@ DNS、BOE 或互联网，也不会读取 `.real_boe_info.env`。
 ## 运行边界
 
 - 仅支持归档 metadata 中固定的 Intel `x86_64`、Xcode 16.4/16F6、iOS 18.5
-  Simulator 和专用 device UUID。
+  Simulator 和专用 device UUID；最终被测 App Mach-O 必须精确为 `x86_64`。
 - `start` 会先校验归档全部文件、两个 Git checkout 的 exact SHA/clean 状态和
   Xcode/Simulator 架构；随后关闭其他 Simulator，只启动固定的 18.5 device。
 - runner 与每次结果目录都会创建 `.metadata_never_index`，降低 Spotlight 对源码、
@@ -38,11 +38,15 @@ cd tls-offline-performance-<profile>-<sha>
 ## 自主运行与状态
 
 ```sh
+./run-offline-performance.sh smoke
 ./run-offline-performance.sh start
 ./run-offline-performance.sh status
 ```
 
-`start` 使用 `nohup` + `caffeinate -dims` 脱离终端运行，断开 SSH 不会终止测试。
+sealed `short` 包的 `smoke` 先执行同一包、同一 Xcode 和同一 x86_64 App 构建路径下
+的 1 秒 warmup + 2 秒 measurement（memory/100 lps/TLS+SLS），用于断连前验证
+runner plumbing；它不属于性能基线。`start` 才执行 sealed profile（short 包为 24
+轮）。两者都使用 `nohup` + `caffeinate -dims` 脱离终端运行，断开 SSH 不会终止测试。
 不要关机、重启或删除专用 Simulator。结果写在 runner 上级目录的
 `tls-performance-<profile>-<UTC>/`，结束时无论通过或失败都会生成：
 

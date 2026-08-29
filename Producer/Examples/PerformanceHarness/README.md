@@ -71,7 +71,8 @@ Producer/scripts/performance/run-comparison.sh
 
 输出包含每轮全部 input-construction/add latency 样本、measurement epoch 内的 host `ps` CPU/RSS 样本、
 App 计数、服务端计数、进程终止标记、源码 SHA、Xcode/Simulator 信息、分析结果和
-`SHA256SUMS`。不要只把产物放在 `/tmp`；CI 必须上传整个输出目录。
+最终 App Mach-O 架构、`SHA256SUMS`。不要只把产物放在 `/tmp`；CI 必须上传整个
+输出目录。可用 `TLS_PERF_EXPECT_APP_ARCH=arm64|x86_64` 将实际 App 架构设为硬门禁。
 
 校验整套留证文件时必须从输出目录执行：
 
