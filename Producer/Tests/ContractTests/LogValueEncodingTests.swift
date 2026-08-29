@@ -148,6 +148,27 @@ final class LogValueEncodingTests: XCTestCase {
         }
     }
 
+    func testEmbeddedNULDetectionPreservesUnicodeAndBoundarySemantics() throws {
+        XCTAssertEqual(
+            try LogValue.string("日志内容").encodedString(),
+            "日志内容")
+
+        for value in ["\0suffix", "prefix\0", "日志\0内容"] {
+            XCTAssertThrowsError(try LogValue.string(value).encodedString()) { error in
+                XCTAssertEqual(
+                    error as? LogValueEncodingError,
+                    LogValueEncodingError.embeddedNUL)
+            }
+        }
+
+        XCTAssertThrowsError(
+            try LogValue.utf8Data(Data("日志\0内容".utf8)).encodedString()) { error in
+                XCTAssertEqual(
+                    error as? LogValueEncodingError,
+                    LogValueEncodingError.embeddedNUL)
+            }
+    }
+
     // MARK: - Depth
 
     private func nestedArray(depth: Int) -> LogValue {

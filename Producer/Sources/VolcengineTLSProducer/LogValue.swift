@@ -80,7 +80,7 @@ extension LogValue {
     private func encode(remainingDepth: Int, quoteStrings: Bool) throws -> String {
         switch self {
         case .string(let value):
-            guard !value.contains("\0") else {
+            guard !LogValue.containsEmbeddedNUL(value) else {
                 throw LogValueEncodingError.embeddedNUL
             }
             return quoteStrings ? LogValue.encodeJSONString(value) : value
@@ -102,7 +102,7 @@ extension LogValue {
         case .dictionary(let dict):
             guard remainingDepth > 0 else { throw LogValueEncodingError.nestingDepthExceeded }
             let parts = try dict.keys.sorted().map { key -> String in
-                guard !key.contains("\0") else {
+                guard !LogValue.containsEmbeddedNUL(key) else {
                     throw LogValueEncodingError.embeddedNUL
                 }
                 let encodedValue = try dict[key]!.encode(remainingDepth: remainingDepth - 1, quoteStrings: true)
@@ -113,7 +113,7 @@ extension LogValue {
             guard let text = String(data: data, encoding: .utf8) else {
                 throw LogValueEncodingError.invalidUTF8Data
             }
-            guard !text.contains("\0") else {
+            guard !LogValue.containsEmbeddedNUL(text) else {
                 throw LogValueEncodingError.embeddedNUL
             }
             return text
@@ -125,14 +125,14 @@ extension LogValue {
         case .double(let value):
             guard value.isFinite else { throw LogValueEncodingError.nonFiniteDouble }
         case .string(let value):
-            guard !value.contains("\0") else {
+            guard !LogValue.containsEmbeddedNUL(value) else {
                 throw LogValueEncodingError.embeddedNUL
             }
         case .utf8Data(let data):
             guard let text = String(data: data, encoding: .utf8) else {
                 throw LogValueEncodingError.invalidUTF8Data
             }
-            guard !text.contains("\0") else {
+            guard !LogValue.containsEmbeddedNUL(text) else {
                 throw LogValueEncodingError.embeddedNUL
             }
         case .array(let values):
@@ -143,7 +143,7 @@ extension LogValue {
         case .dictionary(let dict):
             guard remainingDepth > 0 else { throw LogValueEncodingError.nestingDepthExceeded }
             for (key, value) in dict {
-                guard !key.contains("\0") else {
+                guard !LogValue.containsEmbeddedNUL(key) else {
                     throw LogValueEncodingError.embeddedNUL
                 }
                 try value.validate(remainingDepth: remainingDepth - 1)
@@ -151,6 +151,13 @@ extension LogValue {
         case .signedInt, .unsignedInt, .bool, .null:
             break
         }
+    }
+
+    /// U+0000 is encoded by exactly one zero byte in UTF-8. Scanning that
+    /// byte view preserves the string contract without invoking Foundation's
+    /// general-purpose substring search on every admission field.
+    private static func containsEmbeddedNUL(_ value: String) -> Bool {
+        value.utf8.contains(0)
     }
 
     /// Escapes a string as a compact JSON string literal, including the quotes.
