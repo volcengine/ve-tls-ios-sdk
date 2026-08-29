@@ -110,8 +110,9 @@ Public `open` 必须在 configuration 中携带 destination。所有 public muta
 sendConcurrency 1，LZ4，connect 10s，request 15s，maxLogAge 7d。可配置的
 `batch.maxRawBytes` 上限为 9.5 MiB（9,961,472 bytes），在服务端 10 MiB 绝对上限
 下保留 framing 余量。移动端单实例资源合同还限制 buffer 不超过 256 MiB、
-sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridge 也独立
-拒绝越界值。`LogEvent.hashKey` 若非 `nil`，必须精确匹配 `[0-9a-f]{32}`。
+sendConcurrency 不超过 8；正整数是精确线程数，Core 只把 0 作为 runtime auto
+哨兵。initializer 与 open 边界都会重校验，Bridge 也独立拒绝越界值。
+`LogEvent.hashKey` 若非 `nil`，必须精确匹配 `[0-9a-f]{32}`。
 
 持久化模式：
 
@@ -205,12 +206,13 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
 - 性能口径冻结为 1 KiB/10 fields/LZ4/1 sender，100/300 logs/s，memory/persistent
   分组，pinned SLS `4.3.4` 同机 Release A/B；每组 warm-up 5 分钟、测量 30 分钟、
   至少 3 次，P99 add latency/CPU/RSS 相对恶化不得超过 20%。SLS 原 podspec 排除
-  arm64 Simulator；source-build override 的 clean 24 组短矩阵中，memory 100/300
-  与 persistent 100 三组全过，persistent 300 仅 CPU `1.222×` 略超门槛，其
-  add P99 `0.836×`、RSS `1.118×` 已通过。Core 加入 direct merge、table CRC 与
-  单日志 builder 复用后的 persistent 300 定向短复测为 CPU `1.152×`、add P99
-  `0.955×`、RSS `1.118×`。仍须在新 clean SHA 重跑完整 24 组，随后才可执行每组
-  5 分钟 + 30 分钟正式矩阵；Intel 功能全量通过不能替代性能结果。
+  arm64 Simulator；direct merge、table CRC 与单日志 builder 复用后的 clean 24
+  组中，memory 100/300 与 persistent 100 全过，persistent 300 的 add P99
+  `1.002×`、RSS `1.118×` 通过，但 CPU `1.272×` 失败。剖析发现 Core 把显式
+  `sendConcurrency=1` 误当 auto，实际启动 2 sender + 2 pack worker；修复为精确
+  1+1 后，该组 6 轮定向复测为 CPU `1.083×`、add P99 `0.762×`、RSS `1.114×`
+  全过。仍须在新 clean SHA 重跑完整 24 组，随后才可执行每组 5 分钟 + 30 分钟
+  正式矩阵；Intel 功能全量通过不能替代性能结果。
 测试通过不等于可发布。仓库内冻结合同与门禁状态见
 [DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
 workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08-28.md`。
@@ -230,8 +232,8 @@ workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08
   `O_NOFOLLOW/O_CLOEXEC` 文件适配、custom transport retryability、auth-retain
   单终态、persistent live retry-cycle、bounded destroy、内部符号可见性/LZ4 隐藏。
   行为修复从 C Core `persistent` 基线之上的本地提交 `613b38d` 起整理；加入
-  direct merge、table CRC 与单日志 builder 复用后的当前 feature tip 为
-  `e5ee837`，仍未 push/merge/tag。正式上游状态与 iOS patch checksum 以
+  admission 优化与精确线程数修复后的当前 feature tip 为 `430d7fc`，仍未
+  push/merge/tag。正式上游状态与 iOS patch checksum 以
   `CORE_VERSION` 为准，不能描述为未修改上游包或已发布上游版本。
 - bridge-level `flock` 只能约束遵守该 Bridge 协议的 SDK 实例，不能约束绕过
   Bridge 直接使用同一目录的其他 Core 实现。

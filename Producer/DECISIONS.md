@@ -129,8 +129,8 @@
   delayed retry、destroy/stop 有界释放、POSIX no-follow，以及 package-internal /
   LZ4 hidden visibility。
 - Core 行为与 POSIX 补丁从 `origin/persistent@c7fa2fa` 之上的本地提交
-  `613b38d` 起整理；加入 direct merge、table CRC 与单日志 builder 复用后的当前
-  feature tip 为 `e5ee837`，仍未 push/merge/tag，不能写成已发布上游版本。
+  `613b38d` 起整理；加入 admission 优化与精确线程数修复后的当前 feature tip 为
+  `430d7fc`，仍未 push/merge/tag，不能写成已发布上游版本。
 - Bridge 另补齐 effective `retry_policy.max_attempts`、NSURLSession transport、
   structured error、persistent directory lock 和 autorelease pool；retryable
   persistent batch 在有界 cycle 后进入最长 5 分钟的 jittered delayed retry。
@@ -163,11 +163,12 @@
 - 通用真机 background/Data Protection/Instruments；STS 临时凭证。真机证据不
   要求精确 iOS 13 系统。
 - pinned SLS `4.3.4` 的同机性能 A/B；其 podspec 排除 arm64 Simulator，当前需
-  临时 source-build override 才能在当前 Apple Silicon Simulator 运行。最新 clean
-  24 组短矩阵只剩 persistent 300 CPU `1.222×` 略超门槛；direct merge、table
-  CRC 与单日志 builder 复用后的该组定向复测为 `1.152×`，但新 clean SHA 的完整
-  24 组与正式 5 分钟 warm-up + 30 分钟测量仍未完成。Intel x86_64 Simulator
-  功能全量已通过，但不能替代性能矩阵。该版本 public destroy
+  临时 source-build override 才能在当前 Apple Silicon Simulator 运行。admission
+  优化后的 clean 24 组只剩 persistent 300 CPU `1.272×` 失败；剖析确认显式
+  `sendConcurrency=1` 曾被 Core 误当 auto 并展开成 2 sender + 2 pack worker。
+  修复为精确 1+1 后该组 6 轮定向复测 CPU `1.083×`、add P99 `0.762×`、RSS
+  `1.114×` 全过，但新 clean SHA 的完整 24 组与正式 5 分钟 warm-up + 30 分钟测量
+  仍未完成。Intel x86_64 Simulator 功能全量已通过，但不能替代性能矩阵。该版本 public destroy
   在 arm64 实测会对已由 C Core 释放的 config 再做 `CFRelease` 并 SIGTRAP；临时
   A/B 必须每组进程隔离、跳过 SLS destroy，并明确不构成其生命周期通过证据。
 - 隐私数据分类、archive privacy report、App Store Connect 校验。

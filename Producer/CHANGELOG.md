@@ -14,7 +14,7 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
 - 修复 persistent 批次处于跨轮退避时直接 destroy 只置 `stop`、sender 仅检查
   `closing` 导致 worker join 等待延迟计时器的问题；内存任务释放，WAL 保持未 ACK
   供下次 recover。该修复最初落在 C Core `persistent` 本地提交 `613b38d`；当前
-  包含后续 admission 性能优化的本地 feature tip 为 `e5ee837`，尚未推送。
+  包含后续 admission 与精确线程数修复的本地 feature tip 为 `430d7fc`，尚未推送。
 - `RealCoreAdapter` + `TLSRealCoreAdapter`：Swift/ObjC/C 生命周期、per-instance
   URLSession transport、结构化错误和终态 callback。
 - Public destination-at-open、持久化模式、bounded buffer block timeout、
@@ -37,6 +37,8 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   但允许后续 close retry；成功后幂等。
 - 正确传递 persistence、buffer policy、sendConcurrency、effective
   `retry_policy.max_attempts`、lifecycle 和 structured public error。
+- 修复 Core 将显式 send/pack thread count `1` 与 runtime auto 默认混淆、在 64 MiB
+  buffer 下实际展开成 `2+2` 线程的问题；0 代表 auto，正整数均为精确值。
 - persistent 目录 fail-fast；Core 文件应用 no-backup/Data Protection；Bridge
   process lock 拒绝第二活实例、symlink lock 和异常 lease，crash 后可立即 reopen。
 - POSIX Core file-open 使用 `O_NOFOLLOW | O_CLOEXEC`（平台可用时），拒绝预置
@@ -110,12 +112,11 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
 - 性能口径已冻结为 1 KiB/10 fields/LZ4/1 sender、100/300 logs/s、
   memory/persistent 分组、pinned SLS `4.3.4` 同机 Release A/B；P99 add latency、
   CPU、RSS 相对恶化不得超过 20%。SLS 原 podspec 排除 arm64 Simulator；临时
-  source-build override 的 clean 24 组短矩阵中，memory 100/300 与 persistent
-  100 三组全过，persistent 300 仅 CPU `1.222×` 超过 `1.20×`；其 add P99
-  `0.836×`、RSS `1.118×` 均通过。Core 增加 direct merge、table CRC 与单日志
-  builder 复用后，persistent 300 定向 3 次短复测为 CPU `1.152×`、add P99
-  `0.955×`、RSS `1.118×`，但仍需在新 clean SHA 重跑完整 24 组；短矩阵不替代
-  正式时长，Intel 功能全量通过也不能替代正式性能矩阵。
+  source-build override 在 admission 优化后的 clean 24 组中，memory 100/300 与
+  persistent 100 全过，persistent 300 的 add P99 `1.002×`、RSS `1.118×` 通过，
+  CPU `1.272×` 失败。线程 auto/explicit 冲突修复后，该组 6 轮定向复测为 CPU
+  `1.083×`、add P99 `0.762×`、RSS `1.114×` 全过，但仍需在新 clean SHA 重跑
+  完整 24 组；短矩阵不替代正式时长，Intel 功能全量通过也不能替代正式性能矩阵。
 - 远端 `0.0.2` tag 尚未创建。
 - 当前仍是 Development Preview / release candidate source，不可标记 Beta/GA。
 
