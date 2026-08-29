@@ -12,9 +12,11 @@
 //   BridgeTests/Support   — BridgeTests-only support (FakeCoreAdapter/fixtures)
 //   5 test targets        — Contract/Bridge/Transport/Persistence/ConsumerIntegration
 //
-// Evidence boundary: this manifest describes the source package. Release
-// evidence still requires the supported iOS 13 toolchain, simulator/device
-// tests, and the package-consumer checks under Producer/scripts/.
+// Evidence boundary: this manifest describes the source package. The iOS 13
+// minimum is additionally enforced by compile/link and final Mach-O minos
+// checks, supported toolchain builds, simulator runtime tests, and the package
+// consumer checks under Producer/scripts/. An exact iOS 13 device is not a
+// release prerequisite.
 //
 // Swift 5.8 manifest syntax only — no Swift 5.9+ features (e.g. `traits`).
 

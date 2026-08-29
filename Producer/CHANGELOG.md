@@ -13,7 +13,8 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   不是未修改的上游包；patch commits 与 diff checksum 见 `CORE_VERSION`。
 - 修复 persistent 批次处于跨轮退避时直接 destroy 只置 `stop`、sender 仅检查
   `closing` 导致 worker join 等待延迟计时器的问题；内存任务释放，WAL 保持未 ACK
-  供下次 recover。对应 C Core `persistent` 本地修复提交为 `613b38d`，尚未推送。
+  供下次 recover。该修复最初落在 C Core `persistent` 本地提交 `613b38d`；当前
+  包含后续 admission 性能优化的本地 feature tip 为 `e5ee837`，尚未推送。
 - `RealCoreAdapter` + `TLSRealCoreAdapter`：Swift/ObjC/C 生命周期、per-instance
   URLSession transport、结构化错误和终态 callback。
 - Public destination-at-open、持久化模式、bounded buffer block timeout、
@@ -76,7 +77,12 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   SK `.auth` 2/2。该 BOE env 未要求成功响应必须含 requestID，不能据此过度声明。
 - ASan/TSan 全量均为 246 passed / 0 failed / 6 skipped。
 - SwiftPM strict Swift 6、iOS 13 deployment：arm64/x86_64 × Debug/Release 产品
-  build；外部 public lifecycle/resource/symbol consumer 通过。
+  build；generic iPhoneOS arm64、外部 public lifecycle/resource/symbol consumer
+  与最终 iPhoneOS Mach-O `platform IOS / minos 13.0` 纳入综合门禁。Xcode 26.6
+  生成的 Simulator 最终 Mach-O 为 `minos 14.0`，不作为设备最低版本证据。
+- 精确提交 `bac7b22` 在 Intel Xcode 16.4 / iOS 18.5 x86_64 Simulator 全量
+  261 total：255 passed、0 failed、6 opt-in skipped；5 个测试 bundle 均为
+  x86_64。
 - CocoaPods 1.17.0 完整 `pod lib lint`、默认 static library consumer、static
   framework consumer、私有 header/module 与 final symbols/resources 通过；TLS 与
   pinned SLS `4.3.4` 的 x86_64 混编 consumer 同 App 链接通过；临时覆盖 SLS
@@ -98,15 +104,18 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
 
 ### Release blockers
 
-- Xcode 14.3.1 / Swift 5.8、iOS 13 真机、STS、真机 Instruments/background/
-  Data Protection、隐私数据分类/App Store privacy report 尚未完成。
+- Xcode 14.3.1 / Swift 5.8、STS、通用真机 Instruments/background/Data
+  Protection、隐私数据分类/App Store privacy report 尚未完成。精确 iOS 13 真机
+  不再是 blocker；最低版本由声明、compile/link 与 Mach-O minos 门禁证明。
 - 性能口径已冻结为 1 KiB/10 fields/LZ4/1 sender、100/300 logs/s、
   memory/persistent 分组、pinned SLS `4.3.4` 同机 Release A/B；P99 add latency、
   CPU、RSS 相对恶化不得超过 20%。SLS 原 podspec 排除 arm64 Simulator；临时
-  source-build override 已完成 24 组短矩阵（10 秒 warm-up + 30 秒测量，3 次重复）：
-  功能/采样门禁全绿，RSS 0.996–1.048× 通过，但 P99 add 1.88–3.56×、CPU
-  2.42–7.12× 均未过 1.20× 门槛。短矩阵不替代正式时长；应先优化 admission
-  热点再跑完整 A/B，正式原样包证据仍需 Intel runner/真机。
+  source-build override 的 clean 24 组短矩阵中，memory 100/300 与 persistent
+  100 三组全过，persistent 300 仅 CPU `1.222×` 超过 `1.20×`；其 add P99
+  `0.836×`、RSS `1.118×` 均通过。Core 增加 direct merge、table CRC 与单日志
+  builder 复用后，persistent 300 定向 3 次短复测为 CPU `1.152×`、add P99
+  `0.955×`、RSS `1.118×`，但仍需在新 clean SHA 重跑完整 24 组；短矩阵不替代
+  正式时长，Intel 功能全量通过也不能替代正式性能矩阵。
 - 远端 `0.0.2` tag 尚未创建。
 - 当前仍是 Development Preview / release candidate source，不可标记 Beta/GA。
 

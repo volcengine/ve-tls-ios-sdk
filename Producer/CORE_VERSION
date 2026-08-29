@@ -11,12 +11,12 @@ upstream_source_bundle_sha256: 478887acaf51f004d0bd1e2ba40e666848f02ebad238de168
 upstream_sha_scope: 只证明输入 bundle，不表示当前 vendored 工作树未修改
 abi_version: 2 (VE_TLS_CONFIG_VERSION_2)
 ios_core_patch_base: d46d7fd (upstream v0.3.1 vendoring commit)
-ios_core_patch_commits: 3d42ba3, 12cf52f, 08eab0a, 19b8648
-ios_core_patch_diff_sha256: 147f622e06a4a5b001dd2d8a9bce34113c363373f2bf704d6a719309eb3bc211
+ios_core_patch_commits: 3d42ba3, 12cf52f, 08eab0a, 19b8648, ca6065f, 9c9d4f8
+ios_core_patch_diff_sha256: 608d598683b169824ab57ec7293af089b45d4907534d3987089226502d896328
 ios_core_patch_diff_scope: git diff d46d7fd..HEAD -- Producer/Sources/CTLSProducerCore
 ios_core_patch_ownership: downstream iOS patchset；不得描述为 unmodified v0.3.1
 core_persistent_branch_base: c7fa2fabe6162a0a1af6ba592e684bc7fbd6c75f
-core_persistent_mobile_backport_commit: 613b38d5955aad80ddeed0c1bc2d508c0e561fd3
+core_persistent_mobile_backport_commit: e5ee8377cece38ccef4fb09fc7c70c3baef29e02
 core_persistent_mobile_backport_status: 本地 feature branch 已验证、未 push/merge/tag；不得描述为已发布上游版本
 ios_core_upstream_action: transport retryability、auth-retain terminal semantics、persistent live retry-cycle 与 bounded destroy 已回灌到上述 C Core persistent 本地提交；visibility/package 补丁仍由 iOS 维护并在升级时重验
 
@@ -34,10 +34,12 @@ ios_integration_patches:
   - nil STS rotation clears the previous token and header-bound CR/LF is rejected
   - NSURLSession response bodies are capped at 64 KiB and oversize is non-retryable
   - Bridge enforces exact 32-lowercase-hex hash keys and a 9.5 MiB raw batch ceiling
+  - persistent post-WAL admission directly merges the encoded builder while preserving contiguous acknowledgement ranges
+  - persistent WAL CRC32 uses a format-compatible table lookup and each producer retains at most one reusable idle single-log builder
 
 ownership_contract: C Core 管理自身 buffer/string；Bridge 对 HTTP response 字段做 allocator 对称释放
 symbol_contract: final consumer Mach-O 不导出 ve_tls_*/VE_TLS_LZ4_*/LZ4_*
 core_upstream_test_evidence: CI asan-ubsan 5/5, shared-abi, static-release (2026-08-27)
-ios_integration_evidence: Simulator full 252 total/246 passed/0 failed/6 opt-in skipped；ASan/TSan full 各 246 passed/0 failed/6 skipped；final BOE AK/SK 200 + invalid-SK auth 2/2（env 未强制成功 requestID）；persistent live-retry/close-reopen 2/2 + delayed-retry dealloc/reopen 1/1；SwiftPM/Pod final symbol gates 与 pinned SLS 4.3.4 x86_64 coexist link PASS；SLS podspec arm64 exclusion 临时覆盖后的 coexist Release install/launch PASS（非原样 Pod 证据）；exact 19b8648 2h soak PASS 6920/6920 success, 0 failure, RSS gate PASS；24-run short performance preflight functional/RSS PASS but P99/CPU relative gates FAIL（非正式时长）
+ios_integration_evidence: current arm64 Simulator full 261 total/255 passed/0 failed/6 opt-in skipped；Intel Xcode16/iOS18.5 x86_64 exact bac7b22 261/255/0/6；ASan/TSan prior full 各 246 passed/0 failed/6 skipped；C Core e5ee837 ASan+UBSan 5/5 and Release 13/13；SwiftPM strict iOS13 Simulator/device builds、generic iPhoneOS consumer IOS/minos13、Pod lint 与 final symbol gates PASS；final BOE AK/SK 200 + invalid-SK auth 2/2（env 未强制成功 requestID）；persistent live-retry/close-reopen 2/2 + delayed-retry dealloc/reopen 1/1；exact 19b8648 2h soak PASS 6920/6920 success, 0 failure, RSS gate PASS；clean 24-run short matrix only persistent300 CPU=1.222 FAIL，e5ee837 builder-reuse targeted repeat CPU=1.152 PASS，new clean full matrix pending
 integrated_at: 2026-08-27
 remediated_at: 2026-08-28

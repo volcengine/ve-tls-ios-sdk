@@ -13,14 +13,23 @@
   最终源码 BOE AK/SK、本地 HTTPS redirect、sanitizer、进程级 recovery 与
   pinned SLS `4.3.4` x86_64 共存链接已有证据。当前 BOE env 未强制成功响应必须
   含 requestID，因此 requestID 贯通只引用独立 wire/合同测试。
-- Xcode 14.3.1、iOS 13 真机、STS、隐私数据分类/App Store report 和远端 tag
-  仍是发布阻断。
+- Xcode 14.3.1 / Swift 5.8、STS、隐私数据分类/App Store report 和远端 tag
+  仍是发布阻断。精确 iOS 13 真机不可得，不再单独作为阻断项。
 
 ## 冻结公共语义
 
 1. Producer-only、Swift-first；ObjC public facade、contextFlow、自动 STS
    Provider、XCFramework 不进入当前 P0。
 2. 最低 deployment target = iOS 13.0；manifest 使用 Swift tools 5.8。
+   最低版本证据由 SwiftPM/Pod 声明一致性、iOS 13 generic-device 与 arm64/x86_64
+   Simulator compile、外部 consumer link、最终 iPhoneOS Mach-O
+   `platform IOS / minos 13.0` 共同组成；Xcode 26 的 Simulator linker 会将最终
+   Simulator Mach-O 下限钳制到 14.0，该产物不承担 iOS 13 设备最低版本证明。
+   更新系统的 arm64/x86_64 Simulator 负责运行行为。缺少精确 iOS 13 真机不推导
+   为兼容通过，也不再作为发布 blocker。
+   该策略参考 SLS 的兼容方法而不照抄其版本值：SLS 用不同 Swift tools manifest
+   表达平台下限，并对高版本系统 API 使用 `#available` / `@available`；本 SDK
+   保持单一 iOS 13 合同，并由消费者编译与产物门禁防止无意抬高最低版本。
 3. P0 公共方法只有 `open / add(mode:) / updateCredentials /
    updateDestination / close`。
 4. Public `open` 必须携带并重新校验完整 destination、configuration 和
@@ -119,8 +128,9 @@
   transport 尊重 `transport_retryable`、auth retain 单终态、persistent 跨 cycle
   delayed retry、destroy/stop 有界释放、POSIX no-follow，以及 package-internal /
   LZ4 hidden visibility。
-- Core 行为与 POSIX 补丁已整理到最新 `origin/persistent@c7fa2fa` 之上的本地
-  feature commit `613b38d`，但尚未 push/merge/tag；不能写成已发布上游版本。
+- Core 行为与 POSIX 补丁从 `origin/persistent@c7fa2fa` 之上的本地提交
+  `613b38d` 起整理；加入 direct merge、table CRC 与单日志 builder 复用后的当前
+  feature tip 为 `e5ee837`，仍未 push/merge/tag，不能写成已发布上游版本。
 - Bridge 另补齐 effective `retry_policy.max_attempts`、NSURLSession transport、
   structured error、persistent directory lock 和 autorelease pool；retryable
   persistent batch 在有界 cycle 后进入最长 5 分钟的 jittered delayed retry。
@@ -149,13 +159,15 @@
 
 ## 仍未完成的发布门禁
 
-- Xcode 14.3.1 / Swift 5.8 runner；iOS 13 真机。
-- 真机 background/Data Protection/Instruments；STS 临时凭证。
+- Xcode 14.3.1 / Swift 5.8 runner。
+- 通用真机 background/Data Protection/Instruments；STS 临时凭证。真机证据不
+  要求精确 iOS 13 系统。
 - pinned SLS `4.3.4` 的同机性能 A/B；其 podspec 排除 arm64 Simulator，当前需
-  临时 source-build override 才能在当前 Apple Silicon Simulator 运行。24 组短
-  preflight 的功能/RSS 门禁通过，但四组 P99/CPU 相对门禁全部失败；需先优化
-  admission 重复校验/编码/字典重建，再执行正式 5 分钟 warm-up + 30 分钟测量。
-  正式原样包仍需 Intel Simulator runner 或真机。该版本 public destroy
+  临时 source-build override 才能在当前 Apple Silicon Simulator 运行。最新 clean
+  24 组短矩阵只剩 persistent 300 CPU `1.222×` 略超门槛；direct merge、table
+  CRC 与单日志 builder 复用后的该组定向复测为 `1.152×`，但新 clean SHA 的完整
+  24 组与正式 5 分钟 warm-up + 30 分钟测量仍未完成。Intel x86_64 Simulator
+  功能全量已通过，但不能替代性能矩阵。该版本 public destroy
   在 arm64 实测会对已由 C Core 释放的 config 再做 `CFRelease` 并 SIGTRAP；临时
   A/B 必须每组进程隔离、跳过 SLS destroy，并明确不构成其生命周期通过证据。
 - 隐私数据分类、archive privacy report、App Store Connect 校验。

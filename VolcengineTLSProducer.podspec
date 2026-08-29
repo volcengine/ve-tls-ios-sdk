@@ -4,8 +4,8 @@
 # VolcengineTLSProducer — Volcengine TLS iOS Producer SDK.
 #
 # STATUS: release candidate source — the repository tag is still pending.
-# iOS 13 legacy-toolchain/device, STS, privacy classification/App Store and
-# final soak evidence remain release blockers; this podspec must not be
+# Swift 5.8 toolchain, STS, privacy classification/App Store and final soak
+# evidence remain release blockers; this podspec must not be
 # published until the exact tag below exists remotely.
 #
 # CocoaPods and SwiftPM compile the SAME Producer/Sources tree (no dual
@@ -40,8 +40,10 @@ Volcengine TLS (Tinder Log Service) iOS Producer SDK.
 
 Release-candidate source for internal validation. The exact `0.0.2` repository
 tag has not been created yet; do not publish this spec from an untagged
-checkout. iOS 13 legacy-toolchain/device, STS, privacy/App Store, final soak and
-release-owner evidence remain required before Beta or GA claims.
+checkout. Swift 5.8 toolchain, STS, privacy/App Store, final soak and
+release-owner evidence remain required before Beta or GA claims. The iOS 13
+minimum is verified by declaration, compile/link and final Mach-O minos gates;
+an exact iOS 13 physical device is not required.
                        DESC
   s.homepage         = 'https://github.com/volcengine/ve-tls-ios-sdk'
   s.license          = { :type => 'Apache License, Version 2.0', :file => 'LICENSE' }

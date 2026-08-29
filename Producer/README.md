@@ -6,15 +6,25 @@
 > **Development Preview / release candidate source，不是 Beta/GA。**
 >
 > 当前 Xcode 26.6 模拟器、SwiftPM、CocoaPods、本地 HTTPS redirect、BOE AK/SK、
-> sanitizer 和进程级 WAL recovery 已有执行证据。发布仍受 Xcode 14.3.1、
-> iOS 13 真机、STS、隐私数据分类/App Store 校验和远端版本 tag 阻断。
+> Intel x86_64 模拟器、sanitizer 和进程级 WAL recovery 已有执行证据。发布仍受
+> Xcode 14.3.1 / Swift 5.8、STS、隐私数据分类/App Store 校验和远端版本 tag
+> 阻断；缺少 iOS 13 真机不再单独阻断发布。
 
 ## 要求
 
 - deployment target：iOS 13.0+
 - SwiftPM manifest：Swift tools 5.8
-- 已验证工具链：Xcode 26.6 / Swift 6.3.3（Swift 5 与严格 Swift 6）
+- 已验证工具链：Xcode 26.6 / Swift 6.3.3（Swift 5 与严格 Swift 6）、
+  Intel Xcode 16.4 / Swift 6.1.2
 - 声明但尚未现场验证：Xcode 14.3.1 / Swift 5.8
+
+iOS 13 最低版本合同不依赖找到同版本真机：SwiftPM 与 CocoaPods 声明必须一致为
+13.0，产品分别以 `arm64-apple-ios13.0` 和 arm64/x86_64 Simulator triple 编译，
+外部消费者必须完成 public lifecycle 链接，且最终 generic iPhoneOS arm64 Mach-O
+的 `LC_BUILD_VERSION` 必须记录 `platform IOS / minos 13.0`。Xcode 26.6 会把
+Simulator 最终 Mach-O 的下限钳制为 14.0，因此 Simulator 产物不承担 iOS 13
+最低版本证明；运行行为继续由更新系统的 arm64 与 x86_64 Simulator 覆盖。新增
+系统 API 必须通过 iOS 13 deployment 编译或显式 availability guard。
 
 ## 安装
 
@@ -161,7 +171,13 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
 - ASan 与 TSan 全量均为 246 passed / 0 failed / 6 skipped。
 - SwiftPM 严格 Swift 6、iOS 13 deployment 产品目标：arm64/x86_64 ×
   Debug/Release 全部 build；
-  x86_64 在 Apple Silicon 上只验证 build/link，不声称 runtime。
+  generic iPhoneOS arm64、外部 consumer link 和最终 iPhoneOS Mach-O
+  `platform IOS / minos 13.0` 纳入综合门禁。Xcode 26.6 的 Simulator 最终产物为
+  `minos 14.0`，不作为最低设备版本证据。
+- 精确提交 `bac7b22` 在 Intel macOS 26.6.2 / Xcode 16.4 / iOS 18.5
+  x86_64 Simulator 全量 261 total：255 passed、0 failed、6 个 opt-in skipped；
+  5 个测试 bundle 均为 x86_64。该证据与 arm64 Simulator 共同覆盖通用运行能力，
+  不冒充 iOS 13 真机执行。
 - 外部 SwiftPM public lifecycle/resource/symbol gate；CocoaPods 完整 lint、两种
   `:path` consumer、Privacy resource 与最终 Mach-O symbol gate；TLS 与 pinned
   SLS `4.3.4` 同 App 的 x86_64 CocoaPods 混编链接通过。临时覆盖 SLS podspec 的
@@ -181,18 +197,20 @@ sendConcurrency 不超过 8；initializer 与 open 边界都会重校验，Bridg
 
 仍为 BLOCKED / 未验证：
 
-- Xcode 14.3.1 / Swift 5.8 legacy runner 与 iOS 13 真机。
+- Xcode 14.3.1 / Swift 5.8 legacy runner。
 - STS 临时凭证；当前 BOE 材料只覆盖 AK/SK。
-- 真机 Data Protection/background/Instruments；App Store archive privacy report。
+- 通用真机 Data Protection/background/Instruments；App Store archive privacy
+  report。这些是设备行为/发布运营证据，不要求设备恰好运行 iOS 13。
 - 隐私数据分类；远端 `0.0.2` tag 与发布动作。
 - 性能口径冻结为 1 KiB/10 fields/LZ4/1 sender，100/300 logs/s，memory/persistent
   分组，pinned SLS `4.3.4` 同机 Release A/B；每组 warm-up 5 分钟、测量 30 分钟、
   至少 3 次，P99 add latency/CPU/RSS 相对恶化不得超过 20%。SLS 原 podspec 排除
-  arm64 Simulator；source-build override 的 24 组短矩阵（10 秒 warm-up + 30 秒
-  测量，3 次重复）已完成：零 admission/terminal loss，RSS 0.996–1.048× 通过，
-  但 P99 add 1.88–3.56×、CPU 2.42–7.12× 未过 1.20× 门槛。短矩阵只作优化
-  preflight，不替代正式时长；先优化 admission 的重复校验/编码/字典重建，再跑
-  每组 5 分钟 + 30 分钟正式矩阵。正式原样包仍需 Intel runner/真机。
+  arm64 Simulator；source-build override 的 clean 24 组短矩阵中，memory 100/300
+  与 persistent 100 三组全过，persistent 300 仅 CPU `1.222×` 略超门槛，其
+  add P99 `0.836×`、RSS `1.118×` 已通过。Core 加入 direct merge、table CRC 与
+  单日志 builder 复用后的 persistent 300 定向短复测为 CPU `1.152×`、add P99
+  `0.955×`、RSS `1.118×`。仍须在新 clean SHA 重跑完整 24 组，随后才可执行每组
+  5 分钟 + 30 分钟正式矩阵；Intel 功能全量通过不能替代性能结果。
 测试通过不等于可发布。仓库内冻结合同与门禁状态见
 [DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
 workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08-28.md`。
@@ -211,9 +229,10 @@ workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08
 - Core 基线是 upstream v0.3.1，但当前 vendored 源码包含正式 iOS patchset：
   `O_NOFOLLOW/O_CLOEXEC` 文件适配、custom transport retryability、auth-retain
   单终态、persistent live retry-cycle、bounded destroy、内部符号可见性/LZ4 隐藏。
-  前五项已整理到 C Core `persistent` 基线之上的本地提交 `613b38d`，但尚未
-  push/merge/tag；正式上游状态与 iOS patch checksum 以 `CORE_VERSION` 为准，不能
-  描述为未修改上游包或已发布上游版本。
+  行为修复从 C Core `persistent` 基线之上的本地提交 `613b38d` 起整理；加入
+  direct merge、table CRC 与单日志 builder 复用后的当前 feature tip 为
+  `e5ee837`，仍未 push/merge/tag。正式上游状态与 iOS patch checksum 以
+  `CORE_VERSION` 为准，不能描述为未修改上游包或已发布上游版本。
 - bridge-level `flock` 只能约束遵守该 Bridge 协议的 SDK 实例，不能约束绕过
   Bridge 直接使用同一目录的其他 Core 实现。
 - `requestID` 是服务端控制的可观测字段。Transport 将其截断为 256 个字符，并把
