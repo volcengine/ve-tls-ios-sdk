@@ -15,6 +15,8 @@ modes=${TLS_PERF_MODES:-"memory persistent"}
 sdks=${TLS_PERF_SDKS:-"tls sls"}
 enforce_gate=${TLS_PERF_ENFORCE_GATE:-0}
 require_clean=${TLS_PERF_REQUIRE_CLEAN:-0}
+require_idle_host=${TLS_PERF_REQUIRE_IDLE_HOST:-1}
+nsurlsessiond_max_bytes_per_second=${TLS_PERF_NSURLSESSIOND_MAX_BYTES_PER_SECOND:-262144}
 bundle_id=com.volcengine.tls.PerformanceHarness
 
 die() {
@@ -27,6 +29,9 @@ die() {
 [[ "$repeats" =~ ^[1-9][0-9]*$ ]] || die "TLS_PERF_REPEATS must be a positive integer"
 [[ "$enforce_gate" == 0 || "$enforce_gate" == 1 ]] || die "TLS_PERF_ENFORCE_GATE must be 0 or 1"
 [[ "$require_clean" == 0 || "$require_clean" == 1 ]] || die "TLS_PERF_REQUIRE_CLEAN must be 0 or 1"
+[[ "$require_idle_host" == 0 || "$require_idle_host" == 1 ]] || die "TLS_PERF_REQUIRE_IDLE_HOST must be 0 or 1"
+[[ "$nsurlsessiond_max_bytes_per_second" =~ ^[0-9]+$ ]] \
+    || die "TLS_PERF_NSURLSESSIOND_MAX_BYTES_PER_SECOND must be a non-negative integer"
 
 for sdk in $sdks; do
     [[ "$sdk" == tls || "$sdk" == sls ]] || die "unsupported SDK: $sdk"
@@ -78,11 +83,72 @@ device_line=$(xcrun simctl list devices | awk -v wanted="$device" 'index($0, "("
 [[ "$device_line" == *"(Booted)"* ]] || die "simulator must already be Booted: $device"
 
 mkdir -p "$output_root/runs"
-fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/tls-performance-fixture.XXXXXX")
 server_pid=
 sampler_pid=
 app_pid=
 
+capture_host_state() {
+    local destination=$1
+    {
+        date -u '+utc=%Y-%m-%dT%H:%M:%SZ'
+        uptime
+        printf 'vm.loadavg='
+        sysctl -n vm.loadavg
+        pmset -g therm
+        printf '%s\n' 'top_cpu_processes:'
+        ps -Ao pid=,%cpu=,rss=,comm= -r | sed -n '1,20p'
+    } >"$destination"
+}
+
+assert_idle_host() {
+    local phase=$1
+    local evidence="$output_root/host-idle-$phase.txt"
+    local active_downloads
+    local active_runtime_postprocessing
+    local nsurlsessiond_bytes_per_second
+    if [[ "$require_idle_host" != 1 ]]; then
+        printf 'phase=%s\nidle_host_check=disabled\n' "$phase" >"$evidence"
+        return 0
+    fi
+
+    active_downloads=$(pgrep -fl '[x]codebuild.*-downloadPlatform' || true)
+    active_runtime_postprocessing=$(
+        pgrep -fl '[u]pdate_dyld_sim_shared_cache' || true
+    )
+    nsurlsessiond_bytes_per_second=$(
+        /usr/bin/nettop -P -L 2 -d -J bytes_in,bytes_out -p nsurlsessiond 2>/dev/null \
+            | awk -F, '
+                /^,bytes_in,bytes_out,/ { sample++; next }
+                sample >= 2 && /^nsurlsessiond\./ {
+                    bytes_in = $2 == "" ? 0 : $2
+                    bytes_out = $3 == "" ? 0 : $3
+                    total += bytes_in + bytes_out
+                }
+                END { printf "%.0f\n", total + 0 }
+            '
+    )
+    {
+        printf 'phase=%s\n' "$phase"
+        printf 'active_platform_downloads=%s\n' "${active_downloads:-none}"
+        printf 'active_runtime_postprocessing=%s\n' "${active_runtime_postprocessing:-none}"
+        printf 'nsurlsessiond_bytes_per_second=%s\n' "$nsurlsessiond_bytes_per_second"
+        printf 'nsurlsessiond_limit_bytes_per_second=%s\n' "$nsurlsessiond_max_bytes_per_second"
+    } >"$evidence"
+    if [[ -n "$active_downloads" ]]; then
+        die "$phase host check found an active Xcode platform download: $active_downloads"
+    fi
+    if [[ -n "$active_runtime_postprocessing" ]]; then
+        die "$phase host check found active Simulator Runtime post-processing: $active_runtime_postprocessing"
+    fi
+    if (( nsurlsessiond_bytes_per_second > nsurlsessiond_max_bytes_per_second )); then
+        die "$phase host check found active nsurlsessiond traffic: ${nsurlsessiond_bytes_per_second} B/s (limit ${nsurlsessiond_max_bytes_per_second} B/s)"
+    fi
+}
+
+capture_host_state "$output_root/host-preflight.txt"
+assert_idle_host preflight
+
+fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/tls-performance-fixture.XXXXXX")
 cleanup() {
     if [[ -n "$sampler_pid" ]] && kill -0 "$sampler_pid" 2>/dev/null; then
         kill "$sampler_pid" 2>/dev/null || true
@@ -255,6 +321,8 @@ git -C "$package_root" rev-parse HEAD >"$output_root/tls-head-end.txt"
 git -C "$package_root" status --porcelain=v1 >"$output_root/tls-status-end.txt"
 git -C "$sls_root" rev-parse HEAD >"$output_root/sls-head-end.txt"
 git -C "$sls_root" status --porcelain=v1 >"$output_root/sls-status-end.txt"
+capture_host_state "$output_root/host-postflight.txt"
+assert_idle_host postflight
 cmp -s "$output_root/tls-head.txt" "$output_root/tls-head-end.txt" \
     || die "TLS HEAD changed during the benchmark"
 cmp -s "$output_root/tls-status.txt" "$output_root/tls-status-end.txt" \
@@ -285,7 +353,8 @@ python3 "$fixture_root/analyze_results.py" "${analyzer_arguments[@]}"
 (cd "$output_root" && shasum -a 256 \
     tls-head.txt tls-status.txt tls-head-end.txt tls-status-end.txt \
     sls-head.txt sls-status.txt sls-head-end.txt sls-status-end.txt sls-tag.txt \
-    xcode-version.txt simulator.txt \
+    xcode-version.txt simulator.txt host-preflight.txt host-postflight.txt \
+    host-idle-preflight.txt host-idle-postflight.txt \
     pod-install.log xcodebuild.log certificate-paths.txt ca-install.log server.log \
     server-pid.txt server-cleanup.txt summary.json summary.md \
     runs/*/app-result.json runs/*/server-stats.json runs/*/process-samples.tsv \
