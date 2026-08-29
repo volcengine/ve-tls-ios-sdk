@@ -1,0 +1,24 @@
+platform :ios, '13.0'
+
+use_frameworks! :linkage => :static
+
+tls_sdk_root = ENV.fetch('TLS_SDK_ROOT')
+sls_sdk_root = ENV.fetch('SLS_SDK_ROOT')
+
+target 'PerformanceHarness' do
+  pod 'VolcengineTLSProducer', :path => tls_sdk_root
+  pod 'AliyunLogProducer', :path => sls_sdk_root
+end
+
+# AliyunLogProducer 4.3.4 excludes arm64 Simulator in its published podspec.
+# This benchmark intentionally clears only that packaging restriction so the
+# unmodified 4.3.4 sources can run on an Apple Silicon simulator. Results must
+# be labelled as source-build evidence, not official binary/package evidence.
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |configuration|
+      configuration.build_settings.delete('EXCLUDED_ARCHS[sdk=iphonesimulator*]')
+      configuration.build_settings['EXCLUDED_ARCHS'] = ''
+    end
+  end
+end
