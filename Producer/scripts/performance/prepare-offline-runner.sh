@@ -237,7 +237,11 @@ printf '%s\n' "$preflight_settle_seconds" >"$runner_root/metadata/preflight-sett
 
 COPYFILE_DISABLE=1 /usr/bin/tar -czf "$output_archive" \
     -C "$staging_root" "$runner_name"
-shasum -a 256 "$output_archive" >"${output_archive}.sha256"
+(
+    cd -- "$(dirname -- "$output_archive")"
+    archive_name=$(basename -- "$output_archive")
+    shasum -a 256 "$archive_name" >"${archive_name}.sha256"
+)
 printf 'PASS: sealed offline performance runner created\n'
 printf 'TLS_SHA=%s\n' "$tls_sha"
 printf 'SLS_SHA=%s\n' "$sls_sha"

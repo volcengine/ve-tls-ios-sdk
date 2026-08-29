@@ -119,7 +119,6 @@ run_matrix() {
     local cpu_mean
     local preflight_settle_seconds
     local result_archive="${run_root}.tar.gz"
-    local result_archive_hash="${result_archive}.sha256"
 
     [[ -d "$run_root" ]] || die "run directory does not exist: $run_root"
     sealed_profile=$(read_metadata profile.txt)
@@ -166,7 +165,11 @@ run_matrix() {
         write_partial_checksums "$run_root"
         /usr/bin/tar -czf "$result_archive" \
             -C "$(dirname -- "$run_root")" "$(basename -- "$run_root")"
-        shasum -a 256 "$result_archive" >"$result_archive_hash"
+        (
+            cd -- "$(dirname -- "$result_archive")"
+            archive_name=$(basename -- "$result_archive")
+            shasum -a 256 "$archive_name" >"${archive_name}.sha256"
+        )
         exit "$rc"
     }
     trap finalize EXIT
