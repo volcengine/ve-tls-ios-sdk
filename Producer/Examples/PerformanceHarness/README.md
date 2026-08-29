@@ -82,3 +82,11 @@ App 计数、服务端计数、进程终止标记、源码 SHA、Xcode/Simulator
 CPU/RSS 是 App 进程指标，不是 Producer 内部 buffer 使用量；CPU 同时包含输入对象
 构造、SDK admission 与后台发送，不能把它误称为 Core-only CPU。短窗口和共享宿主会
 产生噪声，只有固定硬件、空闲宿主、正式窗口和完整三次重复可作为发布 gate。
+
+启用默认 `TLS_PERF_REQUIRE_IDLE_HOST=1` 时，夹具会在构建前、正式运行前和结束后
+分别检查平台下载/nsurlsessiond，并采样 CPU idle 与所有磁盘吞吐。默认门限为 CPU
+单样本 idle 不低于 65%、5 个样本平均 idle 不低于 75%、4 个磁盘样本中的总吞吐
+均不超过 5 MB/s；构建后先等待 10 秒再采样。可通过
+`TLS_PERF_HOST_CPU_MIN_IDLE_PERCENT`、`TLS_PERF_HOST_CPU_MEAN_IDLE_PERCENT`、
+`TLS_PERF_HOST_DISK_MAX_MEGABYTES_PER_SECOND` 和
+`TLS_PERF_HOST_RESOURCE_SETTLE_SECONDS` 覆盖，但正式证据必须记录任何非默认值。

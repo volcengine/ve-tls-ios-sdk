@@ -17,6 +17,12 @@ enforce_gate=${TLS_PERF_ENFORCE_GATE:-0}
 require_clean=${TLS_PERF_REQUIRE_CLEAN:-0}
 require_idle_host=${TLS_PERF_REQUIRE_IDLE_HOST:-1}
 nsurlsessiond_max_bytes_per_second=${TLS_PERF_NSURLSESSIOND_MAX_BYTES_PER_SECOND:-262144}
+host_cpu_idle_samples=${TLS_PERF_HOST_CPU_IDLE_SAMPLES:-5}
+host_cpu_min_idle_percent=${TLS_PERF_HOST_CPU_MIN_IDLE_PERCENT:-65}
+host_cpu_mean_idle_percent=${TLS_PERF_HOST_CPU_MEAN_IDLE_PERCENT:-75}
+host_disk_samples=${TLS_PERF_HOST_DISK_SAMPLES:-4}
+host_disk_max_megabytes_per_second=${TLS_PERF_HOST_DISK_MAX_MEGABYTES_PER_SECOND:-5}
+host_resource_settle_seconds=${TLS_PERF_HOST_RESOURCE_SETTLE_SECONDS:-10}
 bundle_id=com.volcengine.tls.PerformanceHarness
 
 die() {
@@ -32,6 +38,20 @@ die() {
 [[ "$require_idle_host" == 0 || "$require_idle_host" == 1 ]] || die "TLS_PERF_REQUIRE_IDLE_HOST must be 0 or 1"
 [[ "$nsurlsessiond_max_bytes_per_second" =~ ^[0-9]+$ ]] \
     || die "TLS_PERF_NSURLSESSIOND_MAX_BYTES_PER_SECOND must be a non-negative integer"
+[[ "$host_cpu_idle_samples" =~ ^[1-9][0-9]*$ ]] \
+    || die "TLS_PERF_HOST_CPU_IDLE_SAMPLES must be a positive integer"
+[[ "$host_disk_samples" =~ ^[1-9][0-9]*$ ]] \
+    || die "TLS_PERF_HOST_DISK_SAMPLES must be a positive integer"
+[[ "$host_resource_settle_seconds" =~ ^[0-9]+$ ]] \
+    || die "TLS_PERF_HOST_RESOURCE_SETTLE_SECONDS must be a non-negative integer"
+for percent in "$host_cpu_min_idle_percent" "$host_cpu_mean_idle_percent"; do
+    [[ "$percent" =~ ^([0-9]+)(\.[0-9]+)?$ ]] \
+        || die "host CPU idle thresholds must be decimal percentages"
+    awk -v value="$percent" 'BEGIN { exit !(value >= 0 && value <= 100) }' \
+        || die "host CPU idle thresholds must be within 0...100"
+done
+[[ "$host_disk_max_megabytes_per_second" =~ ^([0-9]+)(\.[0-9]+)?$ ]] \
+    || die "TLS_PERF_HOST_DISK_MAX_MEGABYTES_PER_SECOND must be a non-negative decimal"
 
 for sdk in $sdks; do
     [[ "$sdk" == tls || "$sdk" == sls ]] || die "unsupported SDK: $sdk"
@@ -145,8 +165,96 @@ assert_idle_host() {
     fi
 }
 
+assert_quiet_host_resources() {
+    local phase=$1
+    local evidence="$output_root/host-resources-$phase.txt"
+    local cpu_raw="$output_root/.host-cpu-$phase.raw.txt"
+    local disk_raw="$output_root/.host-disk-$phase.raw.txt"
+    local cpu_values
+    local cpu_count
+    local cpu_min
+    local cpu_mean
+    local disk_values
+    local disk_count
+    local disk_max
+    local disk_total_samples=$((host_disk_samples + 1))
+    if [[ "$require_idle_host" != 1 ]]; then
+        printf 'phase=%s\nquiet_host_resource_check=disabled\n' "$phase" >"$evidence"
+        return 0
+    fi
+
+    /usr/bin/top -l "$host_cpu_idle_samples" -s 1 -n 0 >"$cpu_raw"
+    /usr/sbin/iostat -d -w 1 -c "$disk_total_samples" >"$disk_raw"
+    cpu_values=$(
+        awk '
+            /^CPU usage:/ {
+                for (i = 1; i <= NF; i++) {
+                    if ($i == "idle") {
+                        value = $(i - 1)
+                        gsub(/%/, "", value)
+                        print value
+                    }
+                }
+            }
+        ' "$cpu_raw"
+    )
+    cpu_count=$(printf '%s\n' "$cpu_values" | awk 'NF { count++ } END { print count + 0 }')
+    [[ "$cpu_count" == "$host_cpu_idle_samples" ]] \
+        || die "$phase host CPU check parsed $cpu_count/$host_cpu_idle_samples samples"
+    cpu_min=$(printf '%s\n' "$cpu_values" | sort -n | sed -n '1p')
+    cpu_mean=$(printf '%s\n' "$cpu_values" | awk 'NF { sum += $1; count++ } END { printf "%.2f", sum / count }')
+
+    disk_values=$(
+        awk '
+            /^[[:space:]]*[0-9]/ {
+                row++
+                if (row == 1) next
+                total = 0
+                for (i = 3; i <= NF; i += 3) total += $i
+                printf "%.2f\n", total
+            }
+        ' "$disk_raw"
+    )
+    disk_count=$(printf '%s\n' "$disk_values" | awk 'NF { count++ } END { print count + 0 }')
+    [[ "$disk_count" == "$host_disk_samples" ]] \
+        || die "$phase host disk check parsed $disk_count/$host_disk_samples samples"
+    disk_max=$(printf '%s\n' "$disk_values" | sort -n | tail -n 1)
+
+    {
+        printf 'phase=%s\n' "$phase"
+        printf 'cpu_idle_samples=%s\n' "$cpu_count"
+        printf 'cpu_idle_values_percent=%s\n' "$(printf '%s' "$cpu_values" | tr '\n' ',')"
+        printf 'cpu_idle_min_percent=%s\n' "$cpu_min"
+        printf 'cpu_idle_min_required_percent=%s\n' "$host_cpu_min_idle_percent"
+        printf 'cpu_idle_mean_percent=%s\n' "$cpu_mean"
+        printf 'cpu_idle_mean_required_percent=%s\n' "$host_cpu_mean_idle_percent"
+        printf 'disk_samples=%s\n' "$disk_count"
+        printf 'disk_total_values_megabytes_per_second=%s\n' "$(printf '%s' "$disk_values" | tr '\n' ',')"
+        printf 'disk_max_megabytes_per_second=%s\n' "$disk_max"
+        printf 'disk_max_allowed_megabytes_per_second=%s\n' "$host_disk_max_megabytes_per_second"
+        printf '%s\n' 'top_raw_begin'
+        sed -n '/^CPU usage:/p' "$cpu_raw"
+        printf '%s\n' 'top_raw_end'
+        printf '%s\n' 'iostat_raw_begin'
+        sed -n '1,120p' "$disk_raw"
+        printf '%s\n' 'iostat_raw_end'
+    } >"$evidence"
+    rm -f "$cpu_raw" "$disk_raw"
+
+    awk -v actual="$cpu_min" -v required="$host_cpu_min_idle_percent" \
+        'BEGIN { exit !(actual >= required) }' \
+        || die "$phase host CPU idle minimum ${cpu_min}% is below ${host_cpu_min_idle_percent}%"
+    awk -v actual="$cpu_mean" -v required="$host_cpu_mean_idle_percent" \
+        'BEGIN { exit !(actual >= required) }' \
+        || die "$phase host CPU idle mean ${cpu_mean}% is below ${host_cpu_mean_idle_percent}%"
+    awk -v actual="$disk_max" -v allowed="$host_disk_max_megabytes_per_second" \
+        'BEGIN { exit !(actual <= allowed) }' \
+        || die "$phase host disk traffic ${disk_max} MB/s exceeds ${host_disk_max_megabytes_per_second} MB/s"
+}
+
 capture_host_state "$output_root/host-preflight.txt"
 assert_idle_host preflight
+assert_quiet_host_resources preflight
 
 fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/tls-performance-fixture.XXXXXX")
 cleanup() {
@@ -212,6 +320,11 @@ done
 [[ -s "$ready_file" ]] || die "HTTPS fixture did not become ready"
 port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$ready_file")
 endpoint="https://127.0.0.1:$port"
+if [[ "$require_idle_host" == 1 && "$host_resource_settle_seconds" -gt 0 ]]; then
+    sleep "$host_resource_settle_seconds"
+fi
+assert_idle_host pre-runs
+assert_quiet_host_resources pre-runs
 
 git -C "$package_root" rev-parse HEAD >"$output_root/tls-head.txt"
 git -C "$package_root" status --porcelain=v1 >"$output_root/tls-status.txt"
@@ -321,8 +434,12 @@ git -C "$package_root" rev-parse HEAD >"$output_root/tls-head-end.txt"
 git -C "$package_root" status --porcelain=v1 >"$output_root/tls-status-end.txt"
 git -C "$sls_root" rev-parse HEAD >"$output_root/sls-head-end.txt"
 git -C "$sls_root" status --porcelain=v1 >"$output_root/sls-status-end.txt"
+if [[ "$require_idle_host" == 1 && "$host_resource_settle_seconds" -gt 0 ]]; then
+    sleep "$host_resource_settle_seconds"
+fi
 capture_host_state "$output_root/host-postflight.txt"
 assert_idle_host postflight
+assert_quiet_host_resources postflight
 cmp -s "$output_root/tls-head.txt" "$output_root/tls-head-end.txt" \
     || die "TLS HEAD changed during the benchmark"
 cmp -s "$output_root/tls-status.txt" "$output_root/tls-status-end.txt" \
@@ -354,7 +471,8 @@ python3 "$fixture_root/analyze_results.py" "${analyzer_arguments[@]}"
     tls-head.txt tls-status.txt tls-head-end.txt tls-status-end.txt \
     sls-head.txt sls-status.txt sls-head-end.txt sls-status-end.txt sls-tag.txt \
     xcode-version.txt simulator.txt host-preflight.txt host-postflight.txt \
-    host-idle-preflight.txt host-idle-postflight.txt \
+    host-idle-preflight.txt host-idle-pre-runs.txt host-idle-postflight.txt \
+    host-resources-preflight.txt host-resources-pre-runs.txt host-resources-postflight.txt \
     pod-install.log xcodebuild.log certificate-paths.txt ca-install.log server.log \
     server-pid.txt server-cleanup.txt summary.json summary.md \
     runs/*/app-result.json runs/*/server-stats.json runs/*/process-samples.tsv \
