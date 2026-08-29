@@ -90,3 +90,12 @@ CPU/RSS 是 App 进程指标，不是 Producer 内部 buffer 使用量；CPU 同
 `TLS_PERF_HOST_CPU_MIN_IDLE_PERCENT`、`TLS_PERF_HOST_CPU_MEAN_IDLE_PERCENT`、
 `TLS_PERF_HOST_DISK_MAX_MEGABYTES_PER_SECOND` 和
 `TLS_PERF_HOST_RESOURCE_SETTLE_SECONDS` 覆盖，但正式证据必须记录任何非默认值。
+
+## Intel 断网单机执行
+
+Intel runner 会在断开网络和主机连接后独立执行，因此不能依赖运行时 `pod install`
+或在线仓库。使用 `Producer/scripts/performance/prepare-offline-runner.sh` 在打包机上
+生成含 TLS/SLS clean checkout、预解析 Pods workspace、固定工具链 metadata 和
+全量哈希的归档。归档内的具体启动、状态检查和证据封存步骤见
+`OFFLINE_RUNNER.md`。离线 short profile 只执行 24 轮短矩阵，不会自动进入约 14
+小时正式矩阵。

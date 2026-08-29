@@ -5,6 +5,7 @@ script_dir=$(cd -- "$(dirname -- "$0")" && pwd)
 package_root=$(cd -- "$script_dir/../../.." && pwd)
 harness_source="$package_root/Producer/Examples/PerformanceHarness"
 sls_root=${TLS_PERF_SLS_ROOT:-"$package_root/../aliyun-log-ios-sdk"}
+prepared_fixture_root=${TLS_PERF_PREPARED_FIXTURE_ROOT:-}
 output_root=${TLS_PERF_OUTPUT_DIR:-"$package_root/.build/performance-reports/$(date +%Y%m%d-%H%M%S)"}
 warmup_seconds=${TLS_PERF_WARMUP_SECONDS:-10}
 measure_seconds=${TLS_PERF_MEASURE_SECONDS:-30}
@@ -75,16 +76,25 @@ if [[ -d "$output_root" && -n "$(find "$output_root" -mindepth 1 -print -quit)" 
     die "TLS_PERF_OUTPUT_DIR must be empty to prevent stale-run contamination"
 fi
 
-pod_bin=${POD_BIN:-$(command -v pod || true)}
-if [[ -z "$pod_bin" && -x /opt/homebrew/lib/ruby/gems/3.3.0/bin/pod ]]; then
-    pod_bin=/opt/homebrew/lib/ruby/gems/3.3.0/bin/pod
+pod_bin=
+ruby_bin=
+if [[ -n "$prepared_fixture_root" ]]; then
+    [[ -d "$prepared_fixture_root/PerformanceHarness.xcworkspace" ]] \
+        || die "prepared performance fixture is incomplete: $prepared_fixture_root"
+    [[ -d "$prepared_fixture_root/Pods/Pods.xcodeproj" ]] \
+        || die "prepared performance fixture has no Pods project: $prepared_fixture_root"
+else
+    pod_bin=${POD_BIN:-$(command -v pod || true)}
+    if [[ -z "$pod_bin" && -x /opt/homebrew/lib/ruby/gems/3.3.0/bin/pod ]]; then
+        pod_bin=/opt/homebrew/lib/ruby/gems/3.3.0/bin/pod
+    fi
+    [[ -x "$pod_bin" ]] || die "CocoaPods executable not found"
+    ruby_bin=${RUBY_BIN:-/opt/homebrew/opt/ruby@3.3/bin/ruby}
+    [[ -x "$ruby_bin" ]] || ruby_bin=$(command -v ruby || true)
+    [[ -x "$ruby_bin" ]] || die "Ruby executable not found"
+    "$ruby_bin" -rxcodeproj -e 'abort unless Gem::Version.new(Xcodeproj::VERSION) >= Gem::Version.new("1.20")' \
+        || die "Ruby xcodeproj gem is unavailable"
 fi
-[[ -x "$pod_bin" ]] || die "CocoaPods executable not found"
-ruby_bin=${RUBY_BIN:-/opt/homebrew/opt/ruby@3.3/bin/ruby}
-[[ -x "$ruby_bin" ]] || ruby_bin=$(command -v ruby || true)
-[[ -x "$ruby_bin" ]] || die "Ruby executable not found"
-"$ruby_bin" -rxcodeproj -e 'abort unless Gem::Version.new(Xcodeproj::VERSION) >= Gem::Version.new("1.20")' \
-    || die "Ruby xcodeproj gem is unavailable"
 
 device=${TLS_PERF_SIMULATOR_ID:-}
 if [[ -z "$device" ]]; then
@@ -273,13 +283,79 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-cp -R "$harness_source/." "$fixture_root/"
-(
-    cd "$fixture_root"
-    "$ruby_bin" generate-project.rb
-    TLS_SDK_ROOT="$package_root" SLS_SDK_ROOT="$sls_root" \
-        "$pod_bin" install --no-repo-update
-) >"$output_root/pod-install.log" 2>&1
+if [[ -n "$prepared_fixture_root" ]]; then
+    cp -R "$prepared_fixture_root/." "$fixture_root/"
+    if /usr/bin/grep -r -E \
+        '\$\{PODS_ROOT\}.*__(TLS|SLS)_SDK_ROOT__' \
+        "$fixture_root" >/dev/null 2>&1; then
+        die "prepared performance fixture contains a non-canonical SDK path token"
+    fi
+    tls_pods_relative_path=$(python3 -c \
+        'import os,sys; print(os.path.relpath(os.path.realpath(sys.argv[1]), os.path.realpath(sys.argv[2])))' \
+        "$package_root" "$fixture_root/Pods")
+    sls_pods_relative_path=$(python3 -c \
+        'import os,sys; print(os.path.relpath(os.path.realpath(sys.argv[1]), os.path.realpath(sys.argv[2])))' \
+        "$sls_root" "$fixture_root/Pods")
+    tls_support_relative_path=$(python3 -c \
+        'import os,sys; print(os.path.relpath(os.path.realpath(sys.argv[1]), os.path.realpath(sys.argv[2])))' \
+        "$fixture_root/Pods/Target Support Files/VolcengineTLSProducer" \
+        "$package_root")
+    sls_support_relative_path=$(python3 -c \
+        'import os,sys; print(os.path.relpath(os.path.realpath(sys.argv[1]), os.path.realpath(sys.argv[2])))' \
+        "$fixture_root/Pods/Target Support Files/AliyunLogProducer" \
+        "$sls_root")
+    find "$fixture_root/Pods/Target Support Files" -type f -name '*.xcconfig' \
+        -exec env \
+            TLS_PODS_RELATIVE_PATH="$tls_pods_relative_path" \
+            SLS_PODS_RELATIVE_PATH="$sls_pods_relative_path" \
+            perl -pi -e '
+                s#PODS_TARGET_SRCROOT = __TLS_SDK_ROOT__#PODS_TARGET_SRCROOT = \${PODS_ROOT}/$ENV{TLS_PODS_RELATIVE_PATH}#g;
+                s#PODS_TARGET_SRCROOT = __SLS_SDK_ROOT__#PODS_TARGET_SRCROOT = \${PODS_ROOT}/$ENV{SLS_PODS_RELATIVE_PATH}#g;
+            ' {} +
+    TLS_SUPPORT_RELATIVE_PATH="$tls_support_relative_path" \
+    SLS_SUPPORT_RELATIVE_PATH="$sls_support_relative_path" \
+        perl -pi -e '
+            s#__TLS_SUPPORT_FILES_RELATIVE__#$ENV{TLS_SUPPORT_RELATIVE_PATH}#g;
+            s#__SLS_SUPPORT_FILES_RELATIVE__#$ENV{SLS_SUPPORT_RELATIVE_PATH}#g;
+        ' "$fixture_root/Pods/Pods.xcodeproj/project.pbxproj"
+    prepared_path_files=$(
+        /usr/bin/grep -rl \
+            -e '__TLS_SDK_ROOT__' \
+            -e '__SLS_SDK_ROOT__' \
+            "$fixture_root" || true
+    )
+    [[ -n "$prepared_path_files" ]] \
+        || die "prepared performance fixture has no relocatable SDK path tokens"
+    while IFS= read -r prepared_path_file; do
+        TLS_SDK_ROOT_VALUE="$package_root" \
+        SLS_SDK_ROOT_VALUE="$sls_root" \
+            perl -pi -e '
+                s/__TLS_SDK_ROOT__/$ENV{TLS_SDK_ROOT_VALUE}/g;
+                s/__SLS_SDK_ROOT__/$ENV{SLS_SDK_ROOT_VALUE}/g;
+            ' "$prepared_path_file"
+    done <<<"$prepared_path_files"
+    if /usr/bin/grep -r \
+        -e '__TLS_SDK_ROOT__' \
+        -e '__SLS_SDK_ROOT__' \
+        -e '__TLS_SUPPORT_FILES_RELATIVE__' \
+        -e '__SLS_SUPPORT_FILES_RELATIVE__' \
+        "$fixture_root" >/dev/null 2>&1; then
+        die "prepared performance fixture still contains unresolved SDK path tokens"
+    fi
+    {
+        printf 'mode=prepared-offline-fixture\n'
+        printf 'source=%s\n' "$prepared_fixture_root"
+        printf 'cocoapods_invoked=no\n'
+    } >"$output_root/pod-install.log"
+else
+    cp -R "$harness_source/." "$fixture_root/"
+    (
+        cd "$fixture_root"
+        "$ruby_bin" generate-project.rb
+        TLS_SDK_ROOT="$package_root" SLS_SDK_ROOT="$sls_root" \
+            "$pod_bin" install --no-repo-update
+    ) >"$output_root/pod-install.log" 2>&1
+fi
 
 derived_data="$fixture_root/DerivedData"
 xcodebuild \
