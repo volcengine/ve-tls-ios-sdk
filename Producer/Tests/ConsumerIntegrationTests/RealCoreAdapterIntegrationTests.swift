@@ -401,6 +401,42 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         }
     }
 
+    func testBridgeContiguousFieldBytesRequireExactNonemptyKeySlices() throws {
+        let adapter = try makeBridgeAdapter(linger: 60)
+        try adapter.open()
+        defer { try? adapter.close(withTimeout: 5) }
+
+        let bytes = Data("keyvalue".utf8)
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+
+        for invalidLengths in [[3, 4], [0, 8]] {
+            XCTAssertThrowsError(try invalidLengths.withUnsafeBufferPointer { lengths in
+                try adapter.addLog(
+                    withTimestamp: timestamp,
+                    hashKey: nil,
+                    fieldBytes: bytes,
+                    lengths: lengths.baseAddress,
+                    lengthCount: UInt(lengths.count),
+                    flush: false)
+            }) { error in
+                let nsError = error as NSError
+                XCTAssertEqual(nsError.domain, TLSRealCoreAdapterErrorDomain)
+                XCTAssertEqual(nsError.code, TLSRealCoreAdapterErrorCode.addFailed.rawValue)
+            }
+        }
+
+        let validLengths = [3, 5]
+        XCTAssertNoThrow(try validLengths.withUnsafeBufferPointer { lengths in
+            try adapter.addLog(
+                withTimestamp: timestamp,
+                hashKey: nil,
+                fieldBytes: bytes,
+                lengths: lengths.baseAddress,
+                lengthCount: UInt(lengths.count),
+                flush: false)
+        })
+    }
+
     func testRealCoreAdapterOpenClose() async throws {
         let config = try makeConfig()
         let adapter = try RealCoreAdapter(configuration: config, credentials: makeCredentials())

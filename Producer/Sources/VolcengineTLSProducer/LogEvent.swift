@@ -109,8 +109,14 @@ public struct LogEvent: Equatable, Sendable {
                     "hashKey: must match lowercase hexadecimal [0-9a-f]{32}")
             }
         }
-        var encodedFields: [String] = []
-        encodedFields.reserveCapacity(contents.count * 2)
+        var encodedFieldBytes = Data()
+        var encodedLengths: [Int] = []
+        // Reservation is only a hint. Cap its arithmetic so an adversarially
+        // large dictionary cannot overflow before normal admission limits are
+        // evaluated.
+        let reservedFieldCount = min(contents.count, 1_024)
+        encodedFieldBytes.reserveCapacity(reservedFieldCount * 32)
+        encodedLengths.reserveCapacity(reservedFieldCount * 2)
         var rawBytes = 0
         for (key, value) in contents {
             // Keys must be non-empty UTF-8 strings (Beta design §5.3).
@@ -118,16 +124,20 @@ public struct LogEvent: Equatable, Sendable {
                 violations.append("<empty-key>: key must be a non-empty UTF-8 string")
                 continue
             }
-            if key.utf8.contains(0) {
+            let keyBytes = key.utf8
+            if keyBytes.contains(0) {
                 violations.append("\(key): key must not contain embedded NUL characters")
                 continue
             }
             do {
                 let encoded = try value.encodedString()
-                encodedFields.append(key)
-                encodedFields.append(encoded)
-                rawBytes = Self.saturatingAdd(rawBytes, key.utf8.count)
-                rawBytes = Self.saturatingAdd(rawBytes, encoded.utf8.count)
+                let valueByteCount = encoded.utf8.count
+                encodedFieldBytes.append(contentsOf: keyBytes)
+                encodedFieldBytes.append(contentsOf: encoded.utf8)
+                encodedLengths.append(keyBytes.count)
+                encodedLengths.append(valueByteCount)
+                rawBytes = Self.saturatingAdd(rawBytes, keyBytes.count)
+                rawBytes = Self.saturatingAdd(rawBytes, valueByteCount)
             } catch {
                 violations.append("\(key): \(error)")
             }
@@ -143,7 +153,8 @@ public struct LogEvent: Equatable, Sendable {
         return PreparedLogEvent(
             timestampMilliseconds: encodedTimestampMilliseconds,
             hashKey: hashKey,
-            encodedFields: encodedFields,
+            encodedFieldBytes: encodedFieldBytes,
+            encodedLengths: encodedLengths,
             rawBytes: rawBytes)
     }
 
@@ -173,26 +184,54 @@ public struct LogEvent: Equatable, Sendable {
 internal struct PreparedLogEvent: Equatable, Sendable {
     let timestampMilliseconds: Int64
     let hashKey: String?
-    /// Alternating key/value strings: `[key0, value0, key1, value1, ...]`.
-    let encodedFields: [String]
+    /// Concatenated UTF-8 bytes: `key0 + value0 + key1 + value1 + ...`.
+    /// The production bridge borrows this immutable contiguous storage and
+    /// derives every C field pointer from `encodedLengths`, avoiding a
+    /// Swift Array -> NSArray -> NSString -> UTF8String conversion per add.
+    let encodedFieldBytes: Data
+    /// Alternating key/value byte lengths matching `encodedFieldBytes`.
+    let encodedLengths: [Int]
     let rawBytes: Int
 
     var encodedKeys: [String] {
-        stride(from: 0, to: encodedFields.count, by: 2).map { encodedFields[$0] }
+        let fields = decodedFields()
+        return stride(from: 0, to: fields.count, by: 2).map { fields[$0] }
     }
 
     var encodedValues: [String] {
-        stride(from: 1, to: encodedFields.count, by: 2).map { encodedFields[$0] }
+        let fields = decodedFields()
+        return stride(from: 1, to: fields.count, by: 2).map { fields[$0] }
     }
 
     /// Test/debug convenience. Production RealCore admission consumes the
-    /// interleaved field array directly and does not materialize this dictionary.
+    /// contiguous byte buffer directly and does not materialize this dictionary.
     var encodedContents: [String: String] {
+        let fields = decodedFields()
         var result: [String: String] = [:]
-        result.reserveCapacity(encodedFields.count / 2)
-        for index in stride(from: 0, to: encodedFields.count, by: 2) {
-            result[encodedFields[index]] = encodedFields[index + 1]
+        result.reserveCapacity(fields.count / 2)
+        for index in stride(from: 0, to: fields.count, by: 2) {
+            result[fields[index]] = fields[index + 1]
         }
         return result
+    }
+
+    private func decodedFields() -> [String] {
+        var fields: [String] = []
+        fields.reserveCapacity(encodedLengths.count)
+        var offset = 0
+        for length in encodedLengths {
+            let end = offset + length
+            precondition(end <= encodedFieldBytes.count,
+                         "prepared field lengths exceed byte storage")
+            let range = encodedFieldBytes.index(encodedFieldBytes.startIndex,
+                                                offsetBy: offset)
+                ..< encodedFieldBytes.index(encodedFieldBytes.startIndex,
+                                             offsetBy: end)
+            fields.append(String(decoding: encodedFieldBytes[range], as: UTF8.self))
+            offset = end
+        }
+        precondition(offset == encodedFieldBytes.count,
+                     "prepared field lengths do not consume byte storage")
+        return fields
     }
 }

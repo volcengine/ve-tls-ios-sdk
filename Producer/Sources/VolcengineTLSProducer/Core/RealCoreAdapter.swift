@@ -169,11 +169,15 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
     func add(_ event: PreparedLogEvent, mode: AddMode) throws {
         try ensureOpen()
         do {
-            try adapter.addLog(
-                withTimestamp: event.timestampMilliseconds,
-                hashKey: event.hashKey,
-                fields: event.encodedFields,
-                flush: mode == .immediate)
+            try event.encodedLengths.withUnsafeBufferPointer { lengths in
+                try adapter.addLog(
+                    withTimestamp: event.timestampMilliseconds,
+                    hashKey: event.hashKey,
+                    fieldBytes: event.encodedFieldBytes,
+                    lengths: lengths.baseAddress,
+                    lengthCount: UInt(lengths.count),
+                    flush: mode == .immediate)
+            }
         } catch {
             throw Self.mapBridgeError(error, operation: .add)
         }

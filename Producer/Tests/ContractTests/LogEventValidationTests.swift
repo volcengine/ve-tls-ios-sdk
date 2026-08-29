@@ -196,12 +196,30 @@ final class LogEventValidationTests: XCTestCase {
         XCTAssertEqual(prepared.hashKey, event.hashKey)
         XCTAssertEqual(prepared.encodedKeys.count, 2)
         XCTAssertEqual(prepared.encodedValues.count, 2)
+        XCTAssertEqual(prepared.encodedLengths.count, 4)
+        XCTAssertEqual(prepared.encodedFieldBytes.count, prepared.rawBytes)
         XCTAssertEqual(prepared.encodedContents["plain"], "value")
         XCTAssertEqual(prepared.encodedContents["nested"], "{\"a\":1,\"b\":\"two\"}")
         XCTAssertEqual(
             prepared.rawBytes,
             "plain".utf8.count + "value".utf8.count
                 + "nested".utf8.count + "{\"a\":1,\"b\":\"two\"}".utf8.count)
+    }
+
+    func testAdmissionPreparationPreservesUnicodeAndEmptyValues() throws {
+        let event = LogEvent(contents: [
+            "键🔑": .string("值🙂"),
+            "empty": .string(""),
+        ])
+
+        let prepared = try event.prepareForAdmission()
+
+        XCTAssertEqual(prepared.encodedContents["键🔑"], "值🙂")
+        XCTAssertEqual(prepared.encodedContents["empty"], "")
+        XCTAssertEqual(prepared.encodedFieldBytes.count, prepared.rawBytes)
+        XCTAssertEqual(
+            prepared.encodedLengths.sorted(),
+            [0, "键🔑".utf8.count, "值🙂".utf8.count, "empty".utf8.count].sorted())
     }
 
     func testAdmissionPreparationCacheInvalidatesOnMutation() throws {

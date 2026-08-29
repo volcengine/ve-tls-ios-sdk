@@ -138,6 +138,17 @@ typedef void (^TLSRealCoreAdapterSendResultHandler)(
                       flush:(BOOL)flush
                       error:(NSError * _Nullable * _Nullable)error;
 
+/// Allocation-minimized production path. `fieldBytes` concatenates alternating
+/// key/value UTF-8 bytes; `lengths` identifies each slice and must consume the
+/// buffer exactly. All storage is borrowed only for this synchronous call.
+- (BOOL)addLogWithTimestamp:(int64_t)timestampMs
+                    hashKey:(nullable NSString *)hashKey
+                 fieldBytes:(NSData *)fieldBytes
+                     lengths:(nullable const size_t *)lengths
+                 lengthCount:(NSUInteger)lengthCount
+                       flush:(BOOL)flush
+                       error:(NSError * _Nullable * _Nullable)error;
+
 /// Updates credentials (whole-group atomic replacement).
 - (BOOL)updateCredentials:(NSString *)accessKeyID
            accessKeySecret:(NSString *)accessKeySecret

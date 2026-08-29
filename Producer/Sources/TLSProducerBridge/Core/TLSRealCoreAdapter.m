@@ -277,6 +277,15 @@ static void tls_release_persistent_directory_lock(int *fd) {
 @property (nonatomic, assign) BOOL closing;
 @property (nonatomic, assign) BOOL closed;
 @property (nonatomic, assign) int processLeaseFD;
+
+/// Compatibility path used only by the legacy NSString-array bridge method.
+- (BOOL)addLogWithTimestamp:(int64_t)timestampMs
+                    hashKey:(nullable NSString *)hashKey
+                     fields:(NSArray<NSString *> *)fields
+                    lengths:(nullable const size_t *)lengths
+                lengthCount:(NSUInteger)lengthCount
+                      flush:(BOOL)flush
+                      error:(NSError * _Nullable * _Nullable)error;
 @end
 
 // MARK: - HTTP client bridge (NSURLSession → sync C interface)
@@ -1045,6 +1054,118 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
                      fields:(NSArray<NSString *> *)fields
                       flush:(BOOL)flush
                       error:(NSError * _Nullable * _Nullable)error {
+    NSUInteger fieldCount = fields.count;
+    enum { TLS_STACK_FIELD_LIMIT = 16 };
+    size_t stackLengths[TLS_STACK_FIELD_LIMIT * 2];
+    size_t *lengths = stackLengths;
+    if (fieldCount > TLS_STACK_FIELD_LIMIT * 2) {
+        lengths = calloc(fieldCount, sizeof(size_t));
+        if (lengths == NULL) {
+            if (error) {
+                *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
+                                          VE_TLS_DROP_ERROR,
+                                          @"memory allocation failed");
+            }
+            return NO;
+        }
+    }
+    for (NSUInteger index = 0; index < fieldCount; index++) {
+        NSString *field = fields[index];
+        if (![field isKindOfClass:[NSString class]]) {
+            if (fieldCount > TLS_STACK_FIELD_LIMIT * 2) {
+                free(lengths);
+            }
+            if (error) {
+                *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
+                                          VE_TLS_INVALID,
+                                          @"log field arrays must contain strings");
+            }
+            return NO;
+        }
+        lengths[index] = [field lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+    }
+    BOOL result = [self addLogWithTimestamp:timestampMs
+                                    hashKey:hashKey
+                                     fields:fields
+                                    lengths:lengths
+                                lengthCount:fieldCount
+                                      flush:flush
+                                      error:error];
+    if (fieldCount > TLS_STACK_FIELD_LIMIT * 2) {
+        free(lengths);
+    }
+    return result;
+}
+
+- (BOOL)addLogWithTimestamp:(int64_t)timestampMs
+                    hashKey:(nullable NSString *)hashKey
+                     fields:(NSArray<NSString *> *)fields
+                    lengths:(nullable const size_t *)lengths
+                lengthCount:(NSUInteger)lengthCount
+                      flush:(BOOL)flush
+                      error:(NSError * _Nullable * _Nullable)error {
+    NSUInteger fieldCount = fields.count;
+    if (fieldCount == 0 || (fieldCount % 2) != 0 ||
+        lengths == NULL || lengthCount != fieldCount) {
+        if (error) {
+            *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
+                                      VE_TLS_INVALID,
+                                      @"interleaved log fields and lengths must match");
+        }
+        return NO;
+    }
+
+    size_t totalLength = 0;
+    for (NSUInteger index = 0; index < fieldCount; index++) {
+        if (SIZE_MAX - totalLength < lengths[index]) {
+            if (error) {
+                *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
+                                          VE_TLS_INVALID,
+                                          @"log field byte length overflow");
+            }
+            return NO;
+        }
+        totalLength += lengths[index];
+    }
+    NSMutableData *fieldBytes = [NSMutableData dataWithCapacity:totalLength];
+    for (NSUInteger index = 0; index < fieldCount; index++) {
+        NSString *field = fields[index];
+        if (![field isKindOfClass:[NSString class]]) {
+            if (error) {
+                *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
+                                          VE_TLS_INVALID,
+                                          @"log field arrays must contain strings");
+            }
+            return NO;
+        }
+        NSData *encoded = [field dataUsingEncoding:NSUTF8StringEncoding
+                               allowLossyConversion:NO];
+        if (encoded == nil || encoded.length != lengths[index]) {
+            if (error) {
+                *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
+                                          VE_TLS_INVALID,
+                                          @"log field byte lengths do not match strings");
+            }
+            return NO;
+        }
+        [fieldBytes appendData:encoded];
+    }
+    return [self addLogWithTimestamp:timestampMs
+                             hashKey:hashKey
+                           fieldBytes:fieldBytes
+                              lengths:lengths
+                          lengthCount:lengthCount
+                                flush:flush
+                                error:error];
+}
+
+- (BOOL)addLogWithTimestamp:(int64_t)timestampMs
+                    hashKey:(nullable NSString *)hashKey
+                 fieldBytes:(NSData *)fieldBytes
+                     lengths:(nullable const size_t *)lengths
+                 lengthCount:(NSUInteger)lengthCount
+                       flush:(BOOL)flush
+                       error:(NSError * _Nullable * _Nullable)error {
     [self.stateLock lock];
     if (_closed || _closing) {
         [self.stateLock unlock];
@@ -1066,25 +1187,76 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         return NO;
     }
 
-    NSUInteger fieldCount = fields.count;
-    if (fieldCount == 0 || (fieldCount % 2) != 0) {
+    if (lengthCount == 0 || (lengthCount % 2) != 0 ||
+        lengths == NULL || fieldBytes == nil) {
         [self.stateLock unlock];
         if (error) {
             *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
                                       VE_TLS_INVALID,
-                                      @"interleaved log fields must have a non-zero even count");
+                                      @"interleaved log bytes and lengths must match");
         }
         return NO;
     }
-    NSUInteger count = fieldCount / 2;
+
+    size_t consumed = 0;
+    for (NSUInteger index = 0; index < lengthCount; index++) {
+        size_t length = lengths[index];
+        if ((index % 2) == 0 && length == 0) {
+            [self.stateLock unlock];
+            if (error) {
+                *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
+                                          VE_TLS_INVALID,
+                                          @"log keys must not be empty");
+            }
+            return NO;
+        }
+        if (SIZE_MAX - consumed < length) {
+            [self.stateLock unlock];
+            if (error) {
+                *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
+                                          VE_TLS_INVALID,
+                                          @"log field byte length overflow");
+            }
+            return NO;
+        }
+        consumed += length;
+    }
+    if (consumed != fieldBytes.length ||
+        (consumed > 0 && fieldBytes.bytes == NULL)) {
+        [self.stateLock unlock];
+        if (error) {
+            *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
+                                      VE_TLS_INVALID,
+                                      @"log field byte lengths do not consume storage");
+        }
+        return NO;
+    }
+
+    NSUInteger count = lengthCount / 2;
 
     enum { TLS_STACK_FIELD_LIMIT = 16 };
-    ve_tls_kv stackKVs[TLS_STACK_FIELD_LIMIT];
-    ve_tls_kv *kvs = stackKVs;
+    const char *stackKeys[TLS_STACK_FIELD_LIMIT];
+    const char *stackValues[TLS_STACK_FIELD_LIMIT];
+    size_t stackKeyLengths[TLS_STACK_FIELD_LIMIT];
+    size_t stackValueLengths[TLS_STACK_FIELD_LIMIT];
+    const char **keys = stackKeys;
+    const char **values = stackValues;
+    size_t *keyLengths = stackKeyLengths;
+    size_t *valueLengths = stackValueLengths;
     if (count > TLS_STACK_FIELD_LIMIT) {
-        kvs = calloc(count, sizeof(ve_tls_kv));
+        keys = calloc(count, sizeof(char *));
+        values = calloc(count, sizeof(char *));
+        keyLengths = calloc(count, sizeof(size_t));
+        valueLengths = calloc(count, sizeof(size_t));
     }
-    if (kvs == NULL) {
+    if (keys == NULL || values == NULL ||
+        keyLengths == NULL || valueLengths == NULL) {
+        if (count > TLS_STACK_FIELD_LIMIT) {
+            free(keys);
+            free(values);
+            free(keyLengths);
+            free(valueLengths);
+        }
         [self.stateLock unlock];
         if (error) {
             *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
@@ -1094,47 +1266,36 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         return NO;
     }
 
-    __unsafe_unretained NSString *stackFields[TLS_STACK_FIELD_LIMIT * 2];
-    if (count <= TLS_STACK_FIELD_LIMIT) {
-        [fields getObjects:stackFields range:NSMakeRange(0, fieldCount)];
-    }
+    const unsigned char *bytes = fieldBytes.bytes;
+    size_t offset = 0;
     for (NSUInteger i = 0; i < count; i++) {
         NSUInteger keyIndex = i * 2;
-        NSString *key = count <= TLS_STACK_FIELD_LIMIT
-            ? stackFields[keyIndex]
-            : fields[keyIndex];
-        NSString *value = count <= TLS_STACK_FIELD_LIMIT
-            ? stackFields[keyIndex + 1]
-            : fields[keyIndex + 1];
-        if (![key isKindOfClass:[NSString class]] ||
-            ![value isKindOfClass:[NSString class]]) {
-            if (count > TLS_STACK_FIELD_LIMIT) {
-                free(kvs);
-            }
-            [self.stateLock unlock];
-            if (error) {
-                *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
-                                          VE_TLS_INVALID,
-                                          @"log field arrays must contain strings");
-            }
-            return NO;
-        }
-        kvs[i].key = key.UTF8String;
-        kvs[i].value = value.UTF8String;
+        keyLengths[i] = lengths[keyIndex];
+        valueLengths[i] = lengths[keyIndex + 1];
+        keys[i] = (const char *)(bytes + offset);
+        offset += keyLengths[i];
+        values[i] = (const char *)(bytes + offset);
+        offset += valueLengths[i];
     }
 
     ve_tls_result rc;
     if (hashKey) {
-        rc = ve_tls_producer_add_log_kv_hashkey(_producer, timestampMs,
-                                                 hashKey.UTF8String,
-                                                 kvs, count,
-                                                 flush ? 1 : 0);
+        rc = ve_tls_producer_add_log_with_len_hashkey(
+            _producer, timestampMs, hashKey.UTF8String,
+            keys, keyLengths, values, valueLengths, count,
+            flush ? 1 : 0);
     } else {
-        rc = ve_tls_producer_add_log_kv(_producer, timestampMs, kvs, count, flush ? 1 : 0);
+        rc = ve_tls_producer_add_log_with_len(
+            _producer, timestampMs,
+            keys, keyLengths, values, valueLengths, count,
+            flush ? 1 : 0);
     }
 
     if (count > TLS_STACK_FIELD_LIMIT) {
-        free(kvs);
+        free(keys);
+        free(values);
+        free(keyLengths);
+        free(valueLengths);
     }
     [self.stateLock unlock];
 
