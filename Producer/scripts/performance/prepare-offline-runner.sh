@@ -168,6 +168,8 @@ find "$prepared_fixture/Pods/Target Support Files" -type f -name '*.xcconfig' \
     -exec perl -pi -e '
         s#\$\{PODS_ROOT\}(?:/\.\.)+__TLS_SDK_ROOT__#__TLS_SDK_ROOT__#g;
         s#\$\{PODS_ROOT\}(?:/\.\.)+__SLS_SDK_ROOT__#__SLS_SDK_ROOT__#g;
+        s#\$\{PODS_ROOT\}/__TLS_SDK_ROOT__#__TLS_SDK_ROOT__#g;
+        s#\$\{PODS_ROOT\}/__SLS_SDK_ROOT__#__SLS_SDK_ROOT__#g;
     ' {} +
 if /usr/bin/grep -r -E \
     '\$\{PODS_ROOT\}.*__(TLS|SLS)_SDK_ROOT__' \
