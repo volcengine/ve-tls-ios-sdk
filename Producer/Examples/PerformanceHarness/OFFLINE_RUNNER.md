@@ -21,6 +21,10 @@ DNS、BOE 或互联网，也不会读取 `.real_boe_info.env`。
 - `long` profile 使用同一 24-case 矩阵，每个 case 固定 300 秒 warmup + 1800 秒
   measurement，总测量窗口约 14 小时；它只能通过 sealed `long` 包显式执行
   `start`，不会由 `short` 自动串跑。
+- sealed `long` 包额外提供 `tune` 定向复测：只执行 memory/300 lps/TLS+SLS ×
+  3 repeats（6 个独立 App 进程），沿用 correctness 与 `<= 1.20` 比值门禁。它只用于
+  验证已定位的性能修复，不代表完整 24-case short 基线；为便于断连前验收，其静置
+  窗口最多 60 秒，正式 `start` 仍按 metadata 使用完整静置窗口。
 
 ## 断网前验收
 
@@ -40,15 +44,17 @@ cd tls-offline-performance-<profile>-<sha>
 
 ```sh
 ./run-offline-performance.sh smoke
+./run-offline-performance.sh tune
 ./run-offline-performance.sh start
 ./run-offline-performance.sh status
 ```
 
-sealed `short` 包的 `smoke` 先执行同一包、同一 Xcode 和同一 x86_64 App 构建路径下
+sealed 包的 `smoke` 先执行同一包、同一 Xcode 和同一 x86_64 App 构建路径下
 的 1 秒 warmup + 2 秒 measurement（memory/100 lps/TLS+SLS），用于断连前验证
-runner plumbing；它不属于性能基线。`start` 才执行 sealed profile（short/long
-均为 24 轮，时间窗口不同）。两者都使用 `nohup` + `caffeinate -dims` 脱离终端运行，
-断开 SSH 不会终止测试。
+runner plumbing；它不属于性能基线。sealed `long` 包的 `tune` 只复测已知失败组，
+也不替代完整 short。`start` 才执行 sealed profile（short/long 均为 24 轮，时间窗口
+不同）。这些入口都使用 `nohup` + `caffeinate -dims` 脱离终端运行，断开 SSH 不会
+终止测试。
 不要关机、重启或删除专用 Simulator。结果写在 runner 上级目录的
 `tls-performance-<profile>-<UTC>/`，结束时无论通过或失败都会生成：
 

@@ -127,10 +127,13 @@ run_matrix() {
 
     [[ -d "$run_root" ]] || die "run directory does not exist: $run_root"
     sealed_profile=$(read_metadata profile.txt)
-    if [[ "$profile" != smoke && "$profile" != "$sealed_profile" ]]; then
+    if [[ "$profile" == tune && "$sealed_profile" != long ]]; then
+        die "targeted tune verification requires a sealed long runner"
+    fi
+    if [[ "$profile" != smoke && "$profile" != tune && "$profile" != "$sealed_profile" ]]; then
         die "sealed $sealed_profile runner cannot execute the $profile profile"
     fi
-    [[ "$profile" == smoke || "$profile" == short || "$profile" == long ]] \
+    [[ "$profile" == smoke || "$profile" == tune || "$profile" == short || "$profile" == long ]] \
         || die "unsupported requested runner profile: $profile"
     simulator_id=$(read_metadata simulator-id.txt)
     disk_max=$(read_metadata host-disk-max-mbps.txt)
@@ -145,6 +148,17 @@ run_matrix() {
             rates=100
             modes=memory
             enforce_gate=0
+            ;;
+        tune)
+            warmup_seconds=10
+            measure_seconds=30
+            repeats=3
+            rates=300
+            modes=memory
+            enforce_gate=1
+            if [[ "$preflight_settle_seconds" -gt 60 ]]; then
+                preflight_settle_seconds=60
+            fi
             ;;
         short)
             warmup_seconds=10
@@ -241,10 +255,13 @@ start_matrix() {
     local run_root
     local controller_pid
     sealed_profile=$(read_metadata profile.txt)
-    if [[ "$profile" != smoke && "$profile" != "$sealed_profile" ]]; then
+    if [[ "$profile" == tune && "$sealed_profile" != long ]]; then
+        die "targeted tune verification requires a sealed long runner"
+    fi
+    if [[ "$profile" != smoke && "$profile" != tune && "$profile" != "$sealed_profile" ]]; then
         die "sealed $sealed_profile runner cannot execute the $profile profile"
     fi
-    [[ "$profile" == smoke || "$profile" == short || "$profile" == long ]] \
+    [[ "$profile" == smoke || "$profile" == tune || "$profile" == short || "$profile" == long ]] \
         || die "unsupported requested runner profile: $profile"
     timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
     run_root="$state_root/tls-performance-${profile}-${timestamp}"
@@ -294,6 +311,9 @@ case "${1:-start}" in
     smoke)
         start_matrix smoke
         ;;
+    tune)
+        start_matrix tune
+        ;;
     status)
         show_status
         ;;
@@ -307,6 +327,6 @@ case "${1:-start}" in
         run_matrix "$2" "$3"
         ;;
     *)
-        die "usage: $0 [smoke|start|status|verify]"
+        die "usage: $0 [smoke|tune|start|status|verify]"
         ;;
 esac
