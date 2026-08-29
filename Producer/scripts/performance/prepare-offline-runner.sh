@@ -126,16 +126,24 @@ replace_prepared_path_if_present() {
 replace_prepared_root() {
     local source_path=$1
     local replacement=$2
+    local candidate_path
+    local path_alias
     local physical_path
     local replaced=0
     physical_path=$(cd -- "$source_path" && pwd -P)
-    if replace_prepared_path_if_present "$physical_path" "$replacement"; then
-        replaced=1
-    fi
-    if [[ "$source_path" != "$physical_path" ]] \
-        && replace_prepared_path_if_present "$source_path" "$replacement"; then
-        replaced=1
-    fi
+    for candidate_path in "$physical_path" "$source_path"; do
+        if replace_prepared_path_if_present "$candidate_path" "$replacement"; then
+            replaced=1
+        fi
+        if [[ "$candidate_path" == /private/* ]]; then
+            path_alias=${candidate_path#/private}
+        else
+            path_alias=/private$candidate_path
+        fi
+        if replace_prepared_path_if_present "$path_alias" "$replacement"; then
+            replaced=1
+        fi
+    done
     [[ "$replaced" == 1 ]] \
         || die "prepared fixture did not record expected path: $source_path"
 }
@@ -167,7 +175,15 @@ if /usr/bin/grep -r -E \
     die "prepared fixture contains a non-canonical SDK path token"
 fi
 staging_root_physical=$(cd -- "$staging_root" && pwd -P)
-for sealed_staging_path in "$staging_root_physical" "$staging_root"; do
+if [[ "$staging_root_physical" == /private/* ]]; then
+    staging_root_alias=${staging_root_physical#/private}
+else
+    staging_root_alias=/private$staging_root_physical
+fi
+for sealed_staging_path in \
+    "$staging_root_physical" \
+    "$staging_root_alias" \
+    "$staging_root"; do
     if /usr/bin/grep -r -F -- "$sealed_staging_path" "$prepared_fixture" >/dev/null 2>&1; then
         die "prepared fixture still contains a packaging-host staging path"
     fi
