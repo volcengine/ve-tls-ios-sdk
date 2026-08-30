@@ -14,8 +14,8 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
 - 修复 persistent 批次处于跨轮退避时直接 destroy 只置 `stop`、sender 仅检查
   `closing` 导致 worker join 等待延迟计时器的问题；内存任务释放，WAL 保持未 ACK
   供下次 recover。该修复最初落在 C Core `persistent` 本地提交 `613b38d`；当前
-  包含后续 admission、精确线程数与 sealed-batch ownership transfer 修复的本地
-  feature tip 为 `b043657`，尚未推送。
+  包含后续 admission、精确线程数、sealed-batch ownership transfer 与 key
+  aggregate 生命周期修复的本地 feature tip 为 `62241b5`，尚未推送。
 - `RealCoreAdapter` + `TLSRealCoreAdapter`：Swift/ObjC/C 生命周期、per-instance
   URLSession transport、结构化错误和终态 callback。
 - Public destination-at-open、持久化模式、bounded buffer block timeout、
@@ -26,6 +26,12 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
 
 ### Fixed
 
+- 修复 persistent direct-merge 与 sender completion 的 key-queue 生命周期竞态：
+  前一批仍 in-flight 时新日志已进入 aggregate builder，旧逻辑只检查 sealed task
+  count 并释放整个 key queue，造成日志 ID 空洞、ACK 前缀/WAL 回收停滞，最终在
+  200,000 records 后拒绝新日志。C Core `62241b5` 与 iOS `ca1a9c8` 增加非空
+  builder 保护；缩放 C 回归、Release/ASan+UBSan 13/13、arm64 Simulator 261 项及
+  220,000 条 persistent 容量回归通过。正式 100/300 logs/s 长矩阵仍待重跑。
 - Public `open` 强制验证 HTTPS origin、完整配置和凭证，并在 utility executor
   构造/recover Core；配置突变在 open 边界重新验证并复制。
 - 修复 HTTP timeout 丢失、response allocator 泄漏、URLSession 配置旁路、错误
@@ -124,8 +130,10 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   `2ed85f0` arm64 同合同 6 轮 CPU `1.158×`、add P99 `0.559×`、RSS `1.119×`
   全过。前后硬件不同，只使用各自同机 TLS/SLS 比值，不横比绝对 RSS。独立 Linux 开发机固定
   vCPU/NUMA 的 C persistent 复测确认 task 数 6→4，250/1000 logs/s 的
-  user-space task-clock 中位数分别下降 12.08%/13.30%，但仍需在新 clean SHA 重跑
-  完整 24 组；短矩阵不替代正式时长，Intel 功能全量通过也不能替代正式性能矩阵。
+  user-space task-clock 中位数分别下降 12.08%/13.30%。`cd094d8` 正式 24 组因
+  persistent 200,000-record 正确性错误失败；该错误已在 C Core `62241b5` / iOS
+  `ca1a9c8` 修复并通过 220,000 条容量回归，但仍需重跑正式 100/300 logs/s 矩阵。
+  Intel 功能全量通过也不能替代正式性能矩阵。
 - 远端 `0.0.2` tag 尚未创建。
 - 当前仍是 Development Preview / release candidate source，不可标记 Beta/GA。
 

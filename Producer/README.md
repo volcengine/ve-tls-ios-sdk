@@ -217,9 +217,12 @@ sendConcurrency 不超过 8；正整数是精确线程数，Core 只把 0 作为
   `1.119×`，三项均通过。绝对 RSS 不跨 Intel/arm64 比较，门禁只使用各自同机
   TLS/SLS 中位数比值。独立 Linux 开发机固定 vCPU/NUMA 的 C persistent 5×2 交错复测进一步
   确认线程数从 6 降到 4，250/1000 logs/s 的 user-space task-clock 中位数分别
-  下降 12.08%/13.30%；这证明 C Core 因果，但不替代 iOS/SLS A/B。仍须在新
-  clean SHA 重跑完整 24 组，随后才可执行每组 5 分钟 + 30 分钟
-  正式矩阵；Intel 功能全量通过不能替代性能结果。
+  下降 12.08%/13.30%；这证明 C Core 因果，但不替代 iOS/SLS A/B。`cd094d8`
+  的正式 24 组虽已全部执行，但 TLS persistent 六组均在 200,000 admissions 后
+  拒绝新日志；根因是 sender finish 释放了仍含未封批 builder 的 key queue，制造
+  ACK ID 空洞并阻断 WAL 回收。C Core `62241b5` / iOS `ca1a9c8` 已修复，
+  220,000 条高率容量回归全接收且零终态失败；正式 100/300 logs/s 矩阵仍须在该
+  修复后的 clean SHA 重跑。Intel 功能全量通过不能替代性能结果。
 测试通过不等于可发布。仓库内冻结合同与门禁状态见
 [DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
 workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08-28.md`。
@@ -239,8 +242,8 @@ workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08
   `O_NOFOLLOW/O_CLOEXEC` 文件适配、custom transport retryability、auth-retain
   单终态、persistent live retry-cycle、bounded destroy、内部符号可见性/LZ4 隐藏。
   行为修复从 C Core `persistent` 基线之上的本地提交 `613b38d` 起整理；加入
-  admission、精确线程数与 sealed-batch ownership transfer 修复后的当前 feature
-  tip 为 `b043657`，仍未
+  admission、精确线程数、sealed-batch ownership transfer 与 key aggregate
+  生命周期修复后的当前 feature tip 为 `62241b5`，仍未
   push/merge/tag。正式上游状态与 iOS patch checksum 以
   `CORE_VERSION` 为准，不能描述为未修改上游包或已发布上游版本。
 - bridge-level `flock` 只能约束遵守该 Bridge 协议的 SDK 实例，不能约束绕过

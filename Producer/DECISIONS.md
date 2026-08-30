@@ -129,8 +129,9 @@
   delayed retry、destroy/stop 有界释放、POSIX no-follow，以及 package-internal /
   LZ4 hidden visibility。
 - Core 行为与 POSIX 补丁从 `origin/persistent@c7fa2fa` 之上的本地提交
-  `613b38d` 起整理；加入 admission、精确线程数与 sealed-batch ownership transfer
-  修复后的当前 feature tip 为 `b043657`，仍未 push/merge/tag，不能写成已发布上游版本。
+  `613b38d` 起整理；加入 admission、精确线程数、sealed-batch ownership transfer
+  与 key aggregate 生命周期修复后的当前 feature tip 为 `62241b5`，仍未
+  push/merge/tag，不能写成已发布上游版本。
 - Bridge 另补齐 effective `retry_policy.max_attempts`、NSURLSession transport、
   structured error、persistent directory lock 和 autorelease pool；retryable
   persistent batch 在有界 cycle 后进入最长 5 分钟的 jittered delayed retry。
@@ -173,9 +174,12 @@
   因此只比较每次同机 TLS/SLS 比值，不比较绝对 RSS。独立 Linux 开发机固定
   vCPU/NUMA 的 C persistent 5×2 复测中，
   task 数从 6 降到 4，250/1000 logs/s 的 user-space task-clock 中位数分别下降
-  12.08%/13.30%，确认该回归属于 C Core 线程语义而非 Mac 独有噪声。但新 clean
-  SHA 的完整 24 组与正式 5 分钟 warm-up + 30 分钟测量
-  仍未完成。Intel x86_64 Simulator 功能全量已通过，但不能替代性能矩阵。该版本 public destroy
+  12.08%/13.30%，确认该回归属于 C Core 线程语义而非 Mac 独有噪声。正式 24 组
+  曾在 `cd094d8` 全部执行，但 TLS persistent 六组因 key-queue builder 被 sender
+  completion 误释放而在 200,000 admissions 后稳定拒绝新日志，不能计算为性能
+  通过。C Core `62241b5` / iOS `ca1a9c8` 已增加 builder 生命周期保护；220,000
+  条容量回归全接收、零终态失败并成功 close，正式 100/300 logs/s 矩阵仍待在修复
+  后 clean SHA 重跑。Intel x86_64 Simulator 功能全量已通过，但不能替代性能矩阵。该版本 public destroy
   在 arm64 实测会对已由 C Core 释放的 config 再做 `CFRelease` 并 SIGTRAP；临时
   A/B 必须每组进程隔离、跳过 SLS destroy，并明确不构成其生命周期通过证据。
 - 隐私数据分类、archive privacy report、App Store Connect 校验。

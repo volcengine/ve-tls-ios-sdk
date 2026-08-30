@@ -11,12 +11,12 @@ upstream_source_bundle_sha256: 478887acaf51f004d0bd1e2ba40e666848f02ebad238de168
 upstream_sha_scope: 只证明输入 bundle，不表示当前 vendored 工作树未修改
 abi_version: 2 (VE_TLS_CONFIG_VERSION_2)
 ios_core_patch_base: d46d7fd (upstream v0.3.1 vendoring commit)
-ios_core_patch_commits: 3d42ba3, 12cf52f, 08eab0a, 19b8648, ca6065f, 9c9d4f8, 63a0f98, feef7a7, 2ed85f0
-ios_core_patch_diff_sha256: 900c8dae200ccc6d96203dc16d9d6b845f8c2f810bbdca7904a91b57c35b2262
+ios_core_patch_commits: 3d42ba3, 12cf52f, 08eab0a, 19b8648, ca6065f, 9c9d4f8, 63a0f98, feef7a7, 2ed85f0, ca1a9c8
+ios_core_patch_diff_sha256: 5e6f5b57b3bd5cce7416f4bc06141b8d3a967c02f214aa1fa49c3ca501f0a5c8
 ios_core_patch_diff_scope: git diff d46d7fd..HEAD -- Producer/Sources/CTLSProducerCore
 ios_core_patch_ownership: downstream iOS patchset；不得描述为 unmodified v0.3.1
 core_persistent_branch_base: c7fa2fabe6162a0a1af6ba592e684bc7fbd6c75f
-core_persistent_mobile_backport_commit: b043657fd54ab994419ced4314355ad4cc62e357
+core_persistent_mobile_backport_commit: 62241b51732ef0fe72c1d8ceff027df54f86a9df
 core_persistent_mobile_backport_status: 本地 feature branch 已验证、未 push/merge/tag；不得描述为已发布上游版本
 ios_core_upstream_action: transport retryability、auth-retain terminal semantics、persistent live retry-cycle 与 bounded destroy 已回灌到上述 C Core persistent 本地提交；visibility/package 补丁仍由 iOS 维护并在升级时重验
 
@@ -38,10 +38,11 @@ ios_integration_patches:
   - persistent WAL CRC32 uses a format-compatible table lookup and each producer retains at most one reusable idle single-log builder
   - zero is the runtime thread auto-tune sentinel; positive send/pack thread counts, including one, are exact
   - sealed batches transfer their builder allocation into the send task; snapshot/export keep copy semantics and allocation failures remain atomic
+  - sender completion and idle cleanup retain hash-key queues with a nonempty aggregate builder, preventing persistent acknowledgement holes and stalled WAL reclamation
 
 ownership_contract: C Core 管理自身 buffer/string；Bridge 对 HTTP response 字段做 allocator 对称释放
 symbol_contract: final consumer Mach-O 不导出 ve_tls_*/VE_TLS_LZ4_*/LZ4_*
 core_upstream_test_evidence: CI asan-ubsan 5/5, shared-abi, static-release (2026-08-27)
-ios_integration_evidence: exact 2ed85f0 arm64 Simulator full 261 total/255 passed/0 failed/6 opt-in skipped；Intel Xcode16/iOS18.5 x86_64 exact bac7b22 261/255/0/6；ASan/TSan prior full 各 246 passed/0 failed/6 skipped；C Core b043657 Release 13/13 and ASan+UBSan 13/13；SwiftPM strict iOS13 arm64/x86_64 Simulator、generic iPhoneOS consumer IOS/minos13、Pod lint 与 final symbol gates PASS；final BOE AK/SK 200 + invalid-SK auth 2/2（env 未强制成功 requestID）；persistent live-retry/close-reopen 2/2 + delayed-retry dealloc/reopen 1/1；exact 19b8648 2h soak PASS 6920/6920 success, 0 failure, RSS gate PASS；builder-reuse clean 24-run only persistent300 CPU=1.272 FAIL；explicit single-thread fix targeted 6-run CPU=1.083/add=0.762/RSS=1.114 PASS；sealed-batch ownership transfer exact 2ed85f0 memory300 targeted 6-run CPU=1.158/add=0.559/RSS=1.119 PASS，new clean full matrix pending
+ios_integration_evidence: exact ca1a9c8 arm64 Simulator full 261 total/255 passed/0 failed/6 opt-in skipped and strict Swift6 arm64-apple-ios13.0-simulator product build PASS；Intel Xcode16/iOS18.5 x86_64 exact bac7b22 261/255/0/6；ASan/TSan prior full 各 246 passed/0 failed/6 skipped；C Core 62241b5 Release 13/13 and ASan+UBSan 13/13；SwiftPM strict iOS13 arm64/x86_64 Simulator、generic iPhoneOS consumer IOS/minos13、Pod lint 与 final symbol gates PASS；final BOE AK/SK 200 + invalid-SK auth 2/2（env 未强制成功 requestID）；persistent live-retry/close-reopen 2/2 + delayed-retry dealloc/reopen 1/1；exact 19b8648 2h soak PASS 6920/6920 success, 0 failure, RSS gate PASS；exact cd094d8 formal matrix completed 24 runs but failed correctness because all TLS persistent runs stopped accepting at 200000；ca1a9c8 high-rate persistent capacity regression accepted 220000/220000 with 0 admission/terminal failure and close success；formal 100/300 matrix rerun pending
 integrated_at: 2026-08-27
-remediated_at: 2026-08-29
+remediated_at: 2026-08-31
