@@ -130,6 +130,26 @@ final class RealBOEIntegrationTests: XCTestCase {
             defer { lock.unlock() }
             return values
         }
+
+        func waitForCount(_ expected: Int, timeout: TimeInterval) async -> [SendResult] {
+            let deadline = Date().addingTimeInterval(timeout)
+            while Date() < deadline {
+                let values = snapshot
+                if values.count >= expected {
+                    return values
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            return snapshot
+        }
+    }
+
+    private static func environmentValue(_ names: [String]) -> String? {
+        let environment = ProcessInfo.processInfo.environment
+        return names.lazy.compactMap { name in
+            guard let value = environment[name], !value.isEmpty else { return nil }
+            return value
+        }.first
     }
 
     /// Sends one unique, non-sensitive event through the public API and waits
@@ -243,6 +263,277 @@ final class RealBOEIntegrationTests: XCTestCase {
             let result = try XCTUnwrap(results.first)
             XCTAssertEqual(result.status, .failure)
             XCTAssertEqual(result.error, .auth)
+        } catch {
+            try? await producer.close(timeout: 30)
+            throw error
+        }
+    }
+
+    /// Writes a deterministic, queryable dataset for the companion BOE
+    /// SearchLogs/ConsumeLogs verifier. This test intentionally validates only
+    /// producer admission and terminal batches; the external verifier owns
+    /// service-side field, metadata, count, and duplicate assertions.
+    func testRealBOEFieldFidelityAndBatching() async throws {
+        let fixture = try Fixture.loadOrSkip()
+        guard let runID = Self.environmentValue(["TLS_BOE_RUN_ID", "VE_TLS_RUN_ID"]) else {
+            throw XCTSkip("set TLS_BOE_RUN_ID (or VE_TLS_RUN_ID) for the queryable dataset")
+        }
+        guard runID.range(of: #"^[a-z0-9_-]{8,96}$"#,
+                          options: .regularExpression) != nil else {
+            XCTFail("TLS_BOE_RUN_ID must match lowercase [a-z0-9_-]{8,96}")
+            return
+        }
+
+        let logCount = 12
+        let expectedBatchCount = 3
+        let collector = ResultCollector()
+        let configuration = try ProducerConfiguration(
+            batch: BatchConfiguration(
+                maxLogCount: 4,
+                maxRawBytes: 1024 * 1024,
+                linger: 30),
+            sendConcurrency: 1,
+            compression: .lz4,
+            metadata: ProducerMetadata(
+                source: "ios-boe-business",
+                fileName: "producer-e2e.log",
+                tags: ["sdk": "ios", "suite": "boe-business"]),
+            automaticLifecycleHandling: false,
+            destination: fixture.destination)
+        let producer = try await Producer.open(
+            configuration: configuration,
+            credentials: fixture.credentials,
+            onSendResult: { collector.append($0) })
+
+        do {
+            for sequence in 0..<logCount {
+                let event = LogEvent(
+                    hashKey: "00000000000000000000000000000000",
+                    contents: [
+                        "run_id": .string(runID),
+                        "scenario": .string("field_fidelity"),
+                        "seq": .signedInt(Int64(sequence)),
+                        "field_string": .string("hello-中文-🙂-\(sequence)"),
+                        "field_signed": .signedInt(Int64.min + Int64(sequence)),
+                        "field_unsigned": .unsignedInt(UInt64.max - UInt64(sequence)),
+                        "field_double": .double(12345.625 + Double(sequence)),
+                        "field_bool": .bool(sequence.isMultiple(of: 2)),
+                        "field_null": .null,
+                        "field_array": .array([
+                            .string("a\"b"), .signedInt(Int64(sequence)), .bool(true), .null,
+                        ]),
+                        "field_dictionary": .dictionary([
+                            "a": .signedInt(Int64(sequence)),
+                            "z": .string("line1\nline2\\tail"),
+                        ]),
+                        "field_utf8": .utf8Data(Data("raw-你好-\(sequence)".utf8)),
+                        "field_empty": .string(""),
+                    ])
+                try producer.add(event, mode: .normal)
+            }
+
+            let results = await collector.waitForCount(expectedBatchCount, timeout: 60)
+            let safeSummary = results.map { result in
+                let status = result.status == .success ? "success" : "failure"
+                return "\(status):\(result.error?.errorCode ?? "none"):requestID=\(!(result.requestID?.isEmpty ?? true))"
+            }.joined(separator: ",")
+            XCTAssertEqual(results.count, expectedBatchCount)
+            XCTAssertTrue(results.allSatisfy { $0.status == .success }, safeSummary)
+            XCTAssertTrue(results.allSatisfy { $0.error == nil }, safeSummary)
+            XCTAssertTrue(results.allSatisfy { $0.rawBytes > 0 })
+            XCTAssertTrue(results.allSatisfy { $0.compressedBytes > 0 })
+            try await producer.close(timeout: 30)
+            print("REAL_BOE_DATASET run_id=\(runID) logs=\(logCount) batches=\(expectedBatchCount)")
+        } catch {
+            try? await producer.close(timeout: 30)
+            throw error
+        }
+    }
+
+    /// The public contract accepts the entire lowercase 128-bit hash-key
+    /// range, including both all-zero and all-`f` endpoints. Keep this as a
+    /// real-service conformance test instead of weakening local validation if
+    /// one BOE deployment rejects a contract-valid boundary.
+    func testRealBOEHashKeyInclusiveBoundaries() async throws {
+        let fixture = try Fixture.loadOrSkip()
+        guard let baseRunID = Self.environmentValue(["TLS_BOE_RUN_ID", "VE_TLS_RUN_ID"]) else {
+            throw XCTSkip("set TLS_BOE_RUN_ID (or VE_TLS_RUN_ID) for hash-key evidence")
+        }
+        let cases = [
+            ("zero", "00000000000000000000000000000000"),
+            ("lower_half", "7fffffffffffffffffffffffffffffff"),
+            ("upper_half", "80000000000000000000000000000000"),
+            ("max_minus_one", "fffffffffffffffffffffffffffffffe"),
+            ("max", "ffffffffffffffffffffffffffffffff"),
+        ]
+        let collector = ResultCollector()
+        let configuration = try ProducerConfiguration(
+            batch: BatchConfiguration(maxLogCount: 1, maxRawBytes: 1024 * 1024, linger: 0),
+            automaticLifecycleHandling: false,
+            destination: fixture.destination)
+        let producer = try await Producer.open(
+            configuration: configuration,
+            credentials: fixture.credentials,
+            onSendResult: { collector.append($0) })
+
+        do {
+            for (index, item) in cases.enumerated() {
+                try producer.add(
+                    LogEvent(
+                        hashKey: item.1,
+                        contents: [
+                            "run_id": .string("\(baseRunID)_hash_\(item.0)"),
+                            "scenario": .string("hash_boundary"),
+                            "seq": .signedInt(Int64(index)),
+                            "hash_case": .string(item.0),
+                        ]),
+                    mode: .immediate)
+            }
+            let results = await collector.waitForCount(cases.count, timeout: 60)
+            let safeSummary = zip(cases, results).map { pair in
+                let (item, result) = pair
+                let status = result.status == .success ? "success" : "failure"
+                return "\(item.0):\(status):\(result.error?.errorCode ?? "none")"
+            }.joined(separator: ",")
+            XCTAssertEqual(results.count, cases.count, safeSummary)
+            XCTAssertTrue(results.allSatisfy { $0.status == .success }, safeSummary)
+            try await producer.close(timeout: 30)
+        } catch {
+            try? await producer.close(timeout: 30)
+            throw error
+        }
+    }
+
+    /// Sends one event whose public raw-field accounting is exactly the
+    /// recommended 9.5 MiB ceiling, then proves a one-byte-larger event is
+    /// rejected locally without producing another terminal callback.
+    func testRealBOENearRecommendedLimitAndLocalOversizeRejection() async throws {
+        let fixture = try Fixture.loadOrSkip()
+        guard let runID = Self.environmentValue(["TLS_BOE_RUN_ID", "VE_TLS_RUN_ID"]) else {
+            throw XCTSkip("set TLS_BOE_RUN_ID (or VE_TLS_RUN_ID) for large-payload evidence")
+        }
+
+        let scenario = "near_9_5_mib"
+        let recommendedMaxRawBytes = 19 * 512 * 1024
+        let fixedRawBytes =
+            "run_id".utf8.count + runID.utf8.count +
+            "scenario".utf8.count + scenario.utf8.count +
+            "seq".utf8.count + 1 +
+            "payload".utf8.count
+        let payloadBytes = recommendedMaxRawBytes - fixedRawBytes
+        XCTAssertGreaterThan(payloadBytes, 0)
+
+        let collector = ResultCollector()
+        let configuration = try ProducerConfiguration(
+            batch: BatchConfiguration(
+                maxLogCount: 1,
+                maxRawBytes: recommendedMaxRawBytes,
+                linger: 0),
+            sendConcurrency: 1,
+            compression: .lz4,
+            requestTimeout: 60,
+            metadata: ProducerMetadata(
+                source: "ios-boe-large",
+                fileName: "producer-large.log",
+                tags: ["sdk": "ios", "suite": "boe-large"]),
+            automaticLifecycleHandling: false,
+            destination: fixture.destination)
+        let producer = try await Producer.open(
+            configuration: configuration,
+            credentials: fixture.credentials,
+            onSendResult: { collector.append($0) })
+
+        do {
+            let baseContents: [String: LogValue] = [
+                "run_id": .string(runID),
+                "scenario": .string(scenario),
+                "seq": .signedInt(0),
+                "payload": .string(String(repeating: "x", count: payloadBytes)),
+            ]
+            try producer.add(LogEvent(contents: baseContents), mode: .immediate)
+            let results = await collector.waitForCount(1, timeout: 120)
+            XCTAssertEqual(results.count, 1)
+            let result = try XCTUnwrap(results.first)
+            XCTAssertEqual(result.status, .success)
+            XCTAssertNil(result.error)
+            XCTAssertGreaterThan(result.rawBytes, 0)
+
+            var oversizedContents = baseContents
+            oversizedContents["payload"] = .string(
+                String(repeating: "x", count: payloadBytes + 1))
+            XCTAssertThrowsError(
+                try producer.add(LogEvent(contents: oversizedContents), mode: .immediate)
+            ) { error in
+                XCTAssertEqual(error as? ProducerError, .singleLogTooLarge)
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            XCTAssertEqual(
+                collector.snapshot.count,
+                1,
+                "the locally rejected oversized event must not reach the transport")
+            try await producer.close(timeout: 30)
+            print("REAL_BOE_LARGE run_id=\(runID) raw_limit=\(recommendedMaxRawBytes)")
+        } catch {
+            try? await producer.close(timeout: 30)
+            throw error
+        }
+    }
+
+    /// A persistent `.retain` producer must suspend a BOE authentication
+    /// rejection without a terminal callback, then deliver the same WAL entry
+    /// exactly once after the complete credential group is corrected.
+    func testRealBOEPersistentAuthRetainResumesAfterCredentialUpdate() async throws {
+        let fixture = try Fixture.loadOrSkip()
+        guard let runID = Self.environmentValue(["TLS_BOE_RUN_ID", "VE_TLS_RUN_ID"]) else {
+            throw XCTSkip("set TLS_BOE_RUN_ID (or VE_TLS_RUN_ID) for auth-retain evidence")
+        }
+        let collector = ResultCollector()
+        let producerID = "boe-auth-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(16))"
+        let configuration = try ProducerConfiguration(
+            batch: BatchConfiguration(maxLogCount: 1, maxRawBytes: 1024 * 1024, linger: 0),
+            sendConcurrency: 1,
+            compression: .lz4,
+            persistence: .sync,
+            requestTimeout: 15,
+            metadata: ProducerMetadata(source: "simulator-recovery"),
+            unauthorizedPolicy: .retain,
+            automaticLifecycleHandling: false,
+            producerID: producerID,
+            destination: fixture.destination)
+        let invalidCredentials = Credentials(
+            accessKeyID: fixture.credentials.accessKeyID,
+            accessKeySecret: "intentionally-invalid-\(UUID().uuidString)",
+            securityToken: fixture.credentials.securityToken)
+        let producer = try await Producer.open(
+            configuration: configuration,
+            credentials: invalidCredentials,
+            onSendResult: { collector.append($0) })
+
+        do {
+            try producer.add(
+                LogEvent(contents: [
+                    "run_id": .string(runID),
+                    "scenario": .string("auth_retain_update"),
+                    "seq": .signedInt(0),
+                ]),
+                mode: .immediate)
+
+            // BOE authentication failures are non-retryable. A bounded pause
+            // lets that first signed request complete while proving `.retain`
+            // does not publish a premature terminal failure.
+            try await Task.sleep(nanoseconds: 3_000_000_000)
+            XCTAssertTrue(
+                collector.snapshot.isEmpty,
+                "retained BOE authentication failure must not be terminal")
+
+            try producer.updateCredentials(fixture.credentials)
+            let results = await collector.waitForCount(1, timeout: 60)
+            XCTAssertEqual(results.count, 1)
+            let result = try XCTUnwrap(results.first)
+            XCTAssertEqual(result.status, .success)
+            XCTAssertNil(result.error)
+            try await producer.close(timeout: 30)
+            print("REAL_BOE_AUTH_RETAIN run_id=\(runID) terminal_successes=1")
         } catch {
             try? await producer.close(timeout: 30)
             throw error

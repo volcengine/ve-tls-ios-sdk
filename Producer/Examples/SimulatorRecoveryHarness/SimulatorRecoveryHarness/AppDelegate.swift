@@ -40,6 +40,12 @@ private enum PersistenceMode: String {
     case sync
 }
 
+private enum NetworkFaultMode: String {
+    case direct
+    case blockBeforeSend = "block-before-send"
+    case loseAckAfter200 = "lose-ack-after-200"
+}
+
 private struct HarnessInput {
     let mode: HarnessMode
     let endpoint: String
@@ -49,6 +55,11 @@ private struct HarnessInput {
     let persistence: PersistenceMode
     let producerID: String
     let runID: String
+    let scenario: String
+    let networkFaultMode: NetworkFaultMode
+    let accessKeyID: String?
+    let accessKeySecret: String?
+    let securityToken: String?
     let seedCount: Int?
     let recoveryTimeout: TimeInterval
     let soakDuration: TimeInterval?
@@ -87,6 +98,25 @@ private struct HarnessInput {
         let runID = try HarnessInput.required(
             argument: "run-id",
             environment: "TLS_SIMULATOR_RUN_ID")
+        let scenario = HarnessInput.argumentOrEnvironment(
+            argument: "scenario",
+            environment: "TLS_SIMULATOR_SCENARIO") ?? "simulator_recovery"
+        let networkFaultText = HarnessInput.argumentOrEnvironment(
+            argument: "network-fault",
+            environment: "TLS_SIMULATOR_NETWORK_FAULT") ?? "direct"
+        guard let networkFaultMode = NetworkFaultMode(
+            rawValue: networkFaultText.lowercased()) else {
+            throw HarnessInputError.missingOrInvalid("network-fault")
+        }
+        let accessKeyID = ProcessInfo.processInfo.environment[
+            "TLS_SIMULATOR_ACCESS_KEY_ID"]
+        let accessKeySecret = ProcessInfo.processInfo.environment[
+            "TLS_SIMULATOR_ACCESS_KEY_SECRET"]
+        let securityToken = ProcessInfo.processInfo.environment[
+            "TLS_SIMULATOR_SECURITY_TOKEN"]
+        if (accessKeyID == nil) != (accessKeySecret == nil) {
+            throw HarnessInputError.missingOrInvalid("credentials")
+        }
 
         let seedCount: Int?
         if let rawSeedCount = HarnessInput.argumentOrEnvironment(
@@ -127,6 +157,12 @@ private struct HarnessInput {
         guard !runID.contains("\0"), runID.utf8.count <= 128 else {
             throw HarnessInputError.missingOrInvalid("run-id")
         }
+        guard !scenario.isEmpty, !scenario.contains("\0"), scenario.utf8.count <= 128 else {
+            throw HarnessInputError.missingOrInvalid("scenario")
+        }
+        if mode != .seed && networkFaultMode != .direct {
+            throw HarnessInputError.missingOrInvalid("recover-network-fault")
+        }
 
         self.mode = mode
         self.endpoint = endpoint
@@ -136,6 +172,11 @@ private struct HarnessInput {
         self.persistence = persistence
         self.producerID = producerID
         self.runID = runID
+        self.scenario = scenario
+        self.networkFaultMode = networkFaultMode
+        self.accessKeyID = accessKeyID
+        self.accessKeySecret = accessKeySecret
+        self.securityToken = securityToken
         self.seedCount = seedCount
         self.recoveryTimeout = recoveryTimeout
         self.soakDuration = soakDuration
@@ -189,6 +230,162 @@ private enum HarnessInputError: Error {
         case .missingOrInvalid(let field):
             return "invalid_\(field.replacingOccurrences(of: "-", with: "_"))"
         }
+    }
+}
+
+/// A process-test-only transport fault. It is activated only when this class
+/// is placed in the caller-provided ephemeral URLSessionConfiguration.
+///
+/// `block-before-send` proves that an intercepted but unacknowledged WAL entry
+/// survives process termination. `lose-ack-after-200` forwards the original
+/// signed request to BOE, records only a non-sensitive HTTP-200 marker, and
+/// deliberately withholds the response from the Producer so a restart must
+/// replay a server-accepted/client-unacknowledged batch.
+private final class RecoveryFaultURLProtocol: URLProtocol,
+    URLSessionTaskDelegate,
+    @unchecked Sendable {
+    private static let forwardedProperty = "VolcengineTLSRecoveryForwarded"
+    private var forwardingTask: URLSessionDataTask?
+    private var session: URLSession?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        guard URLProtocol.property(
+            forKey: forwardedProperty,
+            in: request) == nil,
+            request.url?.scheme?.lowercased() == "https",
+            let rawMode = ProcessInfo.processInfo.environment[
+                "TLS_SIMULATOR_NETWORK_FAULT"],
+            let mode = NetworkFaultMode(rawValue: rawMode.lowercased()) else {
+            return false
+        }
+        return mode != .direct
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let rawMode = ProcessInfo.processInfo.environment[
+            "TLS_SIMULATOR_NETWORK_FAULT"],
+            let mode = NetworkFaultMode(rawValue: rawMode.lowercased()),
+            mode != .direct else {
+            client?.urlProtocol(
+                self,
+                didFailWithError: URLError(.unsupportedURL))
+            return
+        }
+
+        if mode == .blockBeforeSend {
+            Self.writeNetworkMarker(
+                event: "request_intercepted",
+                serverAccepted: false,
+                httpStatus: nil)
+            return
+        }
+
+        let mutableRequest = (request as NSURLRequest).mutableCopy()
+            as! NSMutableURLRequest
+        URLProtocol.setProperty(
+            true,
+            forKey: Self.forwardedProperty,
+            in: mutableRequest)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.urlCredentialStorage = nil
+        let session = URLSession(
+            configuration: configuration,
+            delegate: self,
+            delegateQueue: nil)
+        self.session = session
+        forwardingTask = session.dataTask(
+            with: mutableRequest as URLRequest
+        ) { [weak self] data, response, error in
+            guard let self else { return }
+            if let http = response as? HTTPURLResponse,
+               http.statusCode == 200,
+               error == nil {
+                Self.writeNetworkMarker(
+                    event: "server_http_200_response_withheld",
+                    serverAccepted: true,
+                    httpStatus: http.statusCode)
+                // Intentionally do not finish the URLProtocol request. The
+                // host terminates this process only after observing the
+                // durable marker, leaving the Core WAL unacknowledged.
+                return
+            }
+            if let response {
+                self.client?.urlProtocol(
+                    self,
+                    didReceive: response,
+                    cacheStoragePolicy: .notAllowed)
+            }
+            if let data, !data.isEmpty {
+                self.client?.urlProtocol(self, didLoad: data)
+            }
+            if let error {
+                self.client?.urlProtocol(self, didFailWithError: error)
+            } else {
+                self.client?.urlProtocolDidFinishLoading(self)
+            }
+            session.finishTasksAndInvalidate()
+        }
+        forwardingTask?.resume()
+    }
+
+    override func stopLoading() {
+        forwardingTask?.cancel()
+        session?.invalidateAndCancel()
+        forwardingTask = nil
+        session = nil
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        // This forwarding path exists only to create a controlled lost-ACK
+        // window. Never follow a redirect with the already signed request.
+        completionHandler(nil)
+    }
+
+    private static func writeNetworkMarker(
+        event: String,
+        serverAccepted: Bool,
+        httpStatus: Int?
+    ) {
+        let environment = ProcessInfo.processInfo.environment
+        guard let runID = environment["TLS_SIMULATOR_RUN_ID"],
+              let scenario = environment["TLS_SIMULATOR_SCENARIO"],
+              let directory = FileManager.default.urls(
+                for: .documentDirectory,
+                in: .userDomainMask).first else {
+            return
+        }
+        var object: [String: Any] = [
+            "schemaVersion": 1,
+            "marker": "network_fault_ready",
+            "event": event,
+            "runID": runID,
+            "scenario": scenario,
+            "serverAccepted": serverAccepted,
+            "createdAtMilliseconds": Int64(Date().timeIntervalSince1970 * 1_000),
+        ]
+        if let httpStatus {
+            object["httpStatus"] = httpStatus
+        }
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object) else {
+            return
+        }
+        let url = directory.appendingPathComponent(
+            "simulator-recovery-network-marker.json",
+            isDirectory: false)
+        try? data.write(to: url, options: [.atomic])
     }
 }
 
@@ -249,6 +446,8 @@ private struct SeedState: Codable {
     let schemaVersion: Int
     let marker: String
     let runID: String
+    let scenario: String
+    let networkFault: String
     let persistence: String
     let producerID: String
     let acceptedLogCount: Int
@@ -260,6 +459,7 @@ private struct RunResult: Codable {
     let schemaVersion: Int
     let marker: String
     let runID: String
+    let scenario: String
     let mode: String
     let persistence: String
     let producerID: String
@@ -326,15 +526,18 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
 
         let collector = ResultCollector()
         producer = try await openProducer(input, collector: collector)
-        let event = makeOneKiBEvent()
-        for _ in 0..<seedCount {
-            try producer!.add(event, mode: .immediate)
+        for sequence in 0..<seedCount {
+            try producer!.add(
+                makeOneKiBEvent(sequence: sequence, input: input),
+                mode: .immediate)
         }
 
         let state = SeedState(
             schemaVersion: 1,
             marker: "seed_ready",
             runID: input.runID,
+            scenario: input.scenario,
+            networkFault: input.networkFaultMode.rawValue,
             persistence: input.persistence.rawValue,
             producerID: input.producerID,
             acceptedLogCount: seedCount,
@@ -353,6 +556,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
                 schemaVersion: 1,
                 marker: "result_ready",
                 runID: input.runID,
+                scenario: input.scenario,
                 mode: input.mode.rawValue,
                 persistence: input.persistence.rawValue,
                 producerID: input.producerID,
@@ -371,12 +575,14 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
 
         guard state.marker == "seed_ready",
               state.runID == input.runID,
+              state.scenario == input.scenario,
               state.persistence == input.persistence.rawValue,
               state.producerID == input.producerID else {
             let result = RunResult(
                 schemaVersion: 1,
                 marker: "result_ready",
                 runID: input.runID,
+                scenario: input.scenario,
                 mode: input.mode.rawValue,
                 persistence: input.persistence.rawValue,
                 producerID: input.producerID,
@@ -414,6 +620,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
             schemaVersion: 1,
             marker: "result_ready",
             runID: input.runID,
+            scenario: input.scenario,
             mode: input.mode.rawValue,
             persistence: input.persistence.rawValue,
             producerID: input.producerID,
@@ -441,6 +648,8 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
             schemaVersion: 1,
             marker: "soak_started",
             runID: input.runID,
+            scenario: input.scenario,
+            networkFault: input.networkFaultMode.rawValue,
             persistence: input.persistence.rawValue,
             producerID: input.producerID,
             acceptedLogCount: 0,
@@ -449,12 +658,13 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
         try writeJSON(started, fileName: Self.stateFileName)
 
         let deadline = Date().addingTimeInterval(duration)
-        let event = makeOneKiBEvent()
         var accepted = 0
         var admissionErrorCodes = Set<String>()
         while Date() < deadline {
             do {
-                try producer!.add(event, mode: .immediate)
+                try producer!.add(
+                    makeOneKiBEvent(sequence: accepted, input: input),
+                    mode: .immediate)
                 accepted += 1
             } catch let error as ProducerError {
                 admissionErrorCodes.insert(error.errorCode)
@@ -491,6 +701,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
             schemaVersion: 1,
             marker: "result_ready",
             runID: input.runID,
+            scenario: input.scenario,
             mode: input.mode.rawValue,
             persistence: input.persistence.rawValue,
             producerID: input.producerID,
@@ -515,6 +726,10 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
             region: input.region,
             projectID: input.projectID,
             topicID: input.topicID)
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        if input.networkFaultMode != .direct {
+            sessionConfiguration.protocolClasses = [RecoveryFaultURLProtocol.self]
+        }
         let configuration = try ProducerConfiguration(
             batch: BatchConfiguration(
                 maxLogCount: 1,
@@ -528,7 +743,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
             compression: .lz4,
             persistence: input.persistence == .buffered ? .buffered : .sync,
             connectTimeout: 5,
-            requestTimeout: 10,
+            requestTimeout: input.networkFaultMode == .direct ? 15 : 120,
             metadata: ProducerMetadata(source: "simulator-recovery"),
             maxLogAge: 7 * 24 * 60 * 60,
             expiredLogPolicy: .rewriteTimestamp,
@@ -536,13 +751,14 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
             callbackQueue: DispatchQueue(
                 label: "com.volcengine.tls.simulator-recovery.callback",
                 qos: .utility),
-            urlSessionConfiguration: .ephemeral,
+            urlSessionConfiguration: sessionConfiguration,
             automaticLifecycleHandling: false,
             producerID: input.producerID,
             destination: destination)
         let credentials = Credentials(
-            accessKeyID: Self.testAccessKeyID,
-            accessKeySecret: Self.testAccessKeySecret)
+            accessKeyID: input.accessKeyID ?? Self.testAccessKeyID,
+            accessKeySecret: input.accessKeySecret ?? Self.testAccessKeySecret,
+            securityToken: input.securityToken)
         return try await Producer.open(
             configuration: configuration,
             credentials: credentials,
@@ -551,8 +767,12 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
             })
     }
 
-    private func makeOneKiBEvent() -> LogEvent {
+    private func makeOneKiBEvent(sequence: Int, input: HarnessInput) -> LogEvent {
         LogEvent(contents: [
+            "run_id": .string(input.runID),
+            "scenario": .string(input.scenario),
+            "persistence": .string(input.persistence.rawValue),
+            "seq": .signedInt(Int64(sequence)),
             "payload": .string(String(repeating: "x", count: Self.payloadBytes))
         ])
     }
@@ -562,6 +782,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
             schemaVersion: 1,
             marker: "result_ready",
             runID: "unknown",
+            scenario: "unknown",
             mode: "unknown",
             persistence: "unknown",
             producerID: "unknown",

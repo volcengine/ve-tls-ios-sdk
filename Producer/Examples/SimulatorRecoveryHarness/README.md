@@ -1,14 +1,14 @@
 # SimulatorRecoveryHarness
 
-这是一个只用于验证模拟器进程级 WAL recovery 的最小 iOS App。它不包含
-真实 AK/SK，也不使用 `URLProtocol`：`TLS_SIMULATOR_ENDPOINT` 必须指向一个
-可由模拟器访问的 HTTPS 测试服务，并由外部夹具提供测试 CA 信任。
+这是一个只用于验证模拟器进程级 WAL recovery 的最小 iOS App。仓库和 App
+包内不包含真实 AK/SK；真实环境运行时只能通过子进程环境注入凭证。默认本地
+fixture 仍使用无意义测试凭证。可选的测试专用 `URLProtocol` 只实现
+`block-before-send` 和 `lose-ack-after-200` 两种故障，不属于 SDK 生产代码。
 
 App 的固定 bundle ID 是 `com.volcengine.tls.SimulatorRecoveryHarness`。
 它通过本仓库根的 Swift package 依赖 `VolcengineTLSProducer`，并固定使用
-`producerID`（由脚本传入）和无意义的测试凭证 `simulator-test-ak` /
-`simulator-test-sk`。Documents 中的状态和结果 JSON 只包含计数、模式、状态码
-和时间戳，不包含 endpoint、凭证或日志 body。
+`producerID`（由脚本传入）。Documents 中的状态、网络标记和结果 JSON 只包含
+run ID、场景、计数、模式、状态码和时间戳，不包含 endpoint、凭证或日志 body。
 
 ## 三种模式
 
@@ -23,14 +23,20 @@ App 的固定 bundle ID 是 `com.volcengine.tls.SimulatorRecoveryHarness`。
 | `TLS_SIMULATOR_TOPIC_ID` | 必填 topic ID |
 | `TLS_SIMULATOR_PERSISTENCE` | `buffered` 或 `sync` |
 | `TLS_SIMULATOR_PRODUCER_ID` | 必填、两次启动必须相同 |
-| `TLS_SIMULATOR_RUN_ID` | 必填，用于关联一轮，不写入日志 body |
+| `TLS_SIMULATOR_RUN_ID` | 必填，用于关联一轮；每条测试日志写入 `run_id` |
+| `TLS_SIMULATOR_SCENARIO` | 可选场景名；真实验收时与 run ID/seq 一起写入日志 |
+| `TLS_SIMULATOR_NETWORK_FAULT` | `direct`（默认）、`block-before-send` 或 `lose-ack-after-200`；recover 只能是 `direct` |
 | `TLS_SIMULATOR_SEED_COUNT` | `seed` 必填；每条为估算 1 KiB |
+| `TLS_SIMULATOR_ACCESS_KEY_ID` | 可选；只从进程环境读取，不接受命令行参数 |
+| `TLS_SIMULATOR_ACCESS_KEY_SECRET` | 可选；只从进程环境读取，必须与 AK 同时设置 |
+| `TLS_SIMULATOR_SECURITY_TOKEN` | 可选；只从进程环境读取 |
 | `TLS_SIMULATOR_RECOVERY_TIMEOUT_SECONDS` | `recover` 等待终态回调的超时，默认 120 |
 | `TLS_SIMULATOR_SOAK_DRAIN_TIMEOUT_SECONDS` | `soak` 停止 admission 后等待所有终态回调的超时，默认 30 |
 | `TLS_SIMULATOR_SOAK_DURATION_SECONDS` | `soak` 必填；秒 |
 | `TLS_SIMULATOR_SOAK_INTERVAL_MS` | `soak` 必填；相邻 admission 间隔 |
 
-`seed` 打开持久化 Producer，连续 `add(..., mode: .immediate)`，所有 admission
+`seed` 打开持久化 Producer，连续 `add(..., mode: .immediate)`；每条事件都带
+`run_id`、`scenario`、`persistence` 和唯一 `seq`。所有 admission
 返回成功后以原子替换写入 `Documents/simulator-recovery-state.json`，然后保持进程
 存活。外部脚本观察到 `seed_ready` 后执行 `simctl terminate`。`recover` 启动同一
 已安装 App，重新打开相同 producerID，等待 recovered `SendResult` 数量达到 seed
@@ -40,6 +46,11 @@ App 的固定 bundle ID 是 `com.volcengine.tls.SimulatorRecoveryHarness`。
 恢复结果只有在本次 recover 进程收到的 `SendResult` 满足
 `successCount == acceptedLogCount` 且 `failureCount == 0` 时才记为 `success`；
 callback 计数器不会跨 seed/recover 进程共享。
+
+真实 BOE 的四轮矩阵由
+`Producer/scripts/boe/run-real-boe-recovery.sh` 驱动。该脚本只用
+`SIMCTL_CHILD_` 环境把凭证传给一次 `simctl launch` 的子进程，不写入
+`launchctl` 全局环境、不把值放入命令行参数，也不把凭证复制到证据目录。
 
 `soak` 在给定时长内周期性 admission，停止 admission 后等待所有已接收日志的
 终态回调，再写结果文件。只有 observed/success 与 accepted 完全相等且失败数为 0
