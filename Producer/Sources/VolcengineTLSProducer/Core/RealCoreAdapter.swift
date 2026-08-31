@@ -169,14 +169,19 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
     func add(_ event: PreparedLogEvent, mode: AddMode) throws {
         try ensureOpen()
         do {
-            try event.encodedLengths.withUnsafeBufferPointer { lengths in
-                try adapter.addLog(
-                    withTimestamp: event.timestampMilliseconds,
-                    hashKey: event.hashKey,
-                    fieldBytes: event.encodedFieldBytes,
-                    lengths: lengths.baseAddress,
-                    lengthCount: UInt(lengths.count),
-                    flush: mode == .immediate)
+            // Swift Data bridges to an autoreleased NSData at the ObjC call.
+            // A caller may perform a long synchronous add loop without ever
+            // draining its own pool, so bound those bridge temporaries here.
+            try autoreleasepool {
+                try event.encodedLengths.withUnsafeBufferPointer { lengths in
+                    try adapter.addLog(
+                        withTimestamp: event.timestampMilliseconds,
+                        hashKey: event.hashKey,
+                        fieldBytes: event.encodedFieldBytes,
+                        lengths: lengths.baseAddress,
+                        lengthCount: UInt(lengths.count),
+                        flush: mode == .immediate)
+                }
             }
         } catch {
             throw Self.mapBridgeError(error, operation: .add)
