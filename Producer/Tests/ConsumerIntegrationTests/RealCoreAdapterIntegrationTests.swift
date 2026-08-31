@@ -1318,4 +1318,58 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         XCTAssertLessThan(result.compressedBytes, result.rawBytes)
         try adapter.close(withTimeout: 5)
     }
+
+    /// The public 9.5 MiB raw-batch ceiling must also be the effective HTTP
+    /// body ceiling when compression is disabled. The C Core defaults its
+    /// compressed-body guard to 5 MiB; the iOS bridge must override that
+    /// default or a valid public configuration is dropped before transport.
+    func testUncompressedBatchAboveFiveMiBReachesHTTP() async throws {
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+        let adapter = try makeBridgeAdapter(
+            lz4Enabled: false,
+            maxLogCount: 6,
+            maxRawBytes: 19 * 512 * 1024,
+            maxBufferBytes: 64 * 1024 * 1024,
+            linger: 60)
+        let callback = BridgeCallbackCollector()
+        let callbackExpectation = expectation(description: "large uncompressed send result")
+        installCallback(on: adapter, collector: callback, expectation: callbackExpectation)
+        try adapter.open()
+
+        let payload = String(repeating: "x", count: 900_000)
+        for index in 0..<6 {
+            try adapter.addLog(
+                withTimestamp: Int64(Date().timeIntervalSince1970 * 1000),
+                hashKey: nil as String?,
+                contents: [
+                    "message": payload,
+                    "sequence": String(index),
+                ],
+                flush: index == 5)
+        }
+        await fulfillment(of: [callbackExpectation], timeout: 12)
+
+        let result = try XCTUnwrap(callback.first)
+        XCTAssertEqual(result.result, 0, "valid >5 MiB public batch must not be dropped locally")
+        XCTAssertNil(result.errorCode)
+        XCTAssertGreaterThan(result.rawBytes, UInt(5 * 1024 * 1024))
+        XCTAssertGreaterThan(result.compressedBytes, UInt(5 * 1024 * 1024))
+        let requests = RealCoreStubURLProtocol.recordedRequests()
+        XCTAssertEqual(requests.count, 1)
+        try adapter.close(withTimeout: 5)
+    }
+
+    func testLocalCorePayloadLimitFailureIsNotMisclassifiedAsTransport() {
+        let mapped = RealCoreAdapter.mapSendFailure(
+            result: 2,
+            httpCode: -1,
+            errorCode: "PayloadTooLarge",
+            errorMessage: "HTTP transport failed",
+            requestID: nil,
+            transportKind: 2,
+            transportCode: 0,
+            retryable: false)
+
+        XCTAssertEqual(mapped, .internal("C Core rejected a validated batch size"))
+    }
 }

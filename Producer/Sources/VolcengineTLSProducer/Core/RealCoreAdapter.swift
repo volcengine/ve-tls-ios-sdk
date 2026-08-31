@@ -374,7 +374,7 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
         return .internal("C Core adapter operation failed")
     }
 
-    private static func mapSendFailure(
+    static func mapSendFailure(
         result: Int32,
         httpCode: Int,
         errorCode: String?,
@@ -398,6 +398,30 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
                 requestID: requestID)
         default:
             break
+        }
+
+        // The current C Core uses VE_TLS_TRANSPORT_GENERIC for some errors
+        // produced before the HTTP adapter is entered. A zero transport code
+        // plus one of these stable Core codes is therefore a local lifecycle,
+        // capacity, or invariant failure—not a DNS/TLS/connect failure.
+        // Classify it before the transport-kind fallback so public results do
+        // not hide PayloadTooLarge/queue/buffer failures as `transport`.
+        if transportCode == 0 {
+            let normalized = errorCode?.lowercased() ?? ""
+            switch normalized {
+            case "producerclosed", "sendqueuestopped":
+                return .closed
+            case "keyqueuelimitexceeded", "sendqueuefull", "sendqueuetimeout":
+                return .queueFull
+            case "bufferfull", "bufferfulltimeout":
+                return .bufferFull
+            case "payloadtoolarge":
+                return .internal("C Core rejected a validated batch size")
+            case "memoryallocfailed", "clienterror", "credentialsrefreshfailed":
+                return .internal("C Core failed before starting the HTTP request")
+            default:
+                break
+            }
         }
 
         if result == CoreResult.timeout.rawValue || transportCode == 2103 {

@@ -533,7 +533,13 @@ static NSString *TLSCoreSanitizedString(const char *value,
     return output.length > 0 ? output : fallback;
 }
 
-static NSString *TLSCoreSafeErrorCode(const char *value) {
+static NSString * _Nullable TLSCoreSafeErrorCode(const char *value) {
+    // A successful C callback carries an initialized-but-empty error struct.
+    // Preserve absence instead of manufacturing a misleading "CoreError" on
+    // an otherwise successful public SendResult.
+    if (!value || value[0] == '\0') {
+        return nil;
+    }
     return TLSCoreSanitizedString(value, 128, @"CoreError");
 }
 
@@ -914,6 +920,13 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
     cConfig.log_count_per_package = cMaxLogCount;
     cConfig.log_bytes_per_package = cMaxRawBytes;
     cConfig.agg_max_raw_bytes_per_request = cMaxRawBytes;
+    // The Core default keeps the post-compression/body ceiling at 5 MiB.
+    // With compression disabled that silently rejects a valid public batch
+    // between 5 MiB and the iOS contract's checked 9.5 MiB raw ceiling before
+    // the HTTP adapter is called. Keep both aggregate guards aligned with the
+    // already validated public batch limit; the service's 10 MB hard limit is
+    // still protected by ProducerConfiguration's stricter 9.5 MiB maximum.
+    cConfig.agg_max_compressed_bytes_per_request = cMaxRawBytes;
     cConfig.flush_interval_ms = cLinger;
 
     // Buffer
