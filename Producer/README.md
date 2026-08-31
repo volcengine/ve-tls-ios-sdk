@@ -112,7 +112,9 @@ sendConcurrency 1，LZ4，connect 10s，request 15s，maxLogAge 7d。可配置�
 下保留 framing 余量。移动端单实例资源合同还限制 buffer 不超过 256 MiB、
 sendConcurrency 不超过 8；正整数是精确线程数，Core 只把 0 作为 runtime auto
 哨兵。initializer 与 open 边界都会重校验，Bridge 也独立拒绝越界值。
-`LogEvent.hashKey` 若非 `nil`，必须精确匹配 `[0-9a-f]{32}`。
+`LogEvent.hashKey` 若非 `nil`，必须是半开区间
+`[00000000000000000000000000000000, ffffffffffffffffffffffffffffffff)`
+内的精确 32 位小写十六进制；全 `f` 是排除的上界。
 
 持久化模式：
 

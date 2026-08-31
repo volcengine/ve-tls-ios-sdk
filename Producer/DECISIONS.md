@@ -37,7 +37,9 @@
    不在调用方 MainActor 上执行。
 5. `.normal` 进入批量窗口；`.immediate` 封批并唤醒 sender；两者都不等待网络
    或服务端 ACK。
-   `LogEvent.hashKey` 为 `nil` 或精确 32 位小写十六进制（`[0-9a-f]{32}`）。
+   `LogEvent.hashKey` 为 `nil`，或位于半开区间
+   `[00000000000000000000000000000000, ffffffffffffffffffffffffffffffff)`
+   的精确 32 位小写十六进制；全 `f` 是排除的上界，与 SLS 路由合同一致。
 6. `updateCredentials` 原子替换 AK/SK/STS 整组；`updateDestination` 使用
    current-target 语义，已接收 backlog 可能改投新 endpoint/region/topic。
    v0.3.1 update API 没有 projectID 参数，所以 projectID 只更新 SDK snapshot，

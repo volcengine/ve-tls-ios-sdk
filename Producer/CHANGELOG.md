@@ -75,7 +75,9 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   边界拒绝 header-bound 字段中的 CR/LF，避免换行注入且错误不回显输入。
 - transport 将响应体限制为 64 KiB；超限在追加前终止、清空部分 body、标记为
   不可重试，避免恶意或误配 endpoint 导致无界内存增长。
-- `LogEvent.hashKey` 在 public/Bridge 两层统一为精确 32 位小写十六进制；batch
+- `LogEvent.hashKey` 在 public/Bridge/Core 三层统一为半开区间
+  `[00000000000000000000000000000000, ffffffffffffffffffffffffffffffff)`
+  内的精确 32 位小写十六进制，全 `f` 上界在发网前拒绝；batch
   可配置上限收紧为 9.5 MiB（9,961,472 bytes），同时写入 Core package/aggregate
   raw-byte 限制，在服务端 10 MiB 绝对上限下保留 framing 余量。
 - 冻结 at-least-once 边界：retry/recovery 可产生重复；只有已持久化且存储完整、
