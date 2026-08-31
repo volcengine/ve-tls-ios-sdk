@@ -112,6 +112,20 @@ final class LogValueEncodingTests: XCTestCase {
         XCTAssertEqual(try LogValue.utf8Data(Data()).encodedString(), "")
     }
 
+    func testUTF8DataInsideArrayEncodedAsJSONString() throws {
+        let value: LogValue = .array([
+            .utf8Data(Data("a\"b\\c\n🙂".utf8)),
+        ])
+        XCTAssertEqual(try value.encodedString(), "[\"a\\\"b\\\\c\\n🙂\"]")
+    }
+
+    func testUTF8DataInsideDictionaryEncodedAsJSONString() throws {
+        let value: LogValue = .dictionary([
+            "bytes": .utf8Data(Data("字节-🙂".utf8)),
+        ])
+        XCTAssertEqual(try value.encodedString(), "{\"bytes\":\"字节-🙂\"}")
+    }
+
     // MARK: - Rejections
 
     func testNaNDoubleRejected() {

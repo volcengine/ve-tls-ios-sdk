@@ -116,7 +116,7 @@ extension LogValue {
             guard !LogValue.containsEmbeddedNUL(text) else {
                 throw LogValueEncodingError.embeddedNUL
             }
-            return text
+            return quoteStrings ? LogValue.encodeJSONString(text) : text
         }
     }
 
