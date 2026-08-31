@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,27 +15,32 @@ import (
 )
 
 type verifyConfig struct {
-	endpoint        string
-	region          string
-	ak              string
-	sk              string
-	token           string
-	topic           string
-	runID           string
-	profile         string
-	expectCount     int
-	startMS         int64
-	endMS           int64
-	timeout         time.Duration
-	duplicatePolicy string
+	endpoint         string
+	region           string
+	ak               string
+	sk               string
+	token            string
+	topic            string
+	runID            string
+	profile          string
+	scenario         string
+	persistence      string
+	expectCount      int
+	startMS          int64
+	endMS            int64
+	timeout          time.Duration
+	duplicatePolicy  string
+	minMatchedShards int
 }
 
 type observedLogs struct {
-	matches      int
-	bySequence   map[int]int
-	shards       int
-	pages        int
-	metadataSeen int
+	matches        int
+	bySequence     map[int]int
+	shards         int
+	pages          int
+	metadataSeen   int
+	matchedShards  map[int]struct{}
+	hashSlotShards map[int]int
 }
 
 func requiredEnvironment(name string) (string, error) {
@@ -67,6 +73,27 @@ func environmentInt64(name string) (int64, error) {
 		return 0, fmt.Errorf("%s must be an integer", name)
 	}
 	return parsed, nil
+}
+
+func optionalEnvironment(name, alias string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return os.Getenv(alias)
+}
+
+func safeIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if (character < 'a' || character > 'z') &&
+			(character < '0' || character > '9') &&
+			character != '_' && character != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func loadConfig() (verifyConfig, error) {
@@ -104,6 +131,20 @@ func loadConfig() (verifyConfig, error) {
 	if config.profile == "" {
 		config.profile = "field_fidelity"
 	}
+	config.scenario = optionalEnvironment("BOE_VERIFY_EXPECT_SCENARIO", "BOE_VERIFY_SCENARIO")
+	config.persistence = optionalEnvironment("BOE_VERIFY_EXPECT_PERSISTENCE", "BOE_VERIFY_PERSISTENCE")
+	// Accept both forms for the new verifier: the explicit `volume` profile
+	// plus a scenario, and a direct volume profile name. The latter is useful
+	// when the summary row already supplies the profile as its only selector.
+	if config.profile != "volume" {
+		if _, ok := volumePayloadLength(config.profile); ok {
+			if config.scenario != "" && config.scenario != config.profile {
+				return config, errors.New("volume profile and scenario must identify the same profile")
+			}
+			config.scenario = config.profile
+			config.profile = "volume"
+		}
+	}
 	config.duplicatePolicy = os.Getenv("BOE_VERIFY_DUPLICATE_POLICY")
 	if config.duplicatePolicy == "" {
 		config.duplicatePolicy = "forbid"
@@ -116,14 +157,43 @@ func loadConfig() (verifyConfig, error) {
 		}
 	}
 	config.timeout = time.Duration(timeoutMS) * time.Millisecond
+	if value := optionalEnvironment("BOE_VERIFY_MIN_MATCHED_SHARDS", "BOE_VERIFY_MIN_SHARDS"); value != "" {
+		config.minMatchedShards, err = strconv.Atoi(value)
+		if err != nil || config.minMatchedShards < 0 {
+			return config, errors.New("BOE_VERIFY_MIN_MATCHED_SHARDS must be non-negative")
+		}
+	}
 	if config.expectCount <= 0 || config.startMS <= 0 || config.endMS <= config.startMS {
 		return config, errors.New("invalid expected count or time range")
 	}
-	if config.profile != "field_fidelity" && config.profile != "recovery" && config.profile != "large_payload" {
-		return config, errors.New("BOE_VERIFY_PROFILE must be field_fidelity, recovery, or large_payload")
+	if config.profile != "field_fidelity" && config.profile != "recovery" && config.profile != "large_payload" && config.profile != "volume" {
+		return config, errors.New("BOE_VERIFY_PROFILE must be field_fidelity, recovery, large_payload, or volume")
 	}
 	if config.duplicatePolicy != "forbid" && config.duplicatePolicy != "allow" && config.duplicatePolicy != "require" {
 		return config, errors.New("BOE_VERIFY_DUPLICATE_POLICY must be forbid, allow, or require")
+	}
+	if config.profile == "volume" {
+		if !safeIdentifier(config.runID) {
+			return config, errors.New("BOE_VERIFY_RUN_ID must be a lowercase safe identifier for volume")
+		}
+		if config.scenario == "" {
+			return config, errors.New("BOE_VERIFY_EXPECT_SCENARIO is required for volume")
+		}
+		if !safeIdentifier(config.scenario) {
+			return config, errors.New("BOE_VERIFY_EXPECT_SCENARIO must be a lowercase safe identifier for volume")
+		}
+		if _, ok := volumePayloadLength(config.scenario); !ok {
+			return config, errors.New("BOE_VERIFY_EXPECT_SCENARIO is not a supported volume profile")
+		}
+		switch config.persistence {
+		case "disabled", "memory", "buffered", "sync":
+		default:
+			return config, errors.New("BOE_VERIFY_EXPECT_PERSISTENCE must be disabled, memory, buffered, or sync for volume")
+		}
+		if config.profile == "volume" && config.scenario == "hash-routing" && config.minMatchedShards == 0 {
+			// Hash routing is meaningful only when the run proves distribution.
+			config.minMatchedShards = 8
+		}
 	}
 	return config, nil
 }
@@ -133,7 +203,67 @@ func stringValue(values map[string]interface{}, key string) string {
 	if !ok || value == nil {
 		return ""
 	}
-	return fmt.Sprint(value)
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case json.Number:
+		return string(typed)
+	case []byte:
+		return string(typed)
+	default:
+		// SearchLogsV2 normally returns log values as strings. Keep a
+		// deterministic fallback for a service deployment that decodes a
+		// structured value instead; do not print this value in diagnostics.
+		if encoded, err := json.Marshal(typed); err == nil {
+			return string(encoded)
+		}
+		return fmt.Sprint(value)
+	}
+}
+
+const (
+	volumeHashSlotCount            = 256
+	volumePayloadMultiplier uint64 = 6364136223846793005
+	volumePayloadIncrement  uint64 = 1442695040888963407
+)
+
+var volumePayloadAlphabet = []byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_")
+
+func volumePayload(sequence, length int) string {
+	state := uint64(sequence) + uint64(0x9E3779B97F4A7C15)
+	result := make([]byte, length)
+	for index := range result {
+		state = state*volumePayloadMultiplier + volumePayloadIncrement
+		result[index] = volumePayloadAlphabet[state%uint64(len(volumePayloadAlphabet))]
+	}
+	return string(result)
+}
+
+func volumeComplexValue(sequence int) string {
+	boolean := "false"
+	if sequence%2 == 0 {
+		boolean = "true"
+	}
+	return fmt.Sprintf(
+		`{"array":["元素🙂",%d,%s,null],"bytes":"字节-🙂-%d","count":%d,"nested":{"a":3.14159,"区域":"华东"}}`,
+		sequence, boolean, sequence, sequence)
+}
+
+func volumePayloadLength(profile string) (int, bool) {
+	switch profile {
+	case "default-lz4":
+		return 1024, true
+	case "no-compression-count":
+		return 2048, true
+	case "buffered-high-concurrency", "sync-max-count", "complex-data-default", "complex-data-custom", "hash-routing":
+		return 512, true
+	case "hot-update", "auth-retain-bulk":
+		return 768, true
+	case "mixed-immediate":
+		return 256, true
+	default:
+		return 0, false
+	}
 }
 
 func expectedFieldValues(sequence int, config verifyConfig) map[string]string {
@@ -142,7 +272,7 @@ func expectedFieldValues(sequence int, config verifyConfig) map[string]string {
 		"seq":    strconv.Itoa(sequence),
 	}
 	if config.profile == "recovery" {
-		values["scenario"] = os.Getenv("BOE_VERIFY_EXPECT_SCENARIO")
+		values["scenario"] = config.scenario
 		return values
 	}
 	if config.profile == "large_payload" {
@@ -153,6 +283,36 @@ func expectedFieldValues(sequence int, config verifyConfig) map[string]string {
 			len("seq") + len("0") + len("payload")
 		values["scenario"] = scenario
 		values["payload"] = strings.Repeat("x", maxRawBytes-fixedRawBytes)
+		return values
+	}
+	if config.profile == "volume" {
+		payloadLength, _ := volumePayloadLength(config.scenario)
+		values["scenario"] = config.scenario
+		values["persistence"] = config.persistence
+		values["profile"] = config.scenario
+		values["payload_size"] = strconv.Itoa(payloadLength)
+		values["payload"] = volumePayload(sequence, payloadLength)
+		switch config.scenario {
+		case "hash-routing":
+			values["hash_slot"] = strconv.Itoa(sequence % volumeHashSlotCount)
+		case "mixed-immediate":
+			if sequence%2 == 0 {
+				values["admission_mode"] = "immediate"
+			} else {
+				values["admission_mode"] = "normal"
+			}
+		case "complex-data-default", "complex-data-custom":
+			values["unicode"] = fmt.Sprintf("业务-日志-🙂-%d", sequence)
+			values["complex"] = volumeComplexValue(sequence)
+		case "hot-update":
+			if sequence < config.expectCount/2 {
+				values["update_phase"] = "before"
+			} else {
+				values["update_phase"] = "after"
+			}
+		case "auth-retain-bulk":
+			values["auth_phase"] = "retain-bulk"
+		}
 		return values
 	}
 	values["scenario"] = "field_fidelity"
@@ -186,6 +346,15 @@ func validateFields(fields map[string]string, config verifyConfig) (int, error) 
 			return 0, fmt.Errorf("seq=%d field mismatch=%s", sequence, key)
 		}
 	}
+	if config.profile == "volume" {
+		eventTime, err := strconv.ParseInt(fields["event_time_ms"], 10, 64)
+		if err != nil || eventTime <= 0 || eventTime%1000 != 0 {
+			return 0, fmt.Errorf("seq=%d event_time_ms is invalid", sequence)
+		}
+		if eventTime < config.startMS-60000 || eventTime > config.endMS+60000 {
+			return 0, fmt.Errorf("seq=%d event_time_ms is outside expected window", sequence)
+		}
+	}
 	return sequence, nil
 }
 
@@ -207,6 +376,33 @@ func validateObserved(observed observedLogs, config verifyConfig) error {
 	for sequence := 0; sequence < config.expectCount; sequence++ {
 		if observed.bySequence[sequence] == 0 {
 			return fmt.Errorf("missing seq=%d", sequence)
+		}
+	}
+	return nil
+}
+
+func validateMatchedShardTopology(observed observedLogs, config verifyConfig) error {
+	if config.minMatchedShards > 0 && len(observed.matchedShards) < config.minMatchedShards {
+		return fmt.Errorf("matched shard count=%d expected at least=%d",
+			len(observed.matchedShards), config.minMatchedShards)
+	}
+	if config.profile != "volume" || config.scenario != "hash-routing" {
+		return nil
+	}
+	// The harness emits every slot in order for the 256-key routing run. A
+	// missing slot would mean that the service silently dropped or rerouted a
+	// subset even if the sequence count happened to be complete.
+	requiredSlots := config.expectCount
+	if requiredSlots > volumeHashSlotCount {
+		requiredSlots = volumeHashSlotCount
+	}
+	if len(observed.hashSlotShards) < requiredSlots {
+		return fmt.Errorf("hash slot mappings=%d expected at least=%d",
+			len(observed.hashSlotShards), requiredSlots)
+	}
+	for slot := 0; slot < requiredSlots; slot++ {
+		if _, ok := observed.hashSlotShards[slot]; !ok {
+			return fmt.Errorf("missing hash slot=%d mapping", slot)
 		}
 	}
 	return nil
@@ -285,6 +481,33 @@ func validateGroupMetadata(source, fileName string, tags map[string]string, conf
 		}
 		return nil
 	}
+	if config.profile == "volume" {
+		expectedSource := "ios-boe-volume"
+		expectedFileName := "producer-volume.log"
+		expectedTags := map[string]string{
+			"sdk":     "ios",
+			"suite":   "boe-volume",
+			"profile": config.scenario,
+		}
+		if config.scenario == "complex-data-default" {
+			expectedSource = "iOS"
+			expectedFileName = ""
+			expectedTags = map[string]string{}
+		} else if config.scenario == "complex-data-custom" {
+			expectedSource = "iOS-业务-🙂"
+			expectedFileName = "业务/volume.log"
+			expectedTags["locale"] = "zh-CN"
+		}
+		if source != expectedSource || fileName != expectedFileName {
+			return errors.New("volume source/file metadata mismatch")
+		}
+		for key, expected := range expectedTags {
+			if tags[key] != expected {
+				return errors.New("volume metadata tags mismatch")
+			}
+		}
+		return nil
+	}
 	if source != "ios-boe-business" || fileName != "producer-e2e.log" {
 		return errors.New("field-fidelity source/file metadata mismatch")
 	}
@@ -295,7 +518,11 @@ func validateGroupMetadata(source, fileName string, tags map[string]string, conf
 }
 
 func verifyConsume(client tls.Client, config verifyConfig) (observedLogs, error) {
-	observed := observedLogs{bySequence: map[int]int{}}
+	observed := observedLogs{
+		bySequence:     map[int]int{},
+		matchedShards:  map[int]struct{}{},
+		hashSlotShards: map[int]int{},
+	}
 	shards, err := client.DescribeShards(&tls.DescribeShardsRequest{
 		TopicID:  config.topic,
 		PageSize: 100,
@@ -370,18 +597,36 @@ func verifyConsume(client tls.Client, config verifyConfig) (observedLogs, error)
 							return observed, err
 						}
 						timestampMS := normalizeTimestampMilliseconds(logItem.GetTime())
-						if timestampMS < config.startMS-60000 || timestampMS > config.endMS+60000 {
+						if config.profile == "volume" {
+							eventTimeMS, parseErr := strconv.ParseInt(fields["event_time_ms"], 10, 64)
+							if parseErr != nil || timestampMS/1000 != eventTimeMS/1000 {
+								return observed, fmt.Errorf("seq=%d timestamp does not match event_time_ms", sequence)
+							}
+						} else if timestampMS < config.startMS-60000 || timestampMS > config.endMS+60000 {
 							return observed, fmt.Errorf("seq=%d timestamp outside expected window", sequence)
 						}
 						groupMatched = true
 						observed.matches++
 						observed.bySequence[sequence]++
+						if config.profile == "volume" {
+							if config.scenario == "hash-routing" {
+								slot, parseErr := strconv.Atoi(fields["hash_slot"])
+								if parseErr != nil || slot < 0 || slot >= volumeHashSlotCount {
+									return observed, fmt.Errorf("seq=%d hash slot is invalid", sequence)
+								}
+								if previous, exists := observed.hashSlotShards[slot]; exists && previous != int(shard.ShardID) {
+									return observed, fmt.Errorf("hash slot=%d maps to multiple shards", slot)
+								}
+								observed.hashSlotShards[slot] = int(shard.ShardID)
+							}
+						}
 					}
 					if groupMatched {
 						if err := validateGroupMetadata(group.GetSource(), group.GetFileName(), tags, config); err != nil {
 							return observed, err
 						}
 						observed.metadataSeen++
+						observed.matchedShards[int(shard.ShardID)] = struct{}{}
 					}
 				}
 			}
@@ -398,6 +643,9 @@ func verifyConsume(client tls.Client, config verifyConfig) (observedLogs, error)
 		}
 	}
 	if err := validateObserved(observed, config); err != nil {
+		return observed, err
+	}
+	if err := validateMatchedShardTopology(observed, config); err != nil {
 		return observed, err
 	}
 	if observed.metadataSeen == 0 {
@@ -423,10 +671,10 @@ func main() {
 		config.runID, search.matches, len(search.bySequence), search.matches-len(search.bySequence), search.pages)
 	consume, err := verifyConsume(client, config)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "BOE_CONSUME_VERIFY_FAILED reason=%s matches=%d unique=%d shards=%d pages=%d\n",
-			err, consume.matches, len(consume.bySequence), consume.shards, consume.pages)
+		fmt.Fprintf(os.Stderr, "BOE_CONSUME_VERIFY_FAILED reason=%s matches=%d unique=%d shards=%d matched_shards=%d pages=%d\n",
+			err, consume.matches, len(consume.bySequence), consume.shards, len(consume.matchedShards), consume.pages)
 		os.Exit(4)
 	}
-	fmt.Printf("BOE_CONSUME_VERIFY_OK run_id=%s matches=%d unique=%d duplicates=%d shards=%d pages=%d metadata_groups=%d\n",
-		config.runID, consume.matches, len(consume.bySequence), consume.matches-len(consume.bySequence), consume.shards, consume.pages, consume.metadataSeen)
+	fmt.Printf("BOE_CONSUME_VERIFY_OK run_id=%s matches=%d unique=%d duplicates=%d shards=%d matched_shards=%d hash_slots=%d pages=%d metadata_groups=%d\n",
+		config.runID, consume.matches, len(consume.bySequence), consume.matches-len(consume.bySequence), consume.shards, len(consume.matchedShards), len(consume.hashSlotShards), consume.pages, consume.metadataSeen)
 }

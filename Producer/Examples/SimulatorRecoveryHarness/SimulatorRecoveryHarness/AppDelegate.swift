@@ -29,24 +29,299 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 }
 
-private enum HarnessMode: String {
+private enum HarnessMode: String, Sendable {
     case seed
     case recover
     case soak
+    case volume
 }
 
-private enum PersistenceMode: String {
+private enum PersistenceMode: String, Sendable {
+    case disabled
+    case memory
     case buffered
     case sync
+
+    var producerPersistence: Persistence {
+        switch self {
+        case .disabled:
+            return .disabled
+        case .memory:
+            return .memory
+        case .buffered:
+            return .buffered
+        case .sync:
+            return .sync
+        }
+    }
 }
 
-private enum NetworkFaultMode: String {
+private enum NetworkFaultMode: String, Sendable {
     case direct
     case blockBeforeSend = "block-before-send"
     case loseAckAfter200 = "lose-ack-after-200"
 }
 
-private struct HarnessInput {
+private enum VolumeProfile: String, CaseIterable, Sendable {
+    case defaultLZ4 = "default-lz4"
+    case noCompressionCount = "no-compression-count"
+    case bufferedHighConcurrency = "buffered-high-concurrency"
+    case syncMaxCount = "sync-max-count"
+    case hashRouting = "hash-routing"
+    case mixedImmediate = "mixed-immediate"
+    case complexDataDefault = "complex-data-default"
+    case complexDataCustom = "complex-data-custom"
+    case hotUpdate = "hot-update"
+    case authRetainBulk = "auth-retain-bulk"
+
+    /// Keep the first volume profile names accepted by the design as aliases,
+    /// while emitting only the canonical profile name in `VolumeResult`.
+    static func parse(_ value: String) -> VolumeProfile? {
+        switch value.lowercased() {
+        case "no-compression-byte":
+            return .noCompressionCount
+        case "hash-concurrency":
+            return .hashRouting
+        case "complex-data":
+            return .complexDataCustom
+        default:
+            return VolumeProfile(rawValue: value.lowercased())
+        }
+    }
+
+    func accepts(_ persistence: PersistenceMode) -> Bool {
+        switch self {
+        case .bufferedHighConcurrency:
+            return persistence == .buffered
+        case .syncMaxCount, .authRetainBulk:
+            return persistence == .sync
+        case .defaultLZ4, .noCompressionCount, .hashRouting,
+             .mixedImmediate, .complexDataDefault, .complexDataCustom,
+             .hotUpdate:
+            return true
+        }
+    }
+}
+
+private struct VolumeProfileConfiguration: Sendable {
+    let batch: BatchConfiguration
+    let buffer: BufferConfiguration
+    let sendConcurrency: Int
+    let compression: Compression
+    let payloadBytes: Int
+    let metadata: ProducerMetadata
+}
+
+private extension VolumeProfile {
+    var configuration: VolumeProfileConfiguration {
+        let ordinaryMetadata = ProducerMetadata(
+            source: "ios-boe-volume",
+            fileName: "producer-volume.log",
+            tags: [
+                "sdk": "ios",
+                "suite": "boe-volume",
+                "profile": rawValue,
+            ])
+        let customMetadata = ProducerMetadata(
+            source: "iOS-业务-🙂",
+            fileName: "业务/volume.log",
+            tags: [
+                "sdk": "ios",
+                "suite": "boe-volume",
+                "profile": rawValue,
+                "locale": "zh-CN",
+            ])
+
+        switch self {
+        case .defaultLZ4:
+            return VolumeProfileConfiguration(
+                batch: BatchConfiguration(
+                    maxLogCount: 1_024,
+                    maxRawBytes: 1 * 1024 * 1024,
+                    linger: 3),
+                buffer: BufferConfiguration(
+                    maxBytes: 64 * 1024 * 1024,
+                    fullPolicy: .reject,
+                    blockTimeout: 1),
+                sendConcurrency: 1,
+                compression: .lz4,
+                payloadBytes: 1_024,
+                metadata: ordinaryMetadata)
+        case .noCompressionCount:
+            return VolumeProfileConfiguration(
+                batch: BatchConfiguration(
+                    maxLogCount: 256,
+                    maxRawBytes: 1 * 1024 * 1024,
+                    linger: 30),
+                buffer: BufferConfiguration(
+                    maxBytes: 16 * 1024 * 1024,
+                    fullPolicy: .reject,
+                    blockTimeout: 1),
+                sendConcurrency: 4,
+                compression: .disabled,
+                payloadBytes: 2_048,
+                metadata: ordinaryMetadata)
+        case .bufferedHighConcurrency:
+            return VolumeProfileConfiguration(
+                batch: BatchConfiguration(
+                    maxLogCount: 4_096,
+                    maxRawBytes: 4 * 1024 * 1024,
+                    linger: 90),
+                buffer: BufferConfiguration(
+                    maxBytes: 128 * 1024 * 1024,
+                    fullPolicy: .reject,
+                    blockTimeout: 1),
+                sendConcurrency: 8,
+                compression: .lz4,
+                payloadBytes: 512,
+                metadata: ordinaryMetadata)
+        case .syncMaxCount:
+            return VolumeProfileConfiguration(
+                batch: BatchConfiguration(
+                    maxLogCount: 10_000,
+                    maxRawBytes: 19 * 512 * 1024,
+                    linger: 90),
+                buffer: BufferConfiguration(
+                    maxBytes: 256 * 1024 * 1024,
+                    fullPolicy: .block,
+                    blockTimeout: 1),
+                sendConcurrency: 2,
+                compression: .disabled,
+                payloadBytes: 512,
+                metadata: ordinaryMetadata)
+        case .hashRouting:
+            return VolumeProfileConfiguration(
+                batch: BatchConfiguration(
+                    maxLogCount: 256,
+                    maxRawBytes: 2 * 1024 * 1024,
+                    linger: 3),
+                buffer: BufferConfiguration(
+                    maxBytes: 64 * 1024 * 1024,
+                    fullPolicy: .reject,
+                    blockTimeout: 1),
+                sendConcurrency: 4,
+                compression: .lz4,
+                payloadBytes: 512,
+                metadata: ordinaryMetadata)
+        case .mixedImmediate:
+            return VolumeProfileConfiguration(
+                batch: BatchConfiguration(
+                    maxLogCount: 128,
+                    maxRawBytes: 512 * 1024,
+                    linger: 250 / 1_000),
+                buffer: BufferConfiguration(
+                    maxBytes: 32 * 1024 * 1024,
+                    fullPolicy: .reject,
+                    blockTimeout: 1),
+                sendConcurrency: 1,
+                compression: .lz4,
+                payloadBytes: 256,
+                metadata: ordinaryMetadata)
+        case .complexDataDefault:
+            return VolumeProfileConfiguration(
+                batch: BatchConfiguration(
+                    maxLogCount: 1_024,
+                    maxRawBytes: 1 * 1024 * 1024,
+                    linger: 3),
+                buffer: BufferConfiguration(
+                    maxBytes: 64 * 1024 * 1024,
+                    fullPolicy: .reject,
+                    blockTimeout: 1),
+                sendConcurrency: 1,
+                compression: .lz4,
+                payloadBytes: 512,
+                metadata: ProducerMetadata())
+        case .complexDataCustom:
+            return VolumeProfileConfiguration(
+                batch: BatchConfiguration(
+                    maxLogCount: 1_024,
+                    maxRawBytes: 1 * 1024 * 1024,
+                    linger: 3),
+                buffer: BufferConfiguration(
+                    maxBytes: 64 * 1024 * 1024,
+                    fullPolicy: .reject,
+                    blockTimeout: 1),
+                sendConcurrency: 1,
+                compression: .lz4,
+                payloadBytes: 512,
+                metadata: customMetadata)
+        case .hotUpdate:
+            return VolumeProfileConfiguration(
+                batch: BatchConfiguration(
+                    maxLogCount: 512,
+                    maxRawBytes: 2 * 1024 * 1024,
+                    linger: 1),
+                buffer: BufferConfiguration(
+                    maxBytes: 64 * 1024 * 1024,
+                    fullPolicy: .reject,
+                    blockTimeout: 1),
+                sendConcurrency: 2,
+                compression: .lz4,
+                payloadBytes: 768,
+                metadata: ordinaryMetadata)
+        case .authRetainBulk:
+            return VolumeProfileConfiguration(
+                batch: BatchConfiguration(
+                    maxLogCount: 1_024,
+                    maxRawBytes: 4 * 1024 * 1024,
+                    linger: 3),
+                buffer: BufferConfiguration(
+                    maxBytes: 128 * 1024 * 1024,
+                    fullPolicy: .block,
+                    blockTimeout: 1),
+                sendConcurrency: 2,
+                compression: .lz4,
+                payloadBytes: 768,
+                metadata: ordinaryMetadata)
+        }
+    }
+}
+
+private struct GeneratedEvent: Sendable {
+    let logEvent: LogEvent
+    /// Exact public field bytes: the UTF-8 byte count of every key plus its
+    /// encoded value. This is the expected raw-byte total for the volume run.
+    let rawFieldBytes: Int
+}
+
+/// A shared actor clock spaces all admission tasks against one aggregate rate.
+/// The slot is reserved before the await, so concurrent workers cannot each
+/// observe the same timestamp and burst at the configured rate independently.
+private actor VolumeRateLimiter {
+    private let intervalNanoseconds: UInt64?
+    private var nextSlot: UInt64?
+
+    init(targetLogsPerSecond: Double?) {
+        guard let targetLogsPerSecond,
+              targetLogsPerSecond.isFinite,
+              targetLogsPerSecond > 0 else {
+            intervalNanoseconds = nil
+            nextSlot = nil
+            return
+        }
+
+        let interval = 1_000_000_000.0 / targetLogsPerSecond
+        if interval >= Double(UInt64.max) {
+            intervalNanoseconds = UInt64.max
+        } else {
+            intervalNanoseconds = max(1, UInt64(interval.rounded(.up)))
+        }
+        nextSlot = nil
+    }
+
+    func waitForSlot() async {
+        guard let intervalNanoseconds else { return }
+        let now = DispatchTime.now().uptimeNanoseconds
+        let slot = max(now, nextSlot ?? now)
+        let (next, overflow) = slot.addingReportingOverflow(intervalNanoseconds)
+        nextSlot = overflow ? UInt64.max : next
+        if slot > now {
+            try? await Task.sleep(nanoseconds: slot - now)
+        }
+    }
+}
+
+private struct HarnessInput: Sendable {
     let mode: HarnessMode
     let endpoint: String
     let region: String
@@ -64,6 +339,8 @@ private struct HarnessInput {
     let recoveryTimeout: TimeInterval
     let soakDuration: TimeInterval?
     let soakInterval: TimeInterval?
+    let volumeProfile: VolumeProfile?
+    let targetLogsPerSecond: Double?
 
     init() throws {
         let modeText = HarnessInput.argumentOrEnvironment(
@@ -129,14 +406,14 @@ private struct HarnessInput {
         } else {
             seedCount = nil
         }
-        if mode == .seed && seedCount == nil {
+        if (mode == .seed || mode == .volume) && seedCount == nil {
             throw HarnessInputError.missingOrInvalid("seed-count")
         }
 
         let recoveryTimeout = try HarnessInput.positiveDouble(
             argument: "recovery-timeout",
             environment: "TLS_SIMULATOR_RECOVERY_TIMEOUT_SECONDS",
-            defaultValue: 120)
+            defaultValue: mode == .volume ? 600 : 120)
 
         let soakDuration: TimeInterval?
         let soakInterval: TimeInterval?
@@ -164,6 +441,32 @@ private struct HarnessInput {
             throw HarnessInputError.missingOrInvalid("recover-network-fault")
         }
 
+        let volumeProfile: VolumeProfile?
+        if mode == .volume {
+            guard let profileText = HarnessInput.argumentOrEnvironment(
+                argument: "volume-profile",
+                environment: "TLS_SIMULATOR_VOLUME_PROFILE"),
+                  let profile = VolumeProfile.parse(profileText) else {
+                throw HarnessInputError.missingOrInvalid("volume-profile")
+            }
+            volumeProfile = profile
+        } else {
+            volumeProfile = nil
+        }
+
+        let targetLogsPerSecond: Double?
+        if mode == .volume,
+           let rawRate = HarnessInput.argumentOrEnvironment(
+            argument: "target-logs-per-second",
+            environment: "TLS_SIMULATOR_TARGET_LOGS_PER_SECOND") {
+            guard let rate = Double(rawRate), rate.isFinite, rate > 0 else {
+                throw HarnessInputError.missingOrInvalid("target-logs-per-second")
+            }
+            targetLogsPerSecond = rate
+        } else {
+            targetLogsPerSecond = nil
+        }
+
         self.mode = mode
         self.endpoint = endpoint
         self.region = region
@@ -181,6 +484,8 @@ private struct HarnessInput {
         self.recoveryTimeout = recoveryTimeout
         self.soakDuration = soakDuration
         self.soakInterval = soakInterval
+        self.volumeProfile = volumeProfile
+        self.targetLogsPerSecond = targetLogsPerSecond
     }
 
     private static func required(argument: String, environment: String) throws -> String {
@@ -395,6 +700,9 @@ private final class ResultCollector: @unchecked Sendable {
         let successCount: Int
         let failureCount: Int
         let errorCodes: [String]
+        let totalRawBytes: Int
+        let totalCompressedBytes: Int
+        let requestIDCount: Int
     }
 
     private let lock = NSLock()
@@ -402,6 +710,9 @@ private final class ResultCollector: @unchecked Sendable {
     private var successCount = 0
     private var failureCount = 0
     private var errorCodes = Set<String>()
+    private var totalRawBytes = 0
+    private var totalCompressedBytes = 0
+    private var requestIDCount = 0
 
     func record(_ result: SendResult) {
         lock.lock()
@@ -415,6 +726,13 @@ private final class ResultCollector: @unchecked Sendable {
         if let error = result.error {
             errorCodes.insert(error.errorCode)
         }
+        totalRawBytes = Self.saturatingAdd(totalRawBytes, result.rawBytes)
+        totalCompressedBytes = Self.saturatingAdd(
+            totalCompressedBytes,
+            result.compressedBytes)
+        if let requestID = result.requestID, !requestID.isEmpty {
+            requestIDCount += 1
+        }
         lock.unlock()
     }
 
@@ -424,7 +742,10 @@ private final class ResultCollector: @unchecked Sendable {
             observedResultCount: observedResultCount,
             successCount: successCount,
             failureCount: failureCount,
-            errorCodes: errorCodes.sorted())
+            errorCodes: errorCodes.sorted(),
+            totalRawBytes: totalRawBytes,
+            totalCompressedBytes: totalCompressedBytes,
+            requestIDCount: requestIDCount)
         lock.unlock()
         return snapshot
     }
@@ -439,6 +760,69 @@ private final class ResultCollector: @unchecked Sendable {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
         return snapshot()
+    }
+
+    private static func saturatingAdd(_ lhs: Int, _ rhs: Int) -> Int {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? Int.max : sum
+    }
+}
+
+private struct VolumeAdmissionSnapshot: Sendable {
+    let generatedCount: Int
+    let accepted: Int
+    let generatedFieldBytes: Int
+    let acceptedFieldBytes: Int
+    let errorCodes: [String]
+}
+
+private final class VolumeAdmissionCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var generatedCount = 0
+    private var accepted = 0
+    private var generatedFieldBytes = 0
+    private var acceptedFieldBytes = 0
+    private var errorCodes = Set<String>()
+
+    func recordGenerated(_ event: GeneratedEvent) {
+        lock.lock()
+        generatedCount += 1
+        generatedFieldBytes = Self.saturatingAdd(
+            generatedFieldBytes,
+            event.rawFieldBytes)
+        lock.unlock()
+    }
+
+    func recordAccepted(_ event: GeneratedEvent) {
+        lock.lock()
+        accepted += 1
+        acceptedFieldBytes = Self.saturatingAdd(
+            acceptedFieldBytes,
+            event.rawFieldBytes)
+        lock.unlock()
+    }
+
+    func recordError(_ errorCode: String) {
+        lock.lock()
+        errorCodes.insert(errorCode)
+        lock.unlock()
+    }
+
+    func snapshot() -> VolumeAdmissionSnapshot {
+        lock.lock()
+        let snapshot = VolumeAdmissionSnapshot(
+            generatedCount: generatedCount,
+            accepted: accepted,
+            generatedFieldBytes: generatedFieldBytes,
+            acceptedFieldBytes: acceptedFieldBytes,
+            errorCodes: errorCodes.sorted())
+        lock.unlock()
+        return snapshot
+    }
+
+    private static func saturatingAdd(_ lhs: Int, _ rhs: Int) -> Int {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? Int.max : sum
     }
 }
 
@@ -473,13 +857,140 @@ private struct RunResult: Codable {
     let finishedAt: Date
 }
 
+/// Stable, standalone result schema for the high-capacity volume run. It is
+/// intentionally separate from the legacy recovery/soak result so external
+/// BOE verification can consume the aggregate byte and lifecycle evidence
+/// without depending on old fields.
+private struct VolumeResult: Codable {
+    let schemaVersion: Int
+    let marker: String
+    let profile: String
+    let runID: String
+    let persistence: String
+    let acceptedLogCount: Int
+    /// Exact UTF-8 bytes admitted through public LogEvent key/value fields.
+    /// This intentionally excludes protobuf, timestamp, and LogGroup metadata
+    /// overhead included by the Core's `observedRawBytes` metric.
+    let admittedFieldBytes: Int
+    let observedRawBytes: Int
+    let observedResultCount: Int
+    let successCount: Int
+    let failureCount: Int
+    let compressedBytes: Int
+    let requestIDCount: Int
+    let admissionMilliseconds: Int64
+    let drainMilliseconds: Int64
+    let closeOutcome: String
+    let errorCodes: [String]
+    let startedAt: Date
+    let finishedAt: Date
+    let targetLogsPerSecond: Double?
+    let outcome: String
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case marker
+        case profile
+        case runID
+        case persistence
+        case acceptedLogCount
+        case admittedFieldBytes
+        case observedRawBytes
+        case observedResultCount
+        case successCount
+        case failureCount
+        case compressedBytes
+        case requestIDCount
+        case admissionMilliseconds
+        case drainMilliseconds
+        case closeOutcome
+        case errorCodes
+        case startedAt
+        case finishedAt
+        case targetLogsPerSecond
+        case outcome
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(marker, forKey: .marker)
+        try container.encode(profile, forKey: .profile)
+        try container.encode(runID, forKey: .runID)
+        try container.encode(persistence, forKey: .persistence)
+        try container.encode(acceptedLogCount, forKey: .acceptedLogCount)
+        try container.encode(admittedFieldBytes, forKey: .admittedFieldBytes)
+        try container.encode(observedRawBytes, forKey: .observedRawBytes)
+        try container.encode(observedResultCount, forKey: .observedResultCount)
+        try container.encode(successCount, forKey: .successCount)
+        try container.encode(failureCount, forKey: .failureCount)
+        try container.encode(compressedBytes, forKey: .compressedBytes)
+        try container.encode(requestIDCount, forKey: .requestIDCount)
+        try container.encode(admissionMilliseconds, forKey: .admissionMilliseconds)
+        try container.encode(drainMilliseconds, forKey: .drainMilliseconds)
+        try container.encode(closeOutcome, forKey: .closeOutcome)
+        try container.encode(errorCodes, forKey: .errorCodes)
+        try container.encode(startedAt, forKey: .startedAt)
+        try container.encode(finishedAt, forKey: .finishedAt)
+        // Explicitly encode null when no aggregate pacing was requested so
+        // every VolumeResult has the same frozen key set.
+        try container.encode(targetLogsPerSecond, forKey: .targetLogsPerSecond)
+        try container.encode(outcome, forKey: .outcome)
+    }
+}
+
 private final class SimulatorRecoveryRunner: @unchecked Sendable {
     private static let stateFileName = "simulator-recovery-state.json"
     private static let resultFileName = "simulator-recovery-result.json"
+    private static let volumeResultFileName = "simulator-volume-result.json"
     private static let testAccessKeyID = "simulator-test-ak"
     private static let testAccessKeySecret = "simulator-test-sk"
     private static let rawBytesPerLog = 1_024
     private static let payloadBytes = 1_017
+    private static let volumePayloadAlphabet = Array(
+        "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_")
+        .compactMap { $0.asciiValue }
+    private static let volumeHashKeys: [String] = (0..<256).map {
+        makeVolumeHashKey(index: $0)
+    }
+
+    private static func makeVolumeHashKey(index: Int) -> String {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        switch index {
+        case 0:
+            // Lower boundary: 0x0000...0000.
+            break
+        case 1:
+            // Signed-boundary byte 0x7f across the complete 128-bit width.
+            bytes = [UInt8](repeating: 0x7f, count: 16)
+        case 2:
+            // Signed-boundary byte 0x80 across the complete 128-bit width.
+            bytes = [UInt8](repeating: 0x80, count: 16)
+        case 3:
+            // Upper non-all-f boundary: 0xffff...fffe.
+            bytes = [UInt8](repeating: 0xff, count: 16)
+            bytes[15] = 0xfe
+        default:
+            // Keep all 16 bytes meaningful. The first byte makes every key
+            // distinct while the remaining bytes exercise the full byte
+            // range instead of concentrating entropy in the low 8 bits.
+            bytes[0] = UInt8(truncatingIfNeeded: index)
+            var state = UInt64(index) &+ 0x9E37_79B9_7F4A_7C15
+            for position in 1..<bytes.count {
+                state = state &* 6_364_136_223_846_793_005 &+
+                    1_442_695_040_888_963_407
+                bytes[position] = UInt8(truncatingIfNeeded: state >> 56)
+            }
+            if bytes.allSatisfy({ $0 == 0xff }) {
+                bytes[15] = 0xfe
+            }
+        }
+        let alphabet = Array("0123456789abcdef")
+        return bytes.map { byte in
+            String(alphabet[Int(byte >> 4)]) +
+                String(alphabet[Int(byte & 0x0f)])
+        }.joined()
+    }
 
     private var producer: Producer?
     private let documentsURL: URL
@@ -506,6 +1017,8 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
                 try await runRecover(input)
             case .soak:
                 try await runSoak(input)
+            case .volume:
+                try await runVolume(input)
             }
         } catch let error as HarnessInputError {
             writeUnconfiguredResult(error.code)
@@ -717,15 +1230,651 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
         print("[simulator-recovery] result_ready outcome=\(outcome) accepted=\(accepted)")
     }
 
-    private func openProducer(
+    private func runVolume(_ input: HarnessInput) async throws {
+        guard let profile = input.volumeProfile,
+              let seedCount = input.seedCount else {
+            throw HarnessInputError.missingOrInvalid("volume-profile-or-seed-count")
+        }
+
+        let startedAt = Date()
+        let admissionStart = DispatchTime.now().uptimeNanoseconds
+
+        guard profile.accepts(input.persistence) else {
+            let finishedAt = Date()
+            let result = VolumeResult(
+                schemaVersion: 1,
+                marker: "volume_result_ready",
+                profile: profile.rawValue,
+                runID: input.runID,
+                persistence: input.persistence.rawValue,
+                acceptedLogCount: 0,
+                admittedFieldBytes: 0,
+                observedRawBytes: 0,
+                observedResultCount: 0,
+                successCount: 0,
+                failureCount: 0,
+                compressedBytes: 0,
+                requestIDCount: 0,
+                admissionMilliseconds: 0,
+                drainMilliseconds: 0,
+                closeOutcome: "not_attempted",
+                errorCodes: ["invalid_volume_persistence"],
+                startedAt: startedAt,
+                finishedAt: finishedAt,
+                targetLogsPerSecond: input.targetLogsPerSecond,
+                outcome: "configuration_error")
+            try writeJSON(result, fileName: Self.volumeResultFileName)
+            print("[simulator-volume] result_ready outcome=configuration_error")
+            return
+        }
+
+        // A retain-and-recover run must have real credentials available for
+        // the second half. The invalid first secret is generated below and is
+        // never persisted or printed.
+        if profile == .authRetainBulk,
+           (input.accessKeyID?.isEmpty != false ||
+            input.accessKeySecret?.isEmpty != false) {
+            let finishedAt = Date()
+            let result = VolumeResult(
+                schemaVersion: 1,
+                marker: "volume_result_ready",
+                profile: profile.rawValue,
+                runID: input.runID,
+                persistence: input.persistence.rawValue,
+                acceptedLogCount: 0,
+                admittedFieldBytes: 0,
+                observedRawBytes: 0,
+                observedResultCount: 0,
+                successCount: 0,
+                failureCount: 0,
+                compressedBytes: 0,
+                requestIDCount: 0,
+                admissionMilliseconds: 0,
+                drainMilliseconds: 0,
+                closeOutcome: "not_attempted",
+                errorCodes: ["credentials_required_for_auth_retain"],
+                startedAt: startedAt,
+                finishedAt: finishedAt,
+                targetLogsPerSecond: input.targetLogsPerSecond,
+                outcome: "configuration_error")
+            try writeJSON(result, fileName: Self.volumeResultFileName)
+            print("[simulator-volume] result_ready outcome=configuration_error")
+            return
+        }
+
+        let destination = makeDestination(input)
+        let validCredentials = makeVolumeCredentials(input)
+        let initialCredentials: Credentials
+        if profile == .authRetainBulk {
+            initialCredentials = Credentials(
+                accessKeyID: validCredentials.accessKeyID,
+                // Deliberately invalid and process-local. It is used only to
+                // enter the Core's unauthorized/retain state.
+                accessKeySecret: "invalid-volume-sk-\(UUID().uuidString)",
+                securityToken: validCredentials.securityToken)
+        } else {
+            initialCredentials = validCredentials
+        }
+
+        let collector = ResultCollector()
+        let callbackQueue = DispatchQueue(
+            label: "com.volcengine.tls.simulator-volume.callback",
+            qos: .utility)
+        do {
+            producer = try await openVolumeProducer(
+                input,
+                profile: profile,
+                destination: destination,
+                credentials: initialCredentials,
+                collector: collector,
+                callbackQueue: callbackQueue)
+        } catch let error as ProducerError {
+            let finishedAt = Date()
+            let result = VolumeResult(
+                schemaVersion: 1,
+                marker: "volume_result_ready",
+                profile: profile.rawValue,
+                runID: input.runID,
+                persistence: input.persistence.rawValue,
+                acceptedLogCount: 0,
+                admittedFieldBytes: 0,
+                observedRawBytes: 0,
+                observedResultCount: 0,
+                successCount: 0,
+                failureCount: 0,
+                compressedBytes: 0,
+                requestIDCount: 0,
+                admissionMilliseconds: 0,
+                drainMilliseconds: 0,
+                closeOutcome: "not_attempted",
+                errorCodes: [error.errorCode],
+                startedAt: startedAt,
+                finishedAt: finishedAt,
+                targetLogsPerSecond: input.targetLogsPerSecond,
+                outcome: "open_failed")
+            try writeJSON(result, fileName: Self.volumeResultFileName)
+            print("[simulator-volume] result_ready outcome=open_failed")
+            return
+        } catch {
+            let finishedAt = Date()
+            let result = VolumeResult(
+                schemaVersion: 1,
+                marker: "volume_result_ready",
+                profile: profile.rawValue,
+                runID: input.runID,
+                persistence: input.persistence.rawValue,
+                acceptedLogCount: 0,
+                admittedFieldBytes: 0,
+                observedRawBytes: 0,
+                observedResultCount: 0,
+                successCount: 0,
+                failureCount: 0,
+                compressedBytes: 0,
+                requestIDCount: 0,
+                admissionMilliseconds: 0,
+                drainMilliseconds: 0,
+                closeOutcome: "not_attempted",
+                errorCodes: ["internal"],
+                startedAt: startedAt,
+                finishedAt: finishedAt,
+                targetLogsPerSecond: input.targetLogsPerSecond,
+                outcome: "open_failed")
+            try writeJSON(result, fileName: Self.volumeResultFileName)
+            print("[simulator-volume] result_ready outcome=open_failed")
+            return
+        }
+
+        guard let producer else {
+            throw ProducerError.internal("volume producer was not opened")
+        }
+
+        let eventTimeSeconds = Int64(Date().timeIntervalSince1970.rounded(.down))
+        let rateLimiter = VolumeRateLimiter(
+            targetLogsPerSecond: input.targetLogsPerSecond)
+        let admission = VolumeAdmissionCollector()
+        var operationErrorCodes = Set<String>()
+
+        if profile == .hotUpdate {
+            let split = seedCount / 2
+            await Self.admitVolumeRange(
+                0..<split,
+                seedCount: seedCount,
+                input: input,
+                profile: profile,
+                eventTimeSeconds: eventTimeSeconds,
+                producer: producer,
+                rateLimiter: rateLimiter,
+                admission: admission)
+            do {
+                try producer.updateCredentials(validCredentials)
+            } catch let error as ProducerError {
+                operationErrorCodes.insert("updateCredentials_\(error.errorCode)")
+            } catch {
+                operationErrorCodes.insert("updateCredentials_internal")
+            }
+            do {
+                // The update intentionally names the same target. This
+                // exercises atomic replacement without introducing a second
+                // topic or changing the BOE verification scope.
+                try producer.updateDestination(destination)
+            } catch let error as ProducerError {
+                operationErrorCodes.insert("updateDestination_\(error.errorCode)")
+            } catch {
+                operationErrorCodes.insert("updateDestination_internal")
+            }
+            await Self.admitVolumeRange(
+                split..<seedCount,
+                seedCount: seedCount,
+                input: input,
+                profile: profile,
+                eventTimeSeconds: eventTimeSeconds,
+                producer: producer,
+                rateLimiter: rateLimiter,
+                admission: admission)
+        } else if profile == .hashRouting {
+            // Four disjoint ranges share one rate limiter. There is no per-
+            // worker rate multiplier and no overlap in sequence numbers.
+            await withTaskGroup(of: Void.self) { group in
+                for worker in 0..<4 {
+                    let lower = seedCount * worker / 4
+                    let upper = seedCount * (worker + 1) / 4
+                    group.addTask {
+                        await Self.admitVolumeRange(
+                            lower..<upper,
+                            seedCount: seedCount,
+                            input: input,
+                            profile: profile,
+                            eventTimeSeconds: eventTimeSeconds,
+                            producer: producer,
+                            rateLimiter: rateLimiter,
+                            admission: admission)
+                    }
+                }
+                await group.waitForAll()
+            }
+        } else {
+            await Self.admitVolumeRange(
+                0..<seedCount,
+                seedCount: seedCount,
+                input: input,
+                profile: profile,
+                eventTimeSeconds: eventTimeSeconds,
+                producer: producer,
+                rateLimiter: rateLimiter,
+                admission: admission)
+        }
+
+        let admissionEnd = DispatchTime.now().uptimeNanoseconds
+        let admissionSnapshot = admission.snapshot()
+        let admissionMilliseconds = Self.elapsedMilliseconds(
+            from: admissionStart,
+            to: admissionEnd)
+        let drainStart = admissionEnd
+
+        if profile == .authRetainBulk {
+            let beforeUpdate = collector.snapshot()
+            // This delay is only the explicit unauthorized-retain observation
+            // window. Completion is still decided by measured terminal bytes.
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            let afterObservation = collector.snapshot()
+            if afterObservation.observedResultCount !=
+                beforeUpdate.observedResultCount {
+                operationErrorCodes.insert("auth_retain_terminal_before_update")
+            }
+            do {
+                try producer.updateCredentials(validCredentials)
+            } catch let error as ProducerError {
+                operationErrorCodes.insert("updateCredentials_\(error.errorCode)")
+            } catch {
+                operationErrorCodes.insert("updateCredentials_internal")
+            }
+            do {
+                try producer.updateDestination(destination)
+            } catch let error as ProducerError {
+                operationErrorCodes.insert("updateDestination_\(error.errorCode)")
+            } catch {
+                operationErrorCodes.insert("updateDestination_internal")
+            }
+        }
+
+        var closeOutcome = "not_attempted"
+        do {
+            try await producer.close(timeout: input.recoveryTimeout)
+            closeOutcome = "success"
+        } catch let error as ProducerError {
+            closeOutcome = "failure"
+            operationErrorCodes.insert("close_\(error.errorCode)")
+        } catch {
+            closeOutcome = "failure"
+            operationErrorCodes.insert("close_internal")
+        }
+
+        // `close` joins Core workers, while public results are delivered on
+        // the caller-provided serial queue. This barrier deterministically
+        // drains every callback enqueued before close returned.
+        callbackQueue.sync {}
+        let snapshot = collector.snapshot()
+        let drainEnd = DispatchTime.now().uptimeNanoseconds
+
+        var errorCodes = Set(admissionSnapshot.errorCodes)
+        errorCodes.formUnion(operationErrorCodes)
+        errorCodes.formUnion(snapshot.errorCodes)
+
+        let allTerminalResultsSucceeded =
+            snapshot.observedResultCount > 0 &&
+            snapshot.successCount == snapshot.observedResultCount &&
+            snapshot.failureCount == 0
+        // Core raw bytes are the uncompressed protobuf LogGroup size. They
+        // include per-log wire fields, timestamps, and group metadata, while
+        // acceptedFieldBytes is only the exact public key/value UTF-8 total.
+        let terminalByteCoverage =
+            snapshot.totalRawBytes >= admissionSnapshot.acceptedFieldBytes
+        let success = admissionSnapshot.generatedCount == seedCount &&
+            admissionSnapshot.accepted == seedCount &&
+            admissionSnapshot.errorCodes.isEmpty &&
+            operationErrorCodes.isEmpty &&
+            admissionSnapshot.generatedFieldBytes ==
+                admissionSnapshot.acceptedFieldBytes &&
+            terminalByteCoverage &&
+            allTerminalResultsSucceeded &&
+            closeOutcome == "success"
+
+        let outcome: String
+        if success {
+            outcome = "success"
+        } else if admissionSnapshot.generatedCount != seedCount ||
+                    admissionSnapshot.accepted != seedCount ||
+                    !admissionSnapshot.errorCodes.isEmpty {
+            outcome = "admission_failed"
+        } else if closeOutcome != "success" {
+            outcome = "close_failed"
+        } else if snapshot.failureCount > 0 {
+            outcome = "terminal_failed"
+        } else if !allTerminalResultsSucceeded || !terminalByteCoverage {
+            outcome = "terminal_incomplete"
+        } else if !operationErrorCodes.isEmpty {
+            outcome = "operation_failed"
+        } else {
+            outcome = "failed"
+        }
+
+        let finishedAt = Date()
+        let result = VolumeResult(
+            schemaVersion: 1,
+            marker: "volume_result_ready",
+            profile: profile.rawValue,
+            runID: input.runID,
+            persistence: input.persistence.rawValue,
+            acceptedLogCount: admissionSnapshot.accepted,
+            admittedFieldBytes: admissionSnapshot.acceptedFieldBytes,
+            observedRawBytes: snapshot.totalRawBytes,
+            observedResultCount: snapshot.observedResultCount,
+            successCount: snapshot.successCount,
+            failureCount: snapshot.failureCount,
+            compressedBytes: snapshot.totalCompressedBytes,
+            requestIDCount: snapshot.requestIDCount,
+            admissionMilliseconds: admissionMilliseconds,
+            drainMilliseconds: Self.elapsedMilliseconds(
+                from: drainStart,
+                to: drainEnd),
+            closeOutcome: closeOutcome,
+            errorCodes: errorCodes.sorted(),
+            startedAt: startedAt,
+            finishedAt: finishedAt,
+            targetLogsPerSecond: input.targetLogsPerSecond,
+            outcome: outcome)
+        try writeJSON(result, fileName: Self.volumeResultFileName)
+        print(
+            "[simulator-volume] result_ready profile=\(profile.rawValue) " +
+                "outcome=\(outcome) accepted=\(admissionSnapshot.accepted) " +
+                "callbacks=\(snapshot.observedResultCount)")
+    }
+
+    private static func admitVolumeRange(
+        _ range: Range<Int>,
+        seedCount: Int,
+        input: HarnessInput,
+        profile: VolumeProfile,
+        eventTimeSeconds: Int64,
+        producer: Producer,
+        rateLimiter: VolumeRateLimiter,
+        admission: VolumeAdmissionCollector
+    ) async {
+        for sequence in range {
+            await rateLimiter.waitForSlot()
+            let generated = makeVolumeEvent(
+                sequence: sequence,
+                seedCount: seedCount,
+                input: input,
+                profile: profile,
+                eventTimeSeconds: eventTimeSeconds)
+            admission.recordGenerated(generated)
+            do {
+                try producer.add(
+                    generated.logEvent,
+                    mode: volumeAddMode(
+                        sequence: sequence,
+                        seedCount: seedCount,
+                        profile: profile))
+                admission.recordAccepted(generated)
+            } catch let error as ProducerError {
+                admission.recordError(error.errorCode)
+            } catch {
+                admission.recordError("internal")
+            }
+        }
+    }
+
+    private func openVolumeProducer(
         _ input: HarnessInput,
-        collector: ResultCollector
+        profile: VolumeProfile,
+        destination: Destination,
+        credentials: Credentials,
+        collector: ResultCollector,
+        callbackQueue: DispatchQueue
     ) async throws -> Producer {
-        let destination = Destination(
+        let profileConfiguration = profile.configuration
+        let configuration = try ProducerConfiguration(
+            batch: profileConfiguration.batch,
+            buffer: profileConfiguration.buffer,
+            sendConcurrency: profileConfiguration.sendConcurrency,
+            compression: profileConfiguration.compression,
+            persistence: input.persistence.producerPersistence,
+            connectTimeout: 5,
+            requestTimeout: 15,
+            metadata: profileConfiguration.metadata,
+            maxLogAge: 7 * 24 * 60 * 60,
+            expiredLogPolicy: .rewriteTimestamp,
+            unauthorizedPolicy: .retain,
+            callbackQueue: callbackQueue,
+            urlSessionConfiguration: .ephemeral,
+            automaticLifecycleHandling: false,
+            producerID: input.producerID,
+            destination: destination)
+        return try await Producer.open(
+            configuration: configuration,
+            credentials: credentials,
+            onSendResult: { result in
+                collector.record(result)
+            })
+    }
+
+    private static func makeVolumeEvent(
+        sequence: Int,
+        seedCount: Int,
+        input: HarnessInput,
+        profile: VolumeProfile,
+        eventTimeSeconds: Int64
+    ) -> GeneratedEvent {
+        let profileConfiguration = profile.configuration
+        let payload = deterministicPayload(
+            sequence: sequence,
+            length: profileConfiguration.payloadBytes)
+        let eventTimeMilliseconds = eventTimeSeconds > Int64.max / 1_000
+            ? Int64.max
+            : eventTimeSeconds * 1_000
+        var contents: [String: LogValue] = [
+            "run_id": .string(input.runID),
+            "scenario": .string(input.scenario),
+            "persistence": .string(input.persistence.rawValue),
+            "profile": .string(profile.rawValue),
+            "seq": .signedInt(Int64(sequence)),
+            "event_time_ms": .signedInt(eventTimeMilliseconds),
+            "payload_size": .signedInt(Int64(payload.utf8.count)),
+            "payload": .string(payload),
+        ]
+
+        switch profile {
+        case .hashRouting:
+            // The fixed 4096-event matrix is exactly 256 keys x 16 events.
+            // Keep this mapping one-to-one with the sequence so every key has
+            // the same frequency and the hash-routing run does not dilute the
+            // matrix with nil hash keys.
+            let slot = sequence % volumeHashKeys.count
+            contents["hash_slot"] = .signedInt(Int64(slot))
+        case .mixedImmediate:
+            contents["admission_mode"] = .string(
+                volumeAddMode(
+                    sequence: sequence,
+                    seedCount: seedCount,
+                    profile: profile) == .immediate ? "immediate" : "normal")
+        case .complexDataDefault, .complexDataCustom:
+            contents["unicode"] = .string("业务-日志-🙂-\(sequence)")
+            contents["complex"] = .dictionary([
+                "array": .array([
+                    .string("元素🙂"),
+                    .signedInt(Int64(sequence)),
+                    .bool(sequence % 2 == 0),
+                    .null,
+                ]),
+                "bytes": .utf8Data(Data("字节-🙂-\(sequence)".utf8)),
+                "count": .unsignedInt(UInt64(sequence)),
+                "nested": .dictionary([
+                    "a": .double(3.14159),
+                    "区域": .string("华东"),
+                ]),
+            ])
+        case .hotUpdate:
+            contents["update_phase"] = .string(
+                sequence < seedCount / 2 ? "before" : "after")
+        case .authRetainBulk:
+            contents["auth_phase"] = .string("retain-bulk")
+        case .defaultLZ4, .noCompressionCount, .bufferedHighConcurrency,
+             .syncMaxCount:
+            break
+        }
+
+        let hashKey: String?
+        if profile == .hashRouting {
+            hashKey = volumeHashKeys[sequence % volumeHashKeys.count]
+        } else {
+            hashKey = nil
+        }
+        let logEvent = LogEvent(
+            timestamp: Date(timeIntervalSince1970: TimeInterval(eventTimeSeconds)),
+            hashKey: hashKey,
+            contents: contents)
+        return GeneratedEvent(
+            logEvent: logEvent,
+            rawFieldBytes: rawFieldBytes(contents))
+    }
+
+    private static func volumeAddMode(
+        sequence: Int,
+        seedCount: Int,
+        profile: VolumeProfile
+    ) -> AddMode {
+        switch profile {
+        case .mixedImmediate:
+            return sequence % 2 == 0 ? .immediate : .normal
+        case .authRetainBulk:
+            // Seal exactly once after the complete invalid-credential batch
+            // has been admitted so retain behavior is observed as a batch.
+            return sequence + 1 == seedCount ? .immediate : .normal
+        case .defaultLZ4, .noCompressionCount, .bufferedHighConcurrency,
+             .syncMaxCount, .hashRouting, .complexDataDefault,
+             .complexDataCustom, .hotUpdate:
+            return .normal
+        }
+    }
+
+    private static func rawFieldBytes(_ contents: [String: LogValue]) -> Int {
+        contents.reduce(0) { total, entry in
+            let fieldBytes = entry.key.utf8.count +
+                volumeEncodedString(entry.value).utf8.count
+            return saturatingAdd(total, fieldBytes)
+        }
+    }
+
+    /// Mirrors the public `LogValue` encoding rules for the finite set of
+    /// values generated above. Top-level strings are unquoted; strings nested
+    /// in arrays/dictionaries use compact JSON quoting.
+    private static func volumeEncodedString(
+        _ value: LogValue,
+        quoteStrings: Bool = false
+    ) -> String {
+        switch value {
+        case .string(let string):
+            return quoteStrings ? volumeJSONString(string) : string
+        case .signedInt(let number):
+            return String(number)
+        case .unsignedInt(let number):
+            return String(number)
+        case .double(let number):
+            return String(number)
+        case .bool(let value):
+            return value ? "true" : "false"
+        case .null:
+            return "null"
+        case .array(let values):
+            return "[" + values.map {
+                volumeEncodedString($0, quoteStrings: true)
+            }.joined(separator: ",") + "]"
+        case .dictionary(let dictionary):
+            let fields = dictionary.keys.sorted().map { key in
+                volumeJSONString(key) + ":" +
+                    volumeEncodedString(dictionary[key]!, quoteStrings: true)
+            }
+            return "{" + fields.joined(separator: ",") + "}"
+        case .utf8Data(let data):
+            return String(data: data, encoding: .utf8) ?? ""
+        }
+    }
+
+    private static func volumeJSONString(_ value: String) -> String {
+        var output = "\""
+        for scalar in value.unicodeScalars {
+            switch scalar {
+            case "\"":
+                output.append("\\\"")
+            case "\\":
+                output.append("\\\\")
+            case "\u{8}":
+                output.append("\\b")
+            case "\u{c}":
+                output.append("\\f")
+            case "\n":
+                output.append("\\n")
+            case "\r":
+                output.append("\\r")
+            case "\t":
+                output.append("\\t")
+            default:
+                if scalar.value < 0x20 {
+                    output.append(String(format: "\\u%04x", scalar.value))
+                } else {
+                    output.append(contentsOf: String(scalar))
+                }
+            }
+        }
+        output.append("\"")
+        return output
+    }
+
+    private static func deterministicPayload(sequence: Int, length: Int) -> String {
+        var state = UInt64(sequence) &+ 0x9E37_79B9_7F4A_7C15
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(length)
+        while bytes.count < length {
+            state = state &* 6_364_136_223_846_793_005 &+
+                1_442_695_040_888_963_407
+            bytes.append(volumePayloadAlphabet[
+                Int(state % UInt64(volumePayloadAlphabet.count))])
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    private static func elapsedMilliseconds(from start: UInt64, to end: UInt64) -> Int64 {
+        let nanoseconds = end >= start ? end - start : 0
+        let milliseconds = nanoseconds / 1_000_000
+        return milliseconds >= UInt64(Int64.max) ? Int64.max : Int64(milliseconds)
+    }
+
+    private static func saturatingAdd(_ lhs: Int, _ rhs: Int) -> Int {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? Int.max : sum
+    }
+
+    private func makeDestination(_ input: HarnessInput) -> Destination {
+        Destination(
             endpoint: input.endpoint,
             region: input.region,
             projectID: input.projectID,
             topicID: input.topicID)
+    }
+
+    private func makeVolumeCredentials(_ input: HarnessInput) -> Credentials {
+        Credentials(
+            accessKeyID: input.accessKeyID ?? Self.testAccessKeyID,
+            accessKeySecret: input.accessKeySecret ?? Self.testAccessKeySecret,
+            securityToken: input.securityToken)
+    }
+
+    private func openProducer(
+        _ input: HarnessInput,
+        collector: ResultCollector
+    ) async throws -> Producer {
+        let destination = makeDestination(input)
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         if input.networkFaultMode != .direct {
             sessionConfiguration.protocolClasses = [RecoveryFaultURLProtocol.self]
@@ -741,7 +1890,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
                 blockTimeout: 1),
             sendConcurrency: 1,
             compression: .lz4,
-            persistence: input.persistence == .buffered ? .buffered : .sync,
+            persistence: input.persistence.producerPersistence,
             connectTimeout: 5,
             requestTimeout: input.networkFaultMode == .direct ? 15 : 120,
             metadata: ProducerMetadata(source: "simulator-recovery"),
@@ -795,6 +1944,80 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
             errorCodes: [errorCode],
             finishedAt: Date())
         try? writeJSON(result, fileName: Self.resultFileName)
+
+        if Self.commandLineOrEnvironment(
+            argument: "mode",
+            environment: "TLS_SIMULATOR_MODE")?.lowercased() ==
+            HarnessMode.volume.rawValue {
+            writeUnconfiguredVolumeResult(errorCode)
+        }
+    }
+
+    private func writeUnconfiguredVolumeResult(_ errorCode: String) {
+        let profile = VolumeProfile.parse(
+            Self.commandLineOrEnvironment(
+                argument: "volume-profile",
+                environment: "TLS_SIMULATOR_VOLUME_PROFILE") ?? "")?.rawValue ?? "unknown"
+        let persistence = PersistenceMode(
+            rawValue: (Self.commandLineOrEnvironment(
+                argument: "persistence",
+                environment: "TLS_SIMULATOR_PERSISTENCE") ?? "").lowercased()
+        )?.rawValue ?? "unknown"
+        let runID: String
+        if let candidate = Self.commandLineOrEnvironment(
+            argument: "run-id",
+            environment: "TLS_SIMULATOR_RUN_ID"),
+           !candidate.contains("\0"),
+           candidate.utf8.count <= 128 {
+            runID = candidate
+        } else {
+            runID = "unknown"
+        }
+        let targetRate = Self.commandLineOrEnvironment(
+            argument: "target-logs-per-second",
+            environment: "TLS_SIMULATOR_TARGET_LOGS_PER_SECOND")
+            .flatMap(Double.init)
+            .flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        let now = Date()
+        let result = VolumeResult(
+            schemaVersion: 1,
+            marker: "volume_result_ready",
+            profile: profile,
+            runID: runID,
+            persistence: persistence,
+            acceptedLogCount: 0,
+            admittedFieldBytes: 0,
+            observedRawBytes: 0,
+            observedResultCount: 0,
+            successCount: 0,
+            failureCount: 0,
+            compressedBytes: 0,
+            requestIDCount: 0,
+            admissionMilliseconds: 0,
+            drainMilliseconds: 0,
+            closeOutcome: "not_attempted",
+            errorCodes: [errorCode],
+            startedAt: now,
+            finishedAt: now,
+            targetLogsPerSecond: targetRate,
+            outcome: "configuration_error")
+        try? writeJSON(result, fileName: Self.volumeResultFileName)
+    }
+
+    private static func commandLineOrEnvironment(
+        argument: String,
+        environment: String
+    ) -> String? {
+        let prefix = "--\(argument)="
+        let arguments = CommandLine.arguments
+        if let inline = arguments.dropFirst().first(where: { $0.hasPrefix(prefix) }) {
+            return String(inline.dropFirst(prefix.count))
+        }
+        if let index = arguments.dropFirst().firstIndex(of: "--\(argument)"),
+           arguments.index(after: index) < arguments.endIndex {
+            return arguments[arguments.index(after: index)]
+        }
+        return ProcessInfo.processInfo.environment[environment]
     }
 
     private func writeJSON<Value: Encodable>(_ value: Value, fileName: String) throws {
