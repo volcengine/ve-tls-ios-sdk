@@ -673,18 +673,26 @@ static BOOL TLSValidHashKey(NSString *value) {
     if (value == nil) {
         return YES;
     }
-    const char *bytes = value.UTF8String;
-    if (!bytes || strlen(bytes) != 32) {
+    NSData *data = [value dataUsingEncoding:NSUTF8StringEncoding];
+    if (data.length != 32) {
         return NO;
     }
+    const unsigned char *bytes = data.bytes;
+    BOOL isExclusiveUpperBound = YES;
     for (NSUInteger index = 0; index < 32; index++) {
-        unsigned char byte = (unsigned char)bytes[index];
+        unsigned char byte = bytes[index];
         if (!((byte >= '0' && byte <= '9') ||
               (byte >= 'a' && byte <= 'f'))) {
             return NO;
         }
+        if (byte != 'f') {
+            isExclusiveUpperBound = NO;
+        }
     }
-    return YES;
+    // SLS freezes the hash-key range as
+    // [00000000000000000000000000000000, ffffffffffffffffffffffffffffffff):
+    // all-`f` is the exclusive upper bound, not a routable hash key.
+    return !isExclusiveUpperBound;
 }
 
 static BOOL TLSValidEndpoint(NSString *endpoint) {
@@ -1201,7 +1209,7 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         if (error) {
             *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
                                       VE_TLS_INVALID,
-                                      @"hash key must be 32 lowercase hexadecimal characters");
+                                      @"hash key is not valid for routing");
         }
         return NO;
     }

@@ -106,17 +106,21 @@ final class LogEventValidationTests: XCTestCase {
         }
     }
 
-    func testHashKeyMustBeExactly32LowercaseHexBytes() throws {
+    func testHashKeyUsesHalfOpenRoutableRange() throws {
         let valid = [
+            // SLS freezes the hash-key range as
+            // [00000000000000000000000000000000, ffffffffffffffffffffffffffffffff).
             String(repeating: "0", count: 32),
             "0123456789abcdef0123456789abcdef",
-            String(repeating: "f", count: 32),
+            String(repeating: "f", count: 31) + "e",
         ]
         for hashKey in valid {
             XCTAssertNoThrow(
                 try LogEvent(hashKey: hashKey, contents: ["k": .string("v")]).validate(),
                 "expected valid hashKey: \(hashKey)")
         }
+        XCTAssertNoThrow(
+            try LogEvent(hashKey: nil, contents: ["k": .string("v")]).validate())
 
         let invalid = [
             "",
@@ -127,6 +131,7 @@ final class LogEventValidationTests: XCTestCase {
             "g",
             "hash-key",
             "é",
+            String(repeating: "f", count: 32),
         ]
         for hashKey in invalid {
             XCTAssertThrowsError(
@@ -136,7 +141,10 @@ final class LogEventValidationTests: XCTestCase {
                     XCTFail("expected .invalidLog, got \(error)")
                     return
                 }
-                XCTAssertTrue(paths.contains { $0.hasPrefix("hashKey:") })
+                XCTAssertEqual(paths, [
+                    "hashKey: must be a valid routable hash key"
+                ])
+                XCTAssertFalse(paths.joined(separator: "|").contains(hashKey))
             }
         }
     }

@@ -371,22 +371,50 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         XCTAssertNoThrow(try adapter.close(withTimeout: 5))
     }
 
-    func testBridgeRejectsHashKeyOutsideExact32LowercaseHexContract() throws {
+    func testBridgeRejectsHashKeyOutsideHalfOpenContract() throws {
         RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
         let adapter = try makeBridgeAdapter(linger: 60)
         try adapter.open()
         defer { try? adapter.close(withTimeout: 5) }
 
-        for hashKey in ["0", String(repeating: "A", count: 32), String(repeating: "f", count: 33)] {
+        let invalidHashKeys = [
+            "0",
+            String(repeating: "A", count: 32),
+            String(repeating: "f", count: 33),
+            String(repeating: "f", count: 32),
+            "0123456789abcdef0123456789abcdef\0suffix",
+        ]
+        for hashKey in invalidHashKeys {
             XCTAssertThrowsError(try adapter.addLog(
                 withTimestamp: Int64(Date().timeIntervalSince1970 * 1000),
                 hashKey: hashKey,
                 contents: ["message": "invalid-hash-key"],
+                flush: false)) { error in
+                let nsError = error as NSError
+                XCTAssertEqual(nsError.domain, TLSRealCoreAdapterErrorDomain)
+                XCTAssertEqual(nsError.code, TLSRealCoreAdapterErrorCode.addFailed.rawValue)
+                XCTAssertEqual(
+                    nsError.localizedDescription,
+                    "hash key is not valid for routing")
+                XCTAssertFalse(nsError.localizedDescription.contains(hashKey))
+            }
+        }
+        // Invalid values are rejected before Core admission and cannot reach HTTP.
+        XCTAssertTrue(RealCoreStubURLProtocol.recordedRequests().isEmpty)
+
+        for hashKey in [
+            String(repeating: "0", count: 32),
+            String(repeating: "f", count: 31) + "e",
+        ] {
+            XCTAssertNoThrow(try adapter.addLog(
+                withTimestamp: Int64(Date().timeIntervalSince1970 * 1000),
+                hashKey: hashKey,
+                contents: ["message": "valid-hash-key"],
                 flush: false))
         }
         XCTAssertNoThrow(try adapter.addLog(
             withTimestamp: Int64(Date().timeIntervalSince1970 * 1000),
-            hashKey: String(repeating: "f", count: 32),
+            hashKey: nil,
             contents: ["message": "valid-hash-key"],
             flush: false))
     }

@@ -25,10 +25,10 @@ public struct LogEvent: Equatable, Sendable {
         didSet { cachedAdmissionSnapshot = nil }
     }
 
-    /// Optional per-log hash key. When present, it must be exactly 32
-    /// lowercase hexadecimal characters (`[0-9a-f]{32}`). When `nil`, the
-    /// producer/Core default (round-robin / configured default hash key)
-    /// applies.
+    /// Optional per-log hash key. When present, it must be a 32-character
+    /// lowercase hexadecimal value in `[00000000000000000000000000000000,
+    /// ffffffffffffffffffffffffffffffff)`. When `nil`, the producer/Core
+    /// default (round-robin / configured default hash key) applies.
     public var hashKey: String? {
         didSet { cachedAdmissionSnapshot = nil }
     }
@@ -104,9 +104,14 @@ public struct LogEvent: Equatable, Sendable {
                     (byte >= 0x30 && byte <= 0x39) ||
                         (byte >= 0x61 && byte <= 0x66)
                 }
-            if !isLowercaseHex {
+            // SLS freezes the hash-key range as
+            // [00000000000000000000000000000000,
+            // ffffffffffffffffffffffffffffffff): all-`f` is excluded.
+            let isExclusiveUpperBound = isLowercaseHex &&
+                bytes.allSatisfy { $0 == 0x66 }
+            if !isLowercaseHex || isExclusiveUpperBound {
                 violations.append(
-                    "hashKey: must match lowercase hexadecimal [0-9a-f]{32}")
+                    "hashKey: must be a valid routable hash key")
             }
         }
         var encodedFieldBytes = Data()

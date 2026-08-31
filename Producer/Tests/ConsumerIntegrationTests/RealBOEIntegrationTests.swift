@@ -350,11 +350,11 @@ final class RealBOEIntegrationTests: XCTestCase {
         }
     }
 
-    /// The public contract accepts the entire lowercase 128-bit hash-key
-    /// range, including both all-zero and all-`f` endpoints. Keep this as a
-    /// real-service conformance test instead of weakening local validation if
-    /// one BOE deployment rejects a contract-valid boundary.
-    func testRealBOEHashKeyInclusiveBoundaries() async throws {
+    /// The public contract follows the SLS half-open 128-bit range: all-zero
+    /// is included and all-`f` is the excluded upper bound. The all-`f` local
+    /// admission rejection is covered by contract tests; this opt-in case
+    /// proves every representative valid boundary against the real service.
+    func testRealBOEHashKeyHalfOpenBoundaries() async throws {
         let fixture = try Fixture.loadOrSkip()
         guard let baseRunID = Self.environmentValue(["TLS_BOE_RUN_ID", "VE_TLS_RUN_ID"]) else {
             throw XCTSkip("set TLS_BOE_RUN_ID (or VE_TLS_RUN_ID) for hash-key evidence")
@@ -363,8 +363,7 @@ final class RealBOEIntegrationTests: XCTestCase {
             ("zero", "00000000000000000000000000000000"),
             ("lower_half", "7fffffffffffffffffffffffffffffff"),
             ("upper_half", "80000000000000000000000000000000"),
-            ("max_minus_one", "fffffffffffffffffffffffffffffffe"),
-            ("max", "ffffffffffffffffffffffffffffffff"),
+            ("max_inclusive", "fffffffffffffffffffffffffffffffe"),
         ]
         let collector = ResultCollector()
         let configuration = try ProducerConfiguration(
