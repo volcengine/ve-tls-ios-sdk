@@ -963,6 +963,12 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
     cConfig.send_thread_count = cSendConcurrency;
     cConfig.pack_thread_count = 1;
     cConfig.ordered_send = 1;
+    // Ordered/hash routing can produce many small independent tasks while the
+    // public byte buffer remains mostly empty. Use the Core's supported exact
+    // task capacity so its auto-tuned slot count does not reject accepted logs
+    // solely because hash-key cardinality exceeds maxBuffer/maxBatch. The byte
+    // budget remains enforced independently by max_buffer_bytes.
+    cConfig.send_queue_size = 1024;
 
     // Retry
     // v0.3.1 sender reads retry_policy.max_attempts. Keep the legacy mirror

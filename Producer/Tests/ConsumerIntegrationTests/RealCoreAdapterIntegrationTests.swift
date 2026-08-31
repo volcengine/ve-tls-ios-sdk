@@ -14,6 +14,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
     private final class Registry: @unchecked Sendable {
         let lock = NSLock()
         var stubbedResponses: [String: (HTTPURLResponse, Data)] = [:]
+        var responseDelays: [String: TimeInterval] = [:]
         var hangingPaths: Set<String> = []
         var requestLog: [(url: String, body: Data?, headers: [String: String])] = []
         var requestExpectation: XCTestExpectation?
@@ -25,6 +26,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
                             body: Data = Data(),
                             requestID: String? = "stub-req-001",
                             requestIDHeaderName: String = "x-tls-request-id",
+                            delay: TimeInterval = 0,
                             forPath path: String) {
         registry.lock.lock()
         defer { registry.lock.unlock() }
@@ -34,6 +36,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
             httpVersion: "HTTP/1.1",
             headerFields: requestID.map { [requestIDHeaderName: $0] })!
         registry.stubbedResponses[path] = (response, body)
+        registry.responseDelays[path] = delay
         registry.hangingPaths.remove(path)
     }
 
@@ -42,6 +45,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         defer { registry.lock.unlock() }
         registry.hangingPaths.insert(path)
         registry.stubbedResponses.removeValue(forKey: path)
+        registry.responseDelays.removeValue(forKey: path)
     }
 
     static func recordedRequests() -> [(url: String, body: Data?, headers: [String: String])] {
@@ -60,6 +64,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         registry.lock.lock()
         defer { registry.lock.unlock() }
         registry.stubbedResponses.removeAll()
+        registry.responseDelays.removeAll()
         registry.hangingPaths.removeAll()
         registry.requestLog.removeAll()
         registry.requestExpectation = nil
@@ -78,6 +83,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         Self.registry.lock.lock()
         let isHanging = Self.registry.hangingPaths.contains(path)
         let stub = Self.registry.stubbedResponses[path]
+        let delay = Self.registry.responseDelays[path] ?? 0
         Self.registry.requestLog.append((
             url: request.url?.absoluteString ?? "",
             body: request.httpBody,
@@ -92,6 +98,10 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
             // bridge's hard request deadline must cancel this task and turn
             // it into a bounded transport failure.
             return
+        }
+
+        if delay > 0 {
+            Thread.sleep(forTimeInterval: delay)
         }
 
         if let (response, body) = stub {
@@ -129,11 +139,13 @@ private final class BridgeCallbackCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [BridgeCallbackPayload] = []
     private var expectation: XCTestExpectation?
+    private var expectedValueCount = 1
     private var didFulfillExpectation = false
 
-    func waitFor(_ expectation: XCTestExpectation) {
+    func waitFor(_ expectation: XCTestExpectation, expectedValueCount: Int = 1) {
         lock.lock()
         self.expectation = expectation
+        self.expectedValueCount = expectedValueCount
         lock.unlock()
     }
 
@@ -141,8 +153,10 @@ private final class BridgeCallbackCollector: @unchecked Sendable {
         lock.lock()
         values.append(value)
         let expectation = self.expectation
-        let shouldFulfill = !didFulfillExpectation
-        didFulfillExpectation = true
+        let shouldFulfill = !didFulfillExpectation && values.count >= expectedValueCount
+        if shouldFulfill {
+            didFulfillExpectation = true
+        }
         lock.unlock()
         if shouldFulfill {
             expectation?.fulfill()
@@ -159,6 +173,12 @@ private final class BridgeCallbackCollector: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return values.count
+    }
+
+    var all: [BridgeCallbackPayload] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
     }
 }
 
@@ -251,9 +271,10 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
     private func installCallback(
         on adapter: TLSRealCoreAdapter,
         collector: BridgeCallbackCollector,
-        expectation: XCTestExpectation
+        expectation: XCTestExpectation,
+        expectedValueCount: Int = 1
     ) {
-        collector.waitFor(expectation)
+        collector.waitFor(expectation, expectedValueCount: expectedValueCount)
         adapter.onSendResult = {
             result, rawBytes, compressedBytes, httpCode, errorCode, errorMessage,
             requestID, transportKind, transportCode, retryable, startID, endID in
@@ -1371,5 +1392,51 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             retryable: false)
 
         XCTAssertEqual(mapped, .internal("C Core rejected a validated batch size"))
+    }
+
+    /// Hash routing legitimately creates one ordered Core task per distinct
+    /// key. The public byte buffer still has ample room here, so an internal
+    /// auto-tuned task-slot count must not turn accepted logs into queueFull.
+    func testHighCardinalityHashBatchesDoNotHitHiddenAutoQueueLimit() async throws {
+        RealCoreStubURLProtocol.setResponse(
+            statusCode: 200,
+            delay: 0.02,
+            forPath: "/PutLogs")
+        let adapter = try makeBridgeAdapter(
+            endpoint: "https://hash-cardinality.stub.local",
+            maxLogCount: 1,
+            maxRawBytes: 2 * 1024 * 1024,
+            maxBufferBytes: 64 * 1024 * 1024,
+            sendConcurrency: 4,
+            linger: 60)
+        let callback = BridgeCallbackCollector()
+        let callbackExpectation = expectation(description: "all keyed batches complete")
+        installCallback(
+            on: adapter,
+            collector: callback,
+            expectation: callbackExpectation,
+            expectedValueCount: 256)
+        try adapter.open()
+
+        for index in 0..<256 {
+            try adapter.addLog(
+                withTimestamp: Int64(Date().timeIntervalSince1970 * 1000),
+                hashKey: String(format: "%032llx", UInt64(index)),
+                contents: ["sequence": String(index)],
+                flush: true)
+        }
+        await fulfillment(of: [callbackExpectation], timeout: 20)
+
+        let results = callback.all
+        XCTAssertEqual(results.count, 256)
+        XCTAssertEqual(
+            results.filter { $0.result != 0 }.count,
+            0,
+            "accepted keyed batches must not fail at the hidden task-slot boundary")
+        let requests = RealCoreStubURLProtocol.recordedRequests().filter {
+            URL(string: $0.url)?.host == "hash-cardinality.stub.local"
+        }
+        XCTAssertEqual(requests.count, 256)
+        try adapter.close(withTimeout: 5)
     }
 }
