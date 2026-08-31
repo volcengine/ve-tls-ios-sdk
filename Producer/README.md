@@ -221,8 +221,10 @@ sendConcurrency 不超过 8；正整数是精确线程数，Core 只把 0 作为
   的正式 24 组虽已全部执行，但 TLS persistent 六组均在 200,000 admissions 后
   拒绝新日志；根因是 sender finish 释放了仍含未封批 builder 的 key queue，制造
   ACK ID 空洞并阻断 WAL 回收。C Core `62241b5` / iOS `ca1a9c8` 已修复，
-  220,000 条高率容量回归全接收且零终态失败；正式 100/300 logs/s 矩阵仍须在该
-  修复后的 clean SHA 重跑。Intel 功能全量通过不能替代性能结果。
+  220,000 条高率容量回归全接收且零终态失败。随后 exact `bcf7bd7` 的 24 组短矩阵
+  全绿：memory 100/300 CPU `1.053×/1.173×`，persistent 100/300 CPU
+  `1.005×/1.184×`，四组 add P99/RSS 也全部 `≤1.20×`。正式 5 分钟 warm-up +
+  30 分钟测量矩阵仍须在新 clean SHA 重跑；Intel 功能全量通过不能替代性能结果。
 测试通过不等于可发布。仓库内冻结合同与门禁状态见
 [DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
 workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08-28.md`。

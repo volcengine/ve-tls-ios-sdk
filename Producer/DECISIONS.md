@@ -178,8 +178,10 @@
   曾在 `cd094d8` 全部执行，但 TLS persistent 六组因 key-queue builder 被 sender
   completion 误释放而在 200,000 admissions 后稳定拒绝新日志，不能计算为性能
   通过。C Core `62241b5` / iOS `ca1a9c8` 已增加 builder 生命周期保护；220,000
-  条容量回归全接收、零终态失败并成功 close，正式 100/300 logs/s 矩阵仍待在修复
-  后 clean SHA 重跑。Intel x86_64 Simulator 功能全量已通过，但不能替代性能矩阵。该版本 public destroy
+  条容量回归全接收、零终态失败并成功 close。exact `bcf7bd7` 的修复后短矩阵
+  24/24 通过：memory 100/300 CPU `1.053×/1.173×`、persistent 100/300 CPU
+  `1.005×/1.184×`，四组 add P99/RSS 均不超过 `1.20×`。正式 5 分钟 warm-up +
+  30 分钟测量仍待新 clean SHA 重跑。Intel x86_64 Simulator 功能全量已通过，但不能替代性能矩阵。该版本 public destroy
   在 arm64 实测会对已由 C Core 释放的 config 再做 `CFRelease` 并 SIGTRAP；临时
   A/B 必须每组进程隔离、跳过 SLS destroy，并明确不构成其生命周期通过证据。
 - 隐私数据分类、archive privacy report、App Store Connect 校验。
