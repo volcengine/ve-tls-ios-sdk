@@ -149,6 +149,18 @@ typedef void (^TLSRealCoreAdapterSendResultHandler)(
                        flush:(BOOL)flush
                        error:(NSError * _Nullable * _Nullable)error;
 
+/// Nanosecond-precision production path. `nanosecondRemainder` is the
+/// sub-millisecond remainder encoded in protobuf TimeNs and must be less than
+/// 1,000,000. A zero remainder omits the optional protobuf field.
+- (BOOL)addLogWithTimestamp:(int64_t)timestampMs
+      nanosecondRemainder:(uint32_t)nanosecondRemainder
+                    hashKey:(nullable NSString *)hashKey
+                 fieldBytes:(NSData *)fieldBytes
+                     lengths:(nullable const size_t *)lengths
+                 lengthCount:(NSUInteger)lengthCount
+                       flush:(BOOL)flush
+                       error:(NSError * _Nullable * _Nullable)error;
+
 /// Updates credentials (whole-group atomic replacement).
 - (BOOL)updateCredentials:(NSString *)accessKeyID
            accessKeySecret:(NSString *)accessKeySecret

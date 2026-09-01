@@ -78,6 +78,29 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         return request
     }
 
+    private static func bodyData(for request: URLRequest) -> Data? {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else {
+            return nil
+        }
+        stream.open()
+        defer { stream.close() }
+        var result = Data()
+        var buffer = [UInt8](repeating: 0, count: 16 * 1024)
+        while true {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count < 0 {
+                return nil
+            }
+            if count == 0 {
+                return result
+            }
+            result.append(contentsOf: buffer[0..<count])
+        }
+    }
+
     override func startLoading() {
         let path = request.url?.path ?? "/"
         Self.registry.lock.lock()
@@ -86,7 +109,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         let delay = Self.registry.responseDelays[path] ?? 0
         Self.registry.requestLog.append((
             url: request.url?.absoluteString ?? "",
-            body: request.httpBody,
+            body: Self.bodyData(for: request),
             headers: request.allHTTPHeaderFields ?? [:]))
         let requestExpectation = Self.registry.requestExpectation
         Self.registry.requestExpectation = nil
@@ -484,6 +507,84 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
                 lengthCount: UInt(lengths.count),
                 flush: false)
         })
+    }
+
+    func testBridgeEncodesSubMillisecondNanosecondsInProtobuf() async throws {
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+        let adapter = try makeBridgeAdapter(
+            lz4Enabled: false,
+            maxLogCount: 1,
+            linger: 60)
+        let callback = BridgeCallbackCollector()
+        let callbackExpectation = expectation(description: "nanosecond send result")
+        installCallback(
+            on: adapter,
+            collector: callback,
+            expectation: callbackExpectation)
+        try adapter.open()
+
+        let bytes = Data("keyvalue".utf8)
+        let lengths = [3, 5]
+        let nanosecondRemainder: UInt32 = 0x000A0B0C
+        try lengths.withUnsafeBufferPointer { lengths in
+            try adapter.addLog(
+                withTimestamp: 1_700_000_000_123,
+                nanosecondRemainder: nanosecondRemainder,
+                hashKey: nil,
+                fieldBytes: bytes,
+                lengths: lengths.baseAddress,
+                lengthCount: UInt(lengths.count),
+                flush: true)
+        }
+        await fulfillment(of: [callbackExpectation], timeout: 10)
+
+        let request = try XCTUnwrap(RealCoreStubURLProtocol.recordedRequests().first)
+        let body = try XCTUnwrap(request.body)
+        // Log.TimeNs is protobuf field 3, fixed32: tag 0x1D followed by
+        // little-endian nanoseconds remaining after the millisecond.
+        XCTAssertNotNil(body.range(of: Data([0x1D, 0x0C, 0x0B, 0x0A, 0x00])))
+        XCTAssertEqual(callback.first?.result, 0)
+        try adapter.close(withTimeout: 5)
+    }
+
+    func testRealCoreAdapterPreservesLogEventNanosecondsOnWire() async throws {
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+        var config = try makeConfig()
+        config.compression = .disabled
+        config.batch = BatchConfiguration(
+            maxLogCount: 1,
+            maxRawBytes: 1024 * 1024,
+            linger: 60)
+        let adapter = try RealCoreAdapter(
+            configuration: config,
+            credentials: makeCredentials())
+        let delivered = expectation(description: "prepared nanosecond send result")
+        adapter.onSendResult = { result in
+            if result.status == .success {
+                delivered.fulfill()
+            }
+        }
+        try adapter.open(configuration: config, credentials: makeCredentials())
+
+        let event = LogEvent(
+            timestamp: Date(timeIntervalSince1970: 1_700_000.1235),
+            contents: ["key": .string("value")])
+        let prepared = try event.prepareForAdmission()
+        XCTAssertGreaterThan(prepared.timestampNanosecondsRemainder, 0)
+        try adapter.add(event, mode: .immediate)
+        await fulfillment(of: [delivered], timeout: 10)
+
+        let body = try XCTUnwrap(
+            RealCoreStubURLProtocol.recordedRequests().first?.body)
+        let remainder = prepared.timestampNanosecondsRemainder
+        XCTAssertNotNil(body.range(of: Data([
+            0x1D,
+            UInt8(remainder & 0xFF),
+            UInt8((remainder >> 8) & 0xFF),
+            UInt8((remainder >> 16) & 0xFF),
+            UInt8((remainder >> 24) & 0xFF),
+        ])))
+        try await adapter.close(timeout: 5)
     }
 
     func testRealCoreAdapterOpenClose() async throws {

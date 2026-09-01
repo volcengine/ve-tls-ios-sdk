@@ -176,6 +176,7 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
                 try event.encodedLengths.withUnsafeBufferPointer { lengths in
                     try adapter.addLog(
                         withTimestamp: event.timestampMilliseconds,
+                        nanosecondRemainder: event.timestampNanosecondsRemainder,
                         hashKey: event.hashKey,
                         fieldBytes: event.encodedFieldBytes,
                         lengths: lengths.baseAddress,

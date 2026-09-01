@@ -19,8 +19,8 @@ import Foundation
 ///   `add` call so the default timestamp reflects the admission moment.
 public struct LogEvent: Equatable, Sendable {
 
-    /// Event time. Unix epoch milliseconds are derived from this date by the
-    /// transport layer.
+    /// Event time. Unix epoch milliseconds plus the sub-millisecond
+    /// nanosecond remainder are derived from this date by the transport layer.
     public var timestamp: Date {
         didSet { cachedAdmissionSnapshot = nil }
     }
@@ -89,6 +89,7 @@ public struct LogEvent: Equatable, Sendable {
         var violations: [String] = []
         let timestampMilliseconds = timestamp.timeIntervalSince1970 * 1_000
         var encodedTimestampMilliseconds: Int64 = 0
+        var encodedTimestampNanosecondsRemainder: UInt32 = 0
         if !timestampMilliseconds.isFinite ||
             timestampMilliseconds < Double(Int64.min) ||
             // Double(Int64.max) rounds up to 2^63, which Int64 cannot hold.
@@ -96,6 +97,23 @@ public struct LogEvent: Equatable, Sendable {
             violations.append("timestamp: must fit in finite Unix epoch milliseconds")
         } else {
             encodedTimestampMilliseconds = Int64(timestampMilliseconds)
+            // TLS protobuf field 1 carries Unix epoch milliseconds. Optional
+            // field 3 carries only the nanoseconds left after that millisecond
+            // (0..<1_000_000), matching volc-sdk-golang's TimeNs contract.
+            // Date is Double-backed, so round to the nearest representable
+            // nanosecond and normalize a possible carry into the millisecond.
+            let fractionalMilliseconds = timestampMilliseconds -
+                Double(encodedTimestampMilliseconds)
+            if fractionalMilliseconds > 0 {
+                var remainder = Int64(
+                    (fractionalMilliseconds * 1_000_000)
+                        .rounded(.toNearestOrAwayFromZero))
+                if remainder >= 1_000_000 {
+                    encodedTimestampMilliseconds += 1
+                    remainder = 0
+                }
+                encodedTimestampNanosecondsRemainder = UInt32(remainder)
+            }
         }
         if let hashKey {
             let bytes = hashKey.utf8
@@ -157,6 +175,7 @@ public struct LogEvent: Equatable, Sendable {
         }
         return PreparedLogEvent(
             timestampMilliseconds: encodedTimestampMilliseconds,
+            timestampNanosecondsRemainder: encodedTimestampNanosecondsRemainder,
             hashKey: hashKey,
             encodedFieldBytes: encodedFieldBytes,
             encodedLengths: encodedLengths,
@@ -188,6 +207,8 @@ public struct LogEvent: Equatable, Sendable {
 /// values in a lazily bridged Swift dictionary on every admission.
 internal struct PreparedLogEvent: Equatable, Sendable {
     let timestampMilliseconds: Int64
+    /// Nanoseconds after `timestampMilliseconds`, always in `0..<1_000_000`.
+    let timestampNanosecondsRemainder: UInt32
     let hashKey: String?
     /// Concatenated UTF-8 bytes: `key0 + value0 + key1 + value1 + ...`.
     /// The production bridge borrows this immutable contiguous storage and

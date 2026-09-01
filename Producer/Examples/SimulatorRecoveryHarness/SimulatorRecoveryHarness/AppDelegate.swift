@@ -1388,7 +1388,13 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
             throw ProducerError.internal("volume producer was not opened")
         }
 
-        let eventTimeSeconds = Int64(Date().timeIntervalSince1970.rounded(.down))
+        // Keep a deterministic non-zero sub-millisecond component so the
+        // online Consume verifier proves both protobuf Time milliseconds and
+        // optional TimeNs remainder survive the complete iOS -> C Core path.
+        let nowMilliseconds = Date().timeIntervalSince1970 * 1_000
+        let eventTime = Date(
+            timeIntervalSince1970:
+                (nowMilliseconds.rounded(.down) + 0.456_789) / 1_000)
         let rateLimiter = VolumeRateLimiter(
             targetLogsPerSecond: input.targetLogsPerSecond)
         let admission = VolumeAdmissionCollector()
@@ -1401,7 +1407,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
                 seedCount: seedCount,
                 input: input,
                 profile: profile,
-                eventTimeSeconds: eventTimeSeconds,
+                eventTime: eventTime,
                 producer: producer,
                 rateLimiter: rateLimiter,
                 admission: admission)
@@ -1427,7 +1433,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
                 seedCount: seedCount,
                 input: input,
                 profile: profile,
-                eventTimeSeconds: eventTimeSeconds,
+                eventTime: eventTime,
                 producer: producer,
                 rateLimiter: rateLimiter,
                 admission: admission)
@@ -1444,7 +1450,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
                             seedCount: seedCount,
                             input: input,
                             profile: profile,
-                            eventTimeSeconds: eventTimeSeconds,
+                            eventTime: eventTime,
                             producer: producer,
                             rateLimiter: rateLimiter,
                             admission: admission)
@@ -1458,7 +1464,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
                 seedCount: seedCount,
                 input: input,
                 profile: profile,
-                eventTimeSeconds: eventTimeSeconds,
+                eventTime: eventTime,
                 producer: producer,
                 rateLimiter: rateLimiter,
                 admission: admission)
@@ -1595,7 +1601,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
         seedCount: Int,
         input: HarnessInput,
         profile: VolumeProfile,
-        eventTimeSeconds: Int64,
+        eventTime: Date,
         producer: Producer,
         rateLimiter: VolumeRateLimiter,
         admission: VolumeAdmissionCollector
@@ -1607,7 +1613,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
                 seedCount: seedCount,
                 input: input,
                 profile: profile,
-                eventTimeSeconds: eventTimeSeconds)
+                eventTime: eventTime)
             admission.recordGenerated(generated)
             do {
                 try producer.add(
@@ -1664,22 +1670,22 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
         seedCount: Int,
         input: HarnessInput,
         profile: VolumeProfile,
-        eventTimeSeconds: Int64
+        eventTime: Date
     ) -> GeneratedEvent {
         let profileConfiguration = profile.configuration
         let payload = deterministicPayload(
             sequence: sequence,
             length: profileConfiguration.payloadBytes)
-        let eventTimeMilliseconds = eventTimeSeconds > Int64.max / 1_000
-            ? Int64.max
-            : eventTimeSeconds * 1_000
+        let timestampParts = volumeTimestampParts(eventTime)
         var contents: [String: LogValue] = [
             "run_id": .string(input.runID),
             "scenario": .string(input.scenario),
             "persistence": .string(input.persistence.rawValue),
             "profile": .string(profile.rawValue),
             "seq": .signedInt(Int64(sequence)),
-            "event_time_ms": .signedInt(eventTimeMilliseconds),
+            "event_time_ms": .signedInt(timestampParts.milliseconds),
+            "event_time_ns_remainder": .unsignedInt(
+                UInt64(timestampParts.nanosecondsRemainder)),
             "payload_size": .signedInt(Int64(payload.utf8.count)),
             "payload": .string(payload),
         ]
@@ -1731,12 +1737,27 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
             hashKey = nil
         }
         let logEvent = LogEvent(
-            timestamp: Date(timeIntervalSince1970: TimeInterval(eventTimeSeconds)),
+            timestamp: eventTime,
             hashKey: hashKey,
             contents: contents)
         return GeneratedEvent(
             logEvent: logEvent,
             rawFieldBytes: rawFieldBytes(contents))
+    }
+
+    private static func volumeTimestampParts(
+        _ timestamp: Date
+    ) -> (milliseconds: Int64, nanosecondsRemainder: UInt32) {
+        let rawMilliseconds = timestamp.timeIntervalSince1970 * 1_000
+        var milliseconds = Int64(rawMilliseconds)
+        var remainder = Int64(
+            ((rawMilliseconds - Double(milliseconds)) * 1_000_000)
+                .rounded(.toNearestOrAwayFromZero))
+        if remainder >= 1_000_000 {
+            milliseconds += 1
+            remainder = 0
+        }
+        return (milliseconds, UInt32(max(0, remainder)))
     }
 
     private static func volumeAddMode(

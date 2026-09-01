@@ -204,7 +204,10 @@ final class FakeCoreAdapter: CoreAdapter, @unchecked Sendable {
 
         let event = LogEvent(
             timestamp: Date(
-                timeIntervalSince1970: Double(prepared.timestampMilliseconds) / 1_000),
+                timeIntervalSince1970:
+                    Double(prepared.timestampMilliseconds) / 1_000 +
+                    Double(prepared.timestampNanosecondsRemainder) /
+                        1_000_000_000),
             hashKey: prepared.hashKey,
             contents: prepared.encodedContents.mapValues(LogValue.string))
         admitted.append(event)

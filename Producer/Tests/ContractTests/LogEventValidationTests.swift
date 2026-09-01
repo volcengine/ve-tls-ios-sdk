@@ -201,6 +201,7 @@ final class LogEventValidationTests: XCTestCase {
 
         XCTAssertTrue(event.hasCachedAdmissionSnapshot)
         XCTAssertEqual(prepared.timestampMilliseconds, 1_700_000_000_123)
+        XCTAssertLessThan(prepared.timestampNanosecondsRemainder, 1_000_000)
         XCTAssertEqual(prepared.hashKey, event.hashKey)
         XCTAssertEqual(prepared.encodedKeys.count, 2)
         XCTAssertEqual(prepared.encodedValues.count, 2)
@@ -212,6 +213,24 @@ final class LogEventValidationTests: XCTestCase {
             prepared.rawBytes,
             "plain".utf8.count + "value".utf8.count
                 + "nested".utf8.count + "{\"a\":1,\"b\":\"two\"}".utf8.count)
+    }
+
+    func testAdmissionPreparationPreservesSubMillisecondNanoseconds() throws {
+        let timestamp = Date(timeIntervalSince1970: 1_700_000.1235)
+        let prepared = try LogEvent(
+            timestamp: timestamp,
+            contents: ["key": .string("value")]
+        ).prepareForAdmission()
+
+        XCTAssertEqual(prepared.timestampMilliseconds, 1_700_000_123)
+        XCTAssertGreaterThan(prepared.timestampNanosecondsRemainder, 499_000)
+        XCTAssertLessThan(prepared.timestampNanosecondsRemainder, 501_000)
+        let reconstructed = Double(prepared.timestampMilliseconds) / 1_000 +
+            Double(prepared.timestampNanosecondsRemainder) / 1_000_000_000
+        XCTAssertEqual(
+            reconstructed,
+            timestamp.timeIntervalSince1970,
+            accuracy: 0.000_001)
     }
 
     func testAdmissionPreparationPreservesUnicodeAndEmptyValues() throws {

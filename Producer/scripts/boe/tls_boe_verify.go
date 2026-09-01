@@ -348,8 +348,14 @@ func validateFields(fields map[string]string, config verifyConfig) (int, error) 
 	}
 	if config.profile == "volume" {
 		eventTime, err := strconv.ParseInt(fields["event_time_ms"], 10, 64)
-		if err != nil || eventTime <= 0 || eventTime%1000 != 0 {
+		if err != nil || eventTime <= 0 {
 			return 0, fmt.Errorf("seq=%d event_time_ms is invalid", sequence)
+		}
+		nanosecondRemainder, err := strconv.ParseUint(
+			fields["event_time_ns_remainder"], 10, 32)
+		if err != nil || nanosecondRemainder == 0 || nanosecondRemainder >= 1000000 {
+			return 0, fmt.Errorf(
+				"seq=%d event_time_ns_remainder is invalid", sequence)
 		}
 		if eventTime < config.startMS-60000 || eventTime > config.endMS+60000 {
 			return 0, fmt.Errorf("seq=%d event_time_ms is outside expected window", sequence)
@@ -599,7 +605,11 @@ func verifyConsume(client tls.Client, config verifyConfig) (observedLogs, error)
 						timestampMS := normalizeTimestampMilliseconds(logItem.GetTime())
 						if config.profile == "volume" {
 							eventTimeMS, parseErr := strconv.ParseInt(fields["event_time_ms"], 10, 64)
-							if parseErr != nil || timestampMS/1000 != eventTimeMS/1000 {
+							eventTimeNS, nanosecondErr := strconv.ParseUint(
+								fields["event_time_ns_remainder"], 10, 32)
+							if parseErr != nil || nanosecondErr != nil ||
+								timestampMS != eventTimeMS ||
+								logItem.GetTimeNs() != uint32(eventTimeNS) {
 								return observed, fmt.Errorf("seq=%d timestamp does not match event_time_ms", sequence)
 							}
 						} else if timestampMS < config.startMS-60000 || timestampMS > config.endMS+60000 {

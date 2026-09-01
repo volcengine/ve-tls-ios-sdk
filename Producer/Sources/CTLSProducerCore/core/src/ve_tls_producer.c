@@ -2686,6 +2686,9 @@ ve_tls_result ve_tls_producer_add_log_raw_time_parts_with_id(ve_tls_producer * p
     if (!producer || !log_buf || log_size == 0) {
         return VE_TLS_INVALID;
     }
+    if (has_time_ns && time_ns >= 1000000U) {
+        return VE_TLS_INVALID;
+    }
     producer->config.platform.mutex_lock(producer->mutex);
     if (producer->stop || !producer->accepting) {
         producer->config.platform.mutex_unlock(producer->mutex);
@@ -2731,6 +2734,9 @@ static ve_tls_result ve_tls_producer_add_log_kv_lens_time_parts_hashkey(
     int flush,
     int64_t * out_log_id) {
     if (!producer || !kvs || kv_count == 0) {
+        return VE_TLS_INVALID;
+    }
+    if (has_time_ns && time_ns >= 1000000U) {
         return VE_TLS_INVALID;
     }
     if (!ve_tls_valid_hash_key(hash_key)) {

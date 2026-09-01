@@ -1193,6 +1193,24 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
                  lengthCount:(NSUInteger)lengthCount
                        flush:(BOOL)flush
                        error:(NSError * _Nullable * _Nullable)error {
+    return [self addLogWithTimestamp:timestampMs
+              nanosecondRemainder:0
+                             hashKey:hashKey
+                          fieldBytes:fieldBytes
+                              lengths:lengths
+                          lengthCount:lengthCount
+                                flush:flush
+                                error:error];
+}
+
+- (BOOL)addLogWithTimestamp:(int64_t)timestampMs
+      nanosecondRemainder:(uint32_t)nanosecondRemainder
+                    hashKey:(nullable NSString *)hashKey
+                 fieldBytes:(NSData *)fieldBytes
+                     lengths:(nullable const size_t *)lengths
+                 lengthCount:(NSUInteger)lengthCount
+                       flush:(BOOL)flush
+                       error:(NSError * _Nullable * _Nullable)error {
     [self.stateLock lock];
     if (_closed || _closing) {
         [self.stateLock unlock];
@@ -1210,6 +1228,16 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
             *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
                                       VE_TLS_INVALID,
                                       @"hash key is not valid for routing");
+        }
+        return NO;
+    }
+
+    if (nanosecondRemainder >= 1000000U) {
+        [self.stateLock unlock];
+        if (error) {
+            *error = TLSAdapterError(TLSRealCoreAdapterErrorCodeAddFailed,
+                                      VE_TLS_INVALID,
+                                      @"timestamp nanosecond remainder is invalid");
         }
         return NO;
     }
@@ -1305,18 +1333,13 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         offset += valueLengths[i];
     }
 
-    ve_tls_result rc;
-    if (hashKey) {
-        rc = ve_tls_producer_add_log_with_len_hashkey(
-            _producer, timestampMs, hashKey.UTF8String,
-            keys, keyLengths, values, valueLengths, count,
-            flush ? 1 : 0);
-    } else {
-        rc = ve_tls_producer_add_log_with_len(
-            _producer, timestampMs,
-            keys, keyLengths, values, valueLengths, count,
-            flush ? 1 : 0);
-    }
+    ve_tls_result rc = ve_tls_producer_add_log_with_len_time_parts_hashkey(
+        _producer, timestampMs,
+        nanosecondRemainder > 0 ? 1 : 0,
+        nanosecondRemainder,
+        hashKey ? hashKey.UTF8String : NULL,
+        keys, keyLengths, values, valueLengths, count,
+        flush ? 1 : 0);
 
     if (count > TLS_STACK_FIELD_LIMIT) {
         free(keys);
