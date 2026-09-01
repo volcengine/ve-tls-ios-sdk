@@ -40,6 +40,9 @@
    `LogEvent.hashKey` 为 `nil`，或位于半开区间
    `[00000000000000000000000000000000, ffffffffffffffffffffffffffffffff)`
    的精确 32 位小写十六进制；全 `f` 是排除的上界，与 SLS 路由合同一致。
+   `LogEvent.timestamp` 在线路上拆成 Unix epoch 毫秒 `Time` 与该毫秒之后的
+   `TimeNs` 余数 `0..<1_000_000`；余数为 0 时省略 optional 字段。该合同保留
+   Foundation `Date` 可表达的亚毫秒精度，不把设备时钟分辨率宣传为真实纳秒级。
 6. `updateCredentials` 原子替换 AK/SK/STS 整组；`updateDestination` 使用
    current-target 语义，已接收 backlog 可能改投新 endpoint/region/topic。
    v0.3.1 update API 没有 projectID 参数，所以 projectID 只更新 SDK snapshot，

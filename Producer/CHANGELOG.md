@@ -80,6 +80,10 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   内的精确 32 位小写十六进制，全 `f` 上界在发网前拒绝；batch
   可配置上限收紧为 9.5 MiB（9,961,472 bytes），同时写入 Core package/aggregate
   raw-byte 限制，在服务端 10 MiB 绝对上限下保留 framing 余量。
+- `LogEvent.timestamp` 现在通过 protobuf `Time` 传 Unix epoch 毫秒，并通过
+  optional fixed32 `TimeNs` 传该毫秒后的纳秒余数；Swift/Bridge/Core 三层拒绝
+  `TimeNs >= 1_000_000`。真机 BOE 的 16 条日志已由 volclog Search 与固定
+  Go SDK Consume 逐条核对 `Time`/`TimeNs`，无缺失或重复。
 - 冻结 at-least-once 边界：retry/recovery 可产生重复；只有已持久化且存储完整、
   非 drop 策略的数据进入恢复重试，不把 local close 描述为远端 ACK。
 - 逐请求 transport `NSLog` 改为默认关闭；Bridge 内部诊断必须显式 opt-in，避免

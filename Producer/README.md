@@ -116,6 +116,11 @@ sendConcurrency 不超过 8；正整数是精确线程数，Core 只把 0 作为
 `[00000000000000000000000000000000, ffffffffffffffffffffffffffffffff)`
 内的精确 32 位小写十六进制；全 `f` 是排除的上界。
 
+`LogEvent.timestamp` 不截断到整秒。Wire protobuf 的 `Time` 字段携带 Unix epoch
+毫秒，optional `TimeNs` 字段携带该毫秒之后的纳秒余数 `0..<1_000_000`；余数为
+0 时省略字段。精度上限仍受 Foundation `Date` 的 Double 表示约束，SDK 不宣称
+设备时钟本身具有真实纳秒分辨率。
+
 持久化模式：
 
 - `.disabled` / `.memory`：不创建 WAL，不要求 `producerID`。
