@@ -335,6 +335,10 @@ private struct HarnessInput: Sendable {
     let accessKeyID: String?
     let accessKeySecret: String?
     let securityToken: String?
+    let initialAccessKeyID: String?
+    let initialAccessKeySecret: String?
+    let initialSecurityToken: String?
+    let unauthorizedPolicy: UnauthorizedPolicy
     let seedCount: Int?
     let recoveryTimeout: TimeInterval
     let soakDuration: TimeInterval?
@@ -393,6 +397,28 @@ private struct HarnessInput: Sendable {
             "TLS_SIMULATOR_SECURITY_TOKEN"]
         if (accessKeyID == nil) != (accessKeySecret == nil) {
             throw HarnessInputError.missingOrInvalid("credentials")
+        }
+        let initialAccessKeyID = ProcessInfo.processInfo.environment[
+            "TLS_SIMULATOR_INITIAL_ACCESS_KEY_ID"]
+        let initialAccessKeySecret = ProcessInfo.processInfo.environment[
+            "TLS_SIMULATOR_INITIAL_ACCESS_KEY_SECRET"]
+        let initialSecurityToken = ProcessInfo.processInfo.environment[
+            "TLS_SIMULATOR_INITIAL_SECURITY_TOKEN"]
+        if (initialAccessKeyID == nil) != (initialAccessKeySecret == nil) ||
+            (initialSecurityToken != nil && initialAccessKeyID == nil) {
+            throw HarnessInputError.missingOrInvalid("initial-credentials")
+        }
+        let unauthorizedPolicyText = HarnessInput.argumentOrEnvironment(
+            argument: "unauthorized-policy",
+            environment: "TLS_SIMULATOR_UNAUTHORIZED_POLICY") ?? "retain"
+        let unauthorizedPolicy: UnauthorizedPolicy
+        switch unauthorizedPolicyText.lowercased() {
+        case "retain":
+            unauthorizedPolicy = .retain
+        case "drop":
+            unauthorizedPolicy = .drop
+        default:
+            throw HarnessInputError.missingOrInvalid("unauthorized-policy")
         }
 
         let seedCount: Int?
@@ -480,6 +506,10 @@ private struct HarnessInput: Sendable {
         self.accessKeyID = accessKeyID
         self.accessKeySecret = accessKeySecret
         self.securityToken = securityToken
+        self.initialAccessKeyID = initialAccessKeyID
+        self.initialAccessKeySecret = initialAccessKeySecret
+        self.initialSecurityToken = initialSecurityToken
+        self.unauthorizedPolicy = unauthorizedPolicy
         self.seedCount = seedCount
         self.recoveryTimeout = recoveryTimeout
         self.soakDuration = soakDuration
@@ -1306,12 +1336,20 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
         let validCredentials = makeVolumeCredentials(input)
         let initialCredentials: Credentials
         if profile == .authRetainBulk {
-            initialCredentials = Credentials(
-                accessKeyID: validCredentials.accessKeyID,
-                // Deliberately invalid and process-local. It is used only to
-                // enter the Core's unauthorized/retain state.
-                accessKeySecret: "invalid-volume-sk-\(UUID().uuidString)",
-                securityToken: validCredentials.securityToken)
+            if let initialAccessKeyID = input.initialAccessKeyID,
+               let initialAccessKeySecret = input.initialAccessKeySecret {
+                initialCredentials = Credentials(
+                    accessKeyID: initialAccessKeyID,
+                    accessKeySecret: initialAccessKeySecret,
+                    securityToken: input.initialSecurityToken)
+            } else {
+                initialCredentials = Credentials(
+                    accessKeyID: validCredentials.accessKeyID,
+                    // Deliberately invalid and process-local. It is used only
+                    // to enter the Core's unauthorized/retain state.
+                    accessKeySecret: "invalid-volume-sk-\(UUID().uuidString)",
+                    securityToken: validCredentials.securityToken)
+            }
         } else {
             initialCredentials = validCredentials
         }
@@ -1651,7 +1689,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
             metadata: profileConfiguration.metadata,
             maxLogAge: 7 * 24 * 60 * 60,
             expiredLogPolicy: .rewriteTimestamp,
-            unauthorizedPolicy: .retain,
+            unauthorizedPolicy: input.unauthorizedPolicy,
             callbackQueue: callbackQueue,
             urlSessionConfiguration: .ephemeral,
             automaticLifecycleHandling: false,

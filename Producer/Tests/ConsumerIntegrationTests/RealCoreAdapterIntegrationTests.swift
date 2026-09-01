@@ -259,7 +259,8 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         sendConcurrency: Int = 1,
         linger: TimeInterval = 0.05,
         persistenceMode: TLSRealCoreAdapterPersistenceMode = .disabled,
-        persistentDirectory: String? = nil
+        persistentDirectory: String? = nil,
+        authFailurePolicy: Int = 0
     ) throws -> TLSRealCoreAdapter {
         try TLSRealCoreAdapter(
             endpoint: endpoint,
@@ -287,7 +288,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             persistentDirectory: persistentDirectory,
             maxLogAgeSeconds: 7 * 24 * 60 * 60,
             expiredLogPolicy: 0,
-            authFailurePolicy: 0,
+            authFailurePolicy: authFailurePolicy,
             callbackQueue: DispatchQueue(label: "com.volcengine.tls.test.callback", qos: .utility))
     }
 
@@ -1145,7 +1146,8 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         RealCoreStubURLProtocol.setResponse(
-            statusCode: 401,
+            statusCode: 400,
+            body: Data(#"{"ErrorCode":"ExpiredToken","ErrorMessage":"expired token"}"#.utf8),
             requestID: "auth-retain-first",
             forPath: "/PutLogs")
         let firstRequest = expectation(description: "persistent auth request reached transport")
@@ -1203,6 +1205,43 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         XCTAssertEqual(callback.count, 1)
         XCTAssertEqual(callback.first?.result, 0)
         XCTAssertEqual(callback.first?.requestID, "auth-retain-success")
+        try adapter.close(withTimeout: 5)
+    }
+
+    /// TLS returns `HTTP 400 + ExpiredToken` for an expired STS. Under the
+    /// persistent `.drop` policy that credential failure is terminal exactly
+    /// once; it must not be retained indefinitely or mislabeled as a generic
+    /// service failure by the public bridge.
+    func testPersistentExpiredTokenDropEmitsOneTerminalFailure() async throws {
+        let producerID = "bridge-auth-drop-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(16))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        RealCoreStubURLProtocol.setResponse(
+            statusCode: 400,
+            body: Data(#"{"ErrorCode":"ExpiredToken","ErrorMessage":"expired token"}"#.utf8),
+            requestID: "auth-drop-expired",
+            forPath: "/PutLogs")
+        let callback = BridgeCallbackCollector()
+        let callbackExpectation = expectation(description: "expired STS drop result")
+        let adapter = try makeBridgeAdapter(
+            requestTimeout: 0.2,
+            maxLogCount: 1,
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path,
+            authFailurePolicy: 1)
+        installCallback(on: adapter, collector: callback, expectation: callbackExpectation)
+
+        try adapter.open()
+        try addImmediateLog(to: adapter, value: "auth-drop-expired")
+        await fulfillment(of: [callbackExpectation], timeout: 8)
+
+        let result = try XCTUnwrap(callback.first)
+        XCTAssertNotEqual(result.result, 0)
+        XCTAssertEqual(result.httpCode, 400)
+        XCTAssertEqual(result.errorCode, "ExpiredToken")
+        XCTAssertEqual(callback.count, 1)
         try adapter.close(withTimeout: 5)
     }
 
@@ -1521,6 +1560,32 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             retryable: false)
 
         XCTAssertEqual(mapped, .internal("C Core rejected a validated batch size"))
+    }
+
+    func testExpiredTokenHTTP400MapsToAuthWithoutGeneralizingAllBadRequests() {
+        let expired = RealCoreAdapter.mapSendFailure(
+            result: 2,
+            httpCode: 400,
+            errorCode: "ExpiredToken",
+            errorMessage: "expired token",
+            requestID: "expired-request",
+            transportKind: 0,
+            transportCode: 0,
+            retryable: false)
+        XCTAssertEqual(expired, .auth)
+
+        let invalidArgument = RealCoreAdapter.mapSendFailure(
+            result: 2,
+            httpCode: 400,
+            errorCode: "InvalidArgument",
+            errorMessage: "invalid request",
+            requestID: "invalid-request",
+            transportKind: 0,
+            transportCode: 0,
+            retryable: false)
+        XCTAssertEqual(
+            invalidArgument,
+            .service(code: 400, message: "InvalidArgument", requestID: "invalid-request"))
     }
 
     /// Hash routing legitimately creates one ordered Core task per distinct

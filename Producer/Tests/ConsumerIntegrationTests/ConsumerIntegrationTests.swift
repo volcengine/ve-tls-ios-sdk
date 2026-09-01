@@ -303,20 +303,22 @@ final class ConsumerIntegrationTests: XCTestCase {
             case quota
             case service(Int)
         }
-        let cases: [(status: Int, expected: Expected, requestCount: Int)] = [
-            (401, .auth, 1),
-            (403, .auth, 1),
-            (429, .quota, 3),
-            (500, .service(500), 3),
+        let cases: [(name: String, status: Int, errorCode: String, expected: Expected, requestCount: Int)] = [
+            ("unauthorized", 401, "ServiceCode", .auth, 1),
+            ("forbidden", 403, "ServiceCode", .auth, 1),
+            ("expired-token", 400, "ExpiredToken", .auth, 1),
+            ("invalid-argument", 400, "InvalidArgument", .service(400), 1),
+            ("quota", 429, "ServiceCode", .quota, 3),
+            ("server", 500, "ServiceCode", .service(500), 3),
         ]
 
         for item in cases {
             ConsumerStubURLProtocol.reset()
             ConsumerStubURLProtocol.setResponse(
                 statusCode: item.status,
-                headers: ["x-tls-request-id": "consumer-status-\(item.status)"],
+                headers: ["x-tls-request-id": "consumer-status-\(item.name)"],
                 body: Data(
-                    #"{"errorCode":"ServiceCode","errorMessage":"secret=do-not-leak"}"#.utf8))
+                    #"{"ErrorCode":"\#(item.errorCode)","ErrorMessage":"secret=do-not-leak"}"#.utf8))
             let collector = SendResultCollector()
             let producer = try await Producer.open(
                 configuration: try makeConfiguration(),
@@ -345,8 +347,8 @@ final class ConsumerIntegrationTests: XCTestCase {
                     continue
                 }
                 XCTAssertEqual(code, status)
-                XCTAssertEqual(message, "ServiceCode")
-                XCTAssertEqual(requestID, "consumer-status-\(status)")
+                XCTAssertEqual(message, item.errorCode)
+                XCTAssertEqual(requestID, "consumer-status-\(item.name)")
                 XCTAssertFalse(message.contains("secret=do-not-leak"))
             }
         }
@@ -376,9 +378,9 @@ final class ConsumerIntegrationTests: XCTestCase {
 
     func testConsumerPersistentAuthRetainResumesWithOneTerminalResult() async throws {
         ConsumerStubURLProtocol.setResponse(
-            statusCode: 401,
+            statusCode: 400,
             headers: ["x-tls-request-id": "consumer-auth-retain-first"],
-            body: Data())
+            body: Data(#"{"ErrorCode":"ExpiredToken","ErrorMessage":"expired token"}"#.utf8))
         let collector = SendResultCollector()
         var configuration = try makeConfiguration(requestTimeout: 0.2)
         configuration.persistence = .buffered

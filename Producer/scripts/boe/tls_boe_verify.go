@@ -560,7 +560,7 @@ func verifyConsume(client tls.Client, config verifyConfig) (observedLogs, error)
 		cursor := start.Cursor
 		for page := 0; cursor != end.Cursor && page < 10000; page++ {
 			groupLimit := 1000
-			compression := tls.LZ4Compression
+			compression := "lz4"
 			response, err := client.ConsumeLogs(&tls.ConsumeLogsRequest{
 				TopicID:       config.topic,
 				ShardID:       int(shard.ShardID),

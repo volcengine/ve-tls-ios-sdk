@@ -387,6 +387,10 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
     ) -> ProducerError? {
         guard result != CoreResult.ok.rawValue else { return nil }
 
+        if isAuthenticationErrorCode(errorCode) {
+            return .auth
+        }
+
         switch httpCode {
         case 401, 403:
             return .auth
@@ -454,6 +458,20 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
             return .timeout
         case .ok, .none:
             return .internal("C Core send failed")
+        }
+    }
+
+    private static func isAuthenticationErrorCode(_ errorCode: String?) -> Bool {
+        switch errorCode?.lowercased() {
+        case "credentialsrefreshfailed",
+             "expiredtoken",
+             "invalidsecuritytoken",
+             "authfailed",
+             "signaturedoesnotmatch",
+             "accessdenied":
+            return true
+        default:
+            return false
         }
     }
 }
