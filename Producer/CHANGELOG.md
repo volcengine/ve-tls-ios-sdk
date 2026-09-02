@@ -109,6 +109,12 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
 - 精确提交 `6d3747e` 的真机 BOE STS、密码保护锁屏/后台、真实断网、SIGKILL、
   重启后首次解锁与 WAL recovery 已通过；成功轮由官方 Go SDK Search/Consume
   逐条验证，观测重复数为 0，但 at-least-once 合同仍允许模糊 ACK 后重复。
+- product source 等同 exact `ef1b69e` 的 iPhone 11 Pro / iOS 26.1 真机保护审计
+  证明五类 Core 文件均为 `NSFileProtectionCompleteUntilFirstUserAuthentication`
+  且 no-backup。30 分钟 buffered/high-concurrency 135,000 条全部 admission，
+  33/33 terminal success、0 failure、Search/Consume 135,000 unique/0 duplicate；
+  Instruments CPU mean/P99/peak `8.55%/13.91%/16.88%`，RSS
+  `27.73/30.39/30.70 MiB`，thermal 全程 Nominal。USB 供电下不声明真实续航。
 - CocoaPods 1.17.0 完整 `pod lib lint`、默认 static library consumer、static
   framework consumer、私有 header/module 与 final symbols/resources 通过；TLS 与
   pinned SLS `4.3.4` 的 x86_64 混编 consumer 同 App 链接通过；临时覆盖 SLS
@@ -134,11 +140,10 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
 
 ### Release blockers
 
-- 通用真机 Instruments、隐私数据分类/App Store privacy report 尚未完成；每个
-  Core WAL 文件的精确 `NSFileProtection` 属性尚未独立导出。Xcode 14.3.1 /
-  Swift 5.8.1、STS、真机 background/Data Protection 功能恢复均已通过。精确
-  iOS 13 真机不再是 blocker；最低版本由声明、compile/link 与 Mach-O minos
-  门禁证明。
+- 隐私 collected-data 分类与 App Store Connect validation 尚未完成。Xcode
+  14.3.1 / Swift 5.8.1、STS、真机 background/Data Protection、Core 文件保护
+  属性和真机 Instruments 均已通过。精确 iOS 13 真机不再是 blocker；最低版本由
+  声明、compile/link 与 Mach-O minos 门禁证明。
 - 远端 `0.0.2` tag 尚未创建。
 - 当前仍是 Development Preview / release candidate source，不可标记 Beta/GA。
 

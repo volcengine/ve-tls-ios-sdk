@@ -7,8 +7,9 @@
 >
 > 当前 Xcode 26.6、Intel Xcode 16.4、Intel Xcode 14.3.1 / Swift 5.8.1、
 > SwiftPM、CocoaPods、本地 HTTPS redirect、BOE STS、真机生命周期、sanitizer 和
-> 进程级 WAL recovery 已有执行证据。发布仍受隐私数据分类/App Store 校验、
-> 真机 Instruments 和远端版本 tag 阻断；缺少 iOS 13 真机不再单独阻断发布。
+> 进程级 WAL recovery、真机 Instruments 和 Core 文件保护属性已有执行证据。
+> 发布仍受隐私 collected-data 分类、App Store Connect validation 和远端版本 tag
+> 阻断；缺少 iOS 13 真机不再单独阻断发布。
 
 ## 要求
 
@@ -210,13 +211,18 @@ sendConcurrency 不超过 8；正整数是精确线程数，Core 只把 0 作为
   memory add/CPU/peak RSS `0.581/1.005/0.692`，persistent
   `0.914/1.085/0.698`，均满足 `≤1.20` 门禁。按最终验收决定，不再重复完整
   24-case 或 14 小时矩阵；SLS 4.3.4 close 仍按已知 UAF 边界未验证。
+- product source 等同 exact `ef1b69e` 的 iPhone 11 Pro / iOS 26.1 真机验收：
+  `.ios-producer.lock`、checkpoint、lease、manifest 和 WAL segment 均为
+  `NSFileProtectionCompleteUntilFirstUserAuthentication` 且 no-backup；30 分钟
+  buffered/high-concurrency 135,000/135,000 admission、33/33 terminal success、
+  0 failure，Search/Consume 均为 135,000 unique、0 duplicate。Instruments 的
+  CPU mean/P99/peak 为 `8.55%/13.91%/16.88%`，RSS
+  `27.73/30.39/30.70 MiB`，thermal 全程 Nominal；USB 供电下不声明真实续航。
 
 仍为 BLOCKED / 未验证：
 
-- 通用真机 Instruments；App Store archive privacy report。真机锁屏/后台、真实
-  断网、SIGKILL、重启后首次解锁、STS 过期/轮换和 WAL 恢复已在精确 `6d3747e`
-  通过；尚未独立导出每个 Core WAL 文件的精确 `NSFileProtection` 属性。
-- 隐私数据分类；远端 `0.0.2` tag 与发布动作。
+- 隐私 collected-data 分类与 App Store Connect validation；远端 `0.0.2` tag、
+  publish 授权和最终 owner sign-off。
 测试通过不等于可发布。仓库内冻结合同与门禁状态见
 [DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
 workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08-28.md`。

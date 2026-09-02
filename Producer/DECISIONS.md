@@ -16,8 +16,12 @@
   含 requestID，因此 requestID 贯通只引用独立 wire/合同测试。
 - 精确 `6d3747e` 已通过 Intel Ventura 13.7.8 / Xcode 14.3.1 / Swift 5.8.1、
   CocoaPods/SwiftPM 外部消费者、真实 BOE STS 与通用真机生命周期验收。隐私数据
-  分类/App Store report、真机 Instruments 和远端 tag 仍是发布阻断。精确 iOS 13
-  真机不可得，不再单独作为阻断项。
+  分类/App Store Connect validation 和远端 tag 仍是发布阻断。精确 iOS 13 真机
+  不可得，不再单独作为阻断项。
+- product source 等同 exact `ef1b69e` 的真机 protection audit 已证明五类 Core
+  文件均为 `CompleteUntilFirstUserAuthentication` + no-backup；30 分钟线上
+  Instruments/135,000 条 Search+Consume 已补齐 CPU/RSS/thermal、WAL 有界回收和
+  端到端一致性。USB 供电下不声明真实电池续航。
 
 ## 冻结公共语义
 
@@ -172,8 +176,5 @@
 
 ## 仍未完成的发布门禁
 
-- 通用真机 Instruments，以及每个 Core WAL 文件精确 `NSFileProtection` 属性的
-  独立导出。真机 background、密码保护锁屏、重启后首次解锁、STS 临时凭证与
-  恢复行为已通过；真机证据不要求精确 iOS 13 系统。
-- 隐私数据分类、archive privacy report、App Store Connect 校验。
+- 隐私 collected-data 分类与 App Store Connect validation。
 - 远端 tag、发布说明、最终 owner sign-off。
