@@ -32,6 +32,8 @@ cd "${REPO_ROOT}"
 
 SCHEME="${1:-VolcengineTLSProducer}"
 MINIMUM_IOS_TARGET="13.0"
+PRODUCER_RELEASE_VERSION="2.0.0"
+PRODUCER_RELEASE_TAG="v${PRODUCER_RELEASE_VERSION}"
 overall=0
 ran=0
 blocked=0
@@ -64,6 +66,23 @@ check_minimum_ios_contract() {
         echo "PASS: CocoaPods minimum deployment target is iOS ${MINIMUM_IOS_TARGET}."
     else
         mark_fail "VolcengineTLSProducer.podspec does not declare the frozen iOS ${MINIMUM_IOS_TARGET} minimum."
+    fi
+}
+
+check_release_version_contract() {
+    local podspec="${REPO_ROOT}/VolcengineTLSProducer.podspec"
+    echo "== Producer release version contract =="
+
+    if grep -Eq "s\.version[[:space:]]*=[[:space:]]*'${PRODUCER_RELEASE_VERSION}'" "${podspec}"; then
+        echo "PASS: CocoaPods Producer version is ${PRODUCER_RELEASE_VERSION}."
+    else
+        mark_fail "VolcengineTLSProducer.podspec does not declare Producer ${PRODUCER_RELEASE_VERSION}."
+    fi
+
+    if grep -Fq ':tag => "v#{s.version}"' "${podspec}"; then
+        echo "PASS: CocoaPods source tag resolves to ${PRODUCER_RELEASE_TAG}."
+    else
+        mark_fail "VolcengineTLSProducer.podspec does not derive the v-prefixed source tag from s.version."
     fi
 }
 
@@ -496,6 +515,7 @@ run_pod_lint() {
 }
 
 check_minimum_ios_contract
+check_release_version_contract
 check_privacy_manifest
 run_swiftpm_ios_build
 run_swiftpm_ios_device_build

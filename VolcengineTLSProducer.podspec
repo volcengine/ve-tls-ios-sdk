@@ -4,9 +4,8 @@
 # VolcengineTLSProducer — Volcengine TLS iOS Producer SDK.
 #
 # STATUS: release candidate source — the repository tag is still pending.
-# Swift 5.8 toolchain, STS, privacy classification/App Store and final soak
-# evidence remain release blockers; this podspec must not be
-# published until the exact tag below exists remotely.
+# The SDK acceptance lanes are complete. This podspec must not be published
+# until the release owner approves and the exact tag below exists remotely.
 #
 # CocoaPods and SwiftPM compile the SAME Producer/Sources tree (no dual
 # implementation). This podspec only ever pulls from Producer/Sources; the
@@ -33,26 +32,26 @@
 
 Pod::Spec.new do |s|
   s.name             = 'VolcengineTLSProducer'
-  s.version          = '0.0.2'
+  s.version          = '2.0.0'
   s.summary          = 'Volcengine TLS iOS Producer SDK (release candidate source; tag pending).'
   s.description      = <<-DESC
 Volcengine TLS (Tinder Log Service) iOS Producer SDK.
 
-Release-candidate source for internal validation. The exact `0.0.2` repository
+Release-candidate source for internal validation. The exact `v2.0.0` repository
 tag has not been created yet; do not publish this spec from an untagged
-checkout. Swift 5.8 toolchain, STS, privacy/App Store, final soak and
-release-owner evidence remain required before Beta or GA claims. The iOS 13
+checkout. Release-owner approval remains required before Beta or GA claims. The iOS 13
 minimum is verified by declaration, compile/link and final Mach-O minos gates;
 an exact iOS 13 physical device is not required.
                        DESC
   s.homepage         = 'https://github.com/volcengine/ve-tls-ios-sdk'
   s.license          = { :type => 'Apache License, Version 2.0', :file => 'LICENSE' }
   s.author           = { 'Volcengine TLS Team' => 'tls@volcengine.com' }
-  # The source follows the semantic release tag. The 0.0.2 tag is intentionally
+  # Producer releases use the v2.0.x line; v1.x remains the legacy SDK line.
+  # The v2.0.0 tag is intentionally
   # not fabricated in this checkout; create and push that exact tag only after
   # the release gates pass, then `pod lib lint` against the tagged source.
   s.source           = { :git => 'https://github.com/volcengine/ve-tls-ios-sdk.git',
-                         :tag => s.version.to_s }
+                         :tag => "v#{s.version}" }
 
   s.ios.deployment_target = '13.0'
   s.swift_version         = '5.8'

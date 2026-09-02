@@ -3,7 +3,7 @@
 All notable changes to VolcengineTLSProducer are documented here. Development
 Preview 阶段不承诺 Semantic Versioning 兼容性。
 
-## 0.0.2 — Development Preview (unreleased, 2026-08-28)
+## 2.0.0 — Development Preview (unreleased, 2026-08-28)
 
 ### Added
 
@@ -138,18 +138,19 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   `0.914/1.085/0.698`，均满足 `≤1.20` 门禁。按最终验收决定，不再重复完整
   24-case 或 14 小时矩阵；SLS 4.3.4 close 仍按已知 UAF 边界未验证。
 
-### Release blockers
+### Release status
 
-- 隐私 collected-data 分类与 App Store Connect validation 尚未完成。Xcode
-  14.3.1 / Swift 5.8.1、STS、真机 background/Data Protection、Core 文件保护
-  属性和真机 Instruments 均已通过。精确 iOS 13 真机不再是 blocker；最低版本由
-  声明、compile/link 与 Mach-O minos 门禁证明。
-- 远端 `0.0.2` tag 尚未创建。
+- SDK 自身 Privacy Manifest 与 SwiftPM/CocoaPods 资源打包已冻结；业务 App 的数据
+  分类、签名和 App Store Connect/App Review 由集成方负责。Xcode 14.3.1 /
+  Swift 5.8.1、STS、真机 background/Data Protection、Core 文件保护属性和真机
+  Instruments 均已通过。精确 iOS 13 真机不再是 blocker；最低版本由声明、
+  compile/link 与 Mach-O minos 门禁证明。
+- Producer 使用 `v2.0.x` 版本线，`v1.x` 保留给旧 SDK；远端 `v2.0.0` tag 尚未创建。
 - 当前仍是 Development Preview / release candidate source，不可标记 Beta/GA。
 
 ## 0.0.1 — Development Preview (2026-08-27)
 
 - 初始 Swift-first P0 API、值模型、Fake/Bundled test seam、Bridge/Transport/
   Persistence 测试骨架和示例。
-- 当时没有 Real Core 或 Apple 工具链执行证据；该历史状态已由 0.0.2 的实现和
+- 当时没有 Real Core 或 Apple 工具链执行证据；该历史状态已由 2.0.0 的实现和
   最新 acceptance report 取代。

@@ -8,8 +8,9 @@
 > 当前 Xcode 26.6、Intel Xcode 16.4、Intel Xcode 14.3.1 / Swift 5.8.1、
 > SwiftPM、CocoaPods、本地 HTTPS redirect、BOE STS、真机生命周期、sanitizer 和
 > 进程级 WAL recovery、真机 Instruments 和 Core 文件保护属性已有执行证据。
-> 发布仍受隐私 collected-data 分类、App Store Connect validation 和远端版本 tag
-> 阻断；缺少 iOS 13 真机不再单独阻断发布。
+> SDK 自身隐私边界与打包资源已有证据；业务 App 的数据分类、签名、App Store
+> Connect 和 App Review 由集成方负责。SDK 发布仅待远端 `v2.0.0` tag、publish
+> 授权和最终 owner sign-off；缺少 iOS 13 真机不再单独阻断发布。
 
 ## 要求
 
@@ -43,7 +44,8 @@ product 或受支持 API。需要注意：SwiftPM 不对传递 target module 实
 ### CocoaPods
 
 当前 podspec 的本地 lint、默认 static library consumer 和 static framework
-consumer 均已通过。远端 `0.0.2` tag 尚未创建，因此发布前只能使用本地路径：
+consumer 均已通过。Producer 使用 `v2.0.x` 版本线，`v1.x` 保留给旧 SDK 更新。
+远端 `v2.0.0` tag 尚未创建，因此发布前只能使用本地路径：
 
 ```ruby
 pod 'VolcengineTLSProducer', :path => '/path/to/ve-tls-ios-sdk'
@@ -163,9 +165,10 @@ sendConcurrency 不超过 8；正整数是精确线程数，Core 只把 0 作为
   `NSFileProtectionCompleteUntilFirstUserAuthentication`；Privacy Manifest 声明
   FileTimestamp / `C617.1`。WAL 没有 SDK 应用层加密；敏感日志必须按宿主安全
   需求评估 Data Protection 是否足够。
-- 当前 `NSPrivacyCollectedDataTypes=[]` 只是开发占位，不是“SDK 不收集数据”的
-  结论。SDK 会传输并可能持久化调用方日志，发布前必须由产品/隐私/法务确认数据
-  类型、linkage 与 purpose，并验证 archive privacy report。
+- SDK 不自动采集用户、设备、崩溃、性能或使用行为数据，只持久化并发送调用方显式
+  传入的日志，因此 SDK manifest 的 `NSPrivacyCollectedDataTypes=[]` 是正式边界，
+  不是“日志不会离开设备”的承诺。业务 App 必须按实际日志内容声明 data type、
+  linkage、purpose 与 tracking；详见 [PRIVACY.md](PRIVACY.md)。
 
 ## 当前证据边界（2026-09-02）
 
@@ -219,10 +222,9 @@ sendConcurrency 不超过 8；正整数是精确线程数，Core 只把 0 作为
   CPU mean/P99/peak 为 `8.55%/13.91%/16.88%`，RSS
   `27.73/30.39/30.70 MiB`，thermal 全程 Nominal；USB 供电下不声明真实续航。
 
-仍为 BLOCKED / 未验证：
+仍待发布 owner 完成：
 
-- 隐私 collected-data 分类与 App Store Connect validation；远端 `0.0.2` tag、
-  publish 授权和最终 owner sign-off。
+- 远端 `v2.0.0` tag、publish 授权和最终 owner sign-off。
 测试通过不等于可发布。仓库内冻结合同与门禁状态见
 [DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
 workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08-28.md`。

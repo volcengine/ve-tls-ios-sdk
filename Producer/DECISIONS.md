@@ -15,9 +15,10 @@
   AK/SK env 未强制成功响应必须
   含 requestID，因此 requestID 贯通只引用独立 wire/合同测试。
 - 精确 `6d3747e` 已通过 Intel Ventura 13.7.8 / Xcode 14.3.1 / Swift 5.8.1、
-  CocoaPods/SwiftPM 外部消费者、真实 BOE STS 与通用真机生命周期验收。隐私数据
-  分类/App Store Connect validation 和远端 tag 仍是发布阻断。精确 iOS 13 真机
-  不可得，不再单独作为阻断项。
+  CocoaPods/SwiftPM 外部消费者、真实 BOE STS 与通用真机生命周期验收。SDK 自身
+  隐私边界与打包资源已冻结；业务 App 的数据分类、签名和 App Store Connect 流程
+  属于集成方责任。SDK 发布仅待远端 tag 与 owner sign-off。精确 iOS 13 真机不可得，
+  不再单独作为阻断项。
 - product source 等同 exact `ef1b69e` 的真机 protection audit 已证明五类 Core
   文件均为 `CompleteUntilFirstUserAuthentication` + no-backup；30 分钟线上
   Instruments/135,000 条 Search+Consume 已补齐 CPU/RSS/thermal、WAL 有界回收和
@@ -130,7 +131,8 @@
 - CocoaPods 当前用 `@_implementationOnly` 引入私有 Clang module，但未开启
   `BUILD_LIBRARY_FOR_DISTRIBUTION`；接受源码分发 warning，不宣称 binary ABI
   stability。
-- 远端 `0.0.2` tag 创建/推送必须发生在发布 owner 接受全部门禁之后。
+- Producer 使用 `v2.0.x` 版本线，首个候选为 `v2.0.0`；`v1.x` 保留给旧 SDK
+  更新。远端 `v2.0.0` tag 创建/推送必须发生在发布 owner 接受全部门禁之后。
 
 ## Core 衍生关系
 
@@ -154,11 +156,12 @@
 
 - `stat(2)`/文件元数据使用声明
   `NSPrivacyAccessedAPICategoryFileTimestamp` / `C617.1`。
-- `NSPrivacyCollectedDataTypes=[]` 只是 development placeholder。SDK 会传输并可
-  持久化调用方日志，不能据此宣称“不收集数据”。
-- Beta 前必须由产品/隐私/法务确认 collected data type、linkage、tracking 和
-  purpose，并验证 SwiftPM/CocoaPods archive 生成的 privacy report 与 App Store
-  Connect 结果。
+- SDK 不自动采集用户、设备、崩溃、性能或使用行为数据，只处理调用方显式提供的
+  日志，因此 SDK manifest 的 `NSPrivacyCollectedDataTypes=[]` 是正式的 SDK 自身
+  边界。它不表示调用方日志不会离开设备。
+- 业务 App 必须按实际日志内容与用途声明 data type、linkage、tracking 和 purpose，
+  并负责自身签名、App Store Connect 和 App Review。SDK 负责确保同一 manifest 在
+  SwiftPM/CocoaPods 产物中可见，并提供 `PRIVACY.md` 接入说明。
 
 ## 模拟器稳定性证据
 
@@ -174,7 +177,6 @@
   `0.914/1.085/0.698`。按最终验收决定，不再重复完整 24-case 或 14 小时矩阵；
   SLS 4.3.4 close 仍按已知 UAF 边界未验证。
 
-## 仍未完成的发布门禁
+## 仍未完成的发布动作
 
-- 隐私 collected-data 分类与 App Store Connect validation。
-- 远端 tag、发布说明、最终 owner sign-off。
+- 远端 `v2.0.0` tag、发布说明、publish 授权与最终 owner sign-off。
