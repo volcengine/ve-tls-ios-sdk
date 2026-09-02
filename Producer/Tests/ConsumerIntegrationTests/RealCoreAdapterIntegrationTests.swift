@@ -834,12 +834,20 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
                     "Core-created file must be excluded from backup: \(file.lastPathComponent)")
 #if os(iOS)
                 let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
-                if let protection = attributes[.protectionKey] {
+                let protection = attributes[.protectionKey] as? FileProtectionType
+#if targetEnvironment(simulator)
+                if let protection {
                     XCTAssertEqual(
-                        protection as? FileProtectionType,
+                        protection,
                         .completeUntilFirstUserAuthentication,
                         "Core-created file has an unexpected protection class: \(file.lastPathComponent)")
                 }
+#else
+                XCTAssertEqual(
+                    protection,
+                    .completeUntilFirstUserAuthentication,
+                    "Core-created file must expose CompleteUntilFirstUserAuthentication on a physical device: \(file.lastPathComponent)")
+#endif
 #endif
             }
 

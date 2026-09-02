@@ -10,9 +10,10 @@ App 的固定 bundle ID 是 `com.volcengine.tls.SimulatorRecoveryHarness`。
 `producerID`（由脚本传入）。Documents 中的状态、网络标记和结果 JSON 只包含
 run ID、场景、计数、模式、状态码和时间戳，不包含 endpoint、凭证或日志 body。
 
-## 三种模式
+## 测试模式
 
-通过 `simctl launch` 的 `--mode=seed|recover|soak` 参数或同名环境变量选择模式。
+通过启动参数或同名环境变量选择
+`--mode=seed|recover|soak|volume|protection`。
 其他配置由 `launchctl setenv` 注入模拟器进程：
 
 | 变量 | 说明 |
@@ -34,6 +35,14 @@ run ID、场景、计数、模式、状态码和时间戳，不包含 endpoint�
 | `TLS_SIMULATOR_SOAK_DRAIN_TIMEOUT_SECONDS` | `soak` 停止 admission 后等待所有终态回调的超时，默认 30 |
 | `TLS_SIMULATOR_SOAK_DURATION_SECONDS` | `soak` 必填；秒 |
 | `TLS_SIMULATOR_SOAK_INTERVAL_MS` | `soak` 必填；相邻 admission 间隔 |
+
+额外的 `protection` 模式只用于物理 iOS 设备。它打开 buffered/sync Producer，
+完成一条持久化 admission，然后逐个读取 Core 目录内 `.ios-producer.lock`、
+`manifest`、`checkpoint`、`lease`、segment 及任何额外普通文件的
+`NSFileProtectionKey` 与 excluded-from-backup 属性。只有所有文件都精确为
+`completeUntilFirstUserAuthentication`、排除备份且固定五类文件均存在，结果
+`Documents/device-protection-result.json` 才写为 `success`。模拟器不能替代这条
+证据。
 
 `seed` 打开持久化 Producer，连续 `add(..., mode: .immediate)`；每条事件都带
 `run_id`、`scenario`、`persistence` 和唯一 `seq`。所有 admission

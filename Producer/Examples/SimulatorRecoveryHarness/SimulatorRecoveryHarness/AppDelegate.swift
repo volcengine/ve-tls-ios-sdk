@@ -34,6 +34,7 @@ private enum HarnessMode: String, Sendable {
     case recover
     case soak
     case volume
+    case protection
 }
 
 private enum PersistenceMode: String, Sendable {
@@ -887,6 +888,24 @@ private struct RunResult: Codable {
     let finishedAt: Date
 }
 
+private struct ProtectionAuditEntry: Codable {
+    let name: String
+    let protection: String?
+    let excludedFromBackup: Bool
+    let protectionMatches: Bool
+}
+
+private struct ProtectionAuditResult: Codable {
+    let schemaVersion: Int
+    let marker: String
+    let runID: String
+    let producerID: String
+    let entries: [ProtectionAuditEntry]
+    let missingExpectedFiles: [String]
+    let outcome: String
+    let finishedAt: Date
+}
+
 /// Stable, standalone result schema for the high-capacity volume run. It is
 /// intentionally separate from the legacy recovery/soak result so external
 /// BOE verification can consume the aggregate byte and lifecycle evidence
@@ -973,6 +992,7 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
     private static let stateFileName = "simulator-recovery-state.json"
     private static let resultFileName = "simulator-recovery-result.json"
     private static let volumeResultFileName = "simulator-volume-result.json"
+    private static let protectionResultFileName = "device-protection-result.json"
     private static let testAccessKeyID = "simulator-test-ak"
     private static let testAccessKeySecret = "simulator-test-sk"
     private static let rawBytesPerLog = 1_024
@@ -1049,6 +1069,8 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
                 try await runSoak(input)
             case .volume:
                 try await runVolume(input)
+            case .protection:
+                try await runProtectionAudit(input)
             }
         } catch let error as HarnessInputError {
             writeUnconfiguredResult(error.code)
@@ -1088,6 +1110,72 @@ private final class SimulatorRecoveryRunner: @unchecked Sendable {
             createdAt: Date())
         try writeJSON(state, fileName: Self.stateFileName)
         print("[simulator-recovery] seed_ready accepted=\(seedCount)")
+    }
+
+    private func runProtectionAudit(_ input: HarnessInput) async throws {
+        guard input.persistence == .buffered || input.persistence == .sync else {
+            throw HarnessInputError.missingOrInvalid("protection-persistence")
+        }
+
+        let collector = ResultCollector()
+        producer = try await openProducer(input, collector: collector)
+        try producer!.add(
+            makeOneKiBEvent(sequence: 0, input: input),
+            mode: .immediate)
+
+        let applicationSupport = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: false)
+        let directory = applicationSupport
+            .appendingPathComponent("com.volcengine.tls", isDirectory: true)
+            .appendingPathComponent("producer", isDirectory: true)
+            .appendingPathComponent(input.producerID, isDirectory: true)
+        let fileURLs = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey, .isExcludedFromBackupKey],
+            options: [.skipsSubdirectoryDescendants])
+
+        var entries: [ProtectionAuditEntry] = []
+        for fileURL in fileURLs.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            let values = try fileURL.resourceValues(
+                forKeys: [.isDirectoryKey, .isExcludedFromBackupKey])
+            guard values.isDirectory != true else { continue }
+            let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+            let protection = attributes[.protectionKey] as? FileProtectionType
+            entries.append(ProtectionAuditEntry(
+                name: fileURL.lastPathComponent,
+                protection: protection?.rawValue,
+                excludedFromBackup: values.isExcludedFromBackup == true,
+                protectionMatches: protection == .completeUntilFirstUserAuthentication))
+        }
+
+        let expectedNames: Set<String> = [
+            ".ios-producer.lock",
+            "manifest",
+            "checkpoint",
+            "lease",
+            "seg-000001.log",
+        ]
+        let observedNames = Set(entries.map(\.name))
+        let missingExpectedFiles = expectedNames
+            .subtracting(observedNames)
+            .sorted()
+        let passed = missingExpectedFiles.isEmpty &&
+            !entries.isEmpty &&
+            entries.allSatisfy { $0.protectionMatches && $0.excludedFromBackup }
+        let result = ProtectionAuditResult(
+            schemaVersion: 1,
+            marker: "protection_result_ready",
+            runID: input.runID,
+            producerID: input.producerID,
+            entries: entries,
+            missingExpectedFiles: missingExpectedFiles,
+            outcome: passed ? "success" : "error",
+            finishedAt: Date())
+        try writeJSON(result, fileName: Self.protectionResultFileName)
+        print("[simulator-recovery] protection_result_ready outcome=\(result.outcome) files=\(entries.count)")
     }
 
     private func runRecover(_ input: HarnessInput) async throws {
