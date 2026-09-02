@@ -11,24 +11,23 @@
 ## 环境
 
 - 已验证：Xcode 26.6 / Swift 6.3.3
-- SDK 与外部 consumer 已验证：Xcode 14.3.1 / Swift 5.8.1；本手写
-  `SwiftExample.xcodeproj` 尚未在该工具链单独执行
+- 已验证：Xcode 14.3.1 / Swift 5.8.1 / iOS 16.4 x86_64 Simulator
 - iOS 13.0+ 模拟器或真机
 
-## 方式一：直接打开自带工程（推荐先试）
+## 方式一：直接打开自带 workspace（推荐）
 
 ```bash
 cd Producer/Examples/SwiftExample
-open SwiftExample.xcodeproj
+open SwiftExample.xcworkspace
 ```
 
-工程已通过 **local Swift package** 依赖引用仓库根的 `Package.swift`
-（`XCLocalSwiftPackageReference` 相对路径 `../../../`）。Xcode 打开后会自动
-解析包并编译 `VolcengineTLSProducer`。选择模拟器，直接 Run。
+workspace 同时包含 App 工程与仓库根的 **local Swift package**。Xcode 打开后
+会解析包并编译 `VolcengineTLSProducer`。选择模拟器，直接 Run。
 
-> **pbxproj 兼容性风险**：`project.pbxproj` 为手写最小工程（objectVersion 56，
-> Xcode 14 兼容）。如果你的 Xcode 版本打开时报错或无法解析包依赖，请改用
-> 方式二手动新建工程——源文件（`SwiftExample/*.swift`、`Info.plist`）可直接复用。
+> **为什么使用 workspace**：Xcode 14.3.1 直接打开嵌套的
+> `SwiftExample.xcodeproj` 时可能报 `Missing package product`；显式 workspace
+> 会把 App 工程和本地 package 放入同一解析上下文。若仍无法解析，请使用方式二；
+> 源文件（`SwiftExample/*.swift`、`Info.plist`）可直接复用。
 
 ## 方式二：在 Xcode 14.3.1 中新建工程并拖入源文件
 
@@ -91,6 +90,6 @@ trust-all 开关。
 
 ## 证据边界
 
-SDK package 与 public consumer 路径已在模拟器编译/测试；本手写示例工程尚未
-作为 BOE 或真机证据执行。行为与发布边界以 `Producer/README.md` 和最新验收
-报告为准。
+本示例已在 Xcode 14.3.1 / Swift 5.8.1 / iOS 16.4 x86_64 Simulator 完成
+workspace 构建、安装和冷启动；它仍不构成 BOE 或真机证据。行为与发布边界以
+`Producer/README.md` 和最新验收报告为准。

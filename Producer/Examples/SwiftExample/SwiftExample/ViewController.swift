@@ -131,7 +131,7 @@ final class ViewController: UIViewController {
                 text = "SendResult: failure "
                     + "(\(result.error?.errorCode ?? "unknown"))"
             }
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 self?.statusLabel.text = text
             }
         }
