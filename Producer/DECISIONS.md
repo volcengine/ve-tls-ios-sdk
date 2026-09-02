@@ -4,17 +4,20 @@
 > [Implementation Decision Ledger](../../docs/research/tls-ios-producer-sdk-implementation-decision-ledger.md)
 > 为准；执行证据以最新 acceptance report 为准。
 
-## 当前状态（2026-08-29）
+## 当前状态（2026-09-02）
 
 - Development Preview / release candidate source，**不是 Beta/GA**。
 - Public `Producer.open` 只使用 Real C Core，不存在无 destination 时静默降级为
   内存实现。
 - Xcode 26.6 Simulator、严格 Swift 6、SwiftPM consumer、CocoaPods lint/consumer、
-  最终源码 BOE AK/SK、本地 HTTPS redirect、sanitizer、进程级 recovery 与
-  pinned SLS `4.3.4` x86_64 共存链接已有证据。当前 BOE env 未强制成功响应必须
+  最终源码 BOE AK/SK/STS、通用真机生命周期、本地 HTTPS redirect、sanitizer、
+  进程级 recovery 与 pinned SLS `4.3.4` x86_64 共存链接已有证据。当前早期 BOE
+  AK/SK env 未强制成功响应必须
   含 requestID，因此 requestID 贯通只引用独立 wire/合同测试。
-- Xcode 14.3.1 / Swift 5.8、STS、隐私数据分类/App Store report 和远端 tag
-  仍是发布阻断。精确 iOS 13 真机不可得，不再单独作为阻断项。
+- 精确 `6d3747e` 已通过 Intel Ventura 13.7.8 / Xcode 14.3.1 / Swift 5.8.1、
+  CocoaPods/SwiftPM 外部消费者、真实 BOE STS 与通用真机生命周期验收。隐私数据
+  分类/App Store report、真机 Instruments 和远端 tag 仍是发布阻断。精确 iOS 13
+  真机不可得，不再单独作为阻断项。
 
 ## 冻结公共语义
 
@@ -162,32 +165,15 @@
   delayed retry destroy 等待问题主动中止。精确提交 `19b8648` 的最终 v1 已完整
   通过：6920 accepted / observed / success、0 failure；RSS 覆盖率 96.42%、最大
   间隔 2 秒、首尾 5 分钟中位数下降 15968 KiB、斜率 -6175.36 KiB/h。
+- 最终 exact `6a347f8` 的 Intel x86_64 顺序交换代表性性能矩阵 8/8 通过；
+  memory add/CPU/peak RSS `0.581/1.005/0.692`，persistent
+  `0.914/1.085/0.698`。按最终验收决定，不再重复完整 24-case 或 14 小时矩阵；
+  SLS 4.3.4 close 仍按已知 UAF 边界未验证。
 
 ## 仍未完成的发布门禁
 
-- Xcode 14.3.1 / Swift 5.8 runner。
-- 通用真机 background/Data Protection/Instruments；STS 临时凭证。真机证据不
-  要求精确 iOS 13 系统。
-- pinned SLS `4.3.4` 的同机性能 A/B；其 podspec 排除 arm64 Simulator，当前需
-  临时 source-build override 才能在当前 Apple Silicon Simulator 运行。admission
-  优化后的 clean 24 组只剩 persistent 300 CPU `1.272×` 失败；剖析确认显式
-  `sendConcurrency=1` 曾被 Core 误当 auto 并展开成 2 sender + 2 pack worker。
-  修复为精确 1+1 后该组 6 轮定向复测 CPU `1.083×`、add P99 `0.762×`、RSS
-  `1.114×` 全过。随后 memory 300 定向复测暴露 RSS `1.242×`；sealed batch 改为
-  转移 builder allocation 后，精确 `2ed85f0` 的 arm64 同合同 6 轮 CPU
-  `1.158×`、add P99 `0.559×`、RSS `1.119×` 全过。该前后证据来自不同硬件，
-  因此只比较每次同机 TLS/SLS 比值，不比较绝对 RSS。独立 Linux 开发机固定
-  vCPU/NUMA 的 C persistent 5×2 复测中，
-  task 数从 6 降到 4，250/1000 logs/s 的 user-space task-clock 中位数分别下降
-  12.08%/13.30%，确认该回归属于 C Core 线程语义而非 Mac 独有噪声。正式 24 组
-  曾在 `cd094d8` 全部执行，但 TLS persistent 六组因 key-queue builder 被 sender
-  completion 误释放而在 200,000 admissions 后稳定拒绝新日志，不能计算为性能
-  通过。C Core `62241b5` / iOS `ca1a9c8` 已增加 builder 生命周期保护；220,000
-  条容量回归全接收、零终态失败并成功 close。exact `bcf7bd7` 的修复后短矩阵
-  24/24 通过：memory 100/300 CPU `1.053×/1.173×`、persistent 100/300 CPU
-  `1.005×/1.184×`，四组 add P99/RSS 均不超过 `1.20×`。正式 5 分钟 warm-up +
-  30 分钟测量仍待新 clean SHA 重跑。Intel x86_64 Simulator 功能全量已通过，但不能替代性能矩阵。该版本 public destroy
-  在 arm64 实测会对已由 C Core 释放的 config 再做 `CFRelease` 并 SIGTRAP；临时
-  A/B 必须每组进程隔离、跳过 SLS destroy，并明确不构成其生命周期通过证据。
+- 通用真机 Instruments，以及每个 Core WAL 文件精确 `NSFileProtection` 属性的
+  独立导出。真机 background、密码保护锁屏、重启后首次解锁、STS 临时凭证与
+  恢复行为已通过；真机证据不要求精确 iOS 13 系统。
 - 隐私数据分类、archive privacy report、App Store Connect 校验。
 - 远端 tag、发布说明、最终 owner sign-off。

@@ -11,7 +11,8 @@
 ## 环境
 
 - 已验证：Xcode 26.6 / Swift 6.3.3
-- 待验证：Xcode 14.3.1 / Swift 5.8
+- SDK 与外部 consumer 已验证：Xcode 14.3.1 / Swift 5.8.1；本手写
+  `SwiftExample.xcodeproj` 尚未在该工具链单独执行
 - iOS 13.0+ 模拟器或真机
 
 ## 方式一：直接打开自带工程（推荐先试）

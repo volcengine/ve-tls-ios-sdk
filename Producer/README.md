@@ -5,18 +5,17 @@
 
 > **Development Preview / release candidate source，不是 Beta/GA。**
 >
-> 当前 Xcode 26.6 模拟器、SwiftPM、CocoaPods、本地 HTTPS redirect、BOE AK/SK、
-> Intel x86_64 模拟器、sanitizer 和进程级 WAL recovery 已有执行证据。发布仍受
-> Xcode 14.3.1 / Swift 5.8、STS、隐私数据分类/App Store 校验和远端版本 tag
-> 阻断；缺少 iOS 13 真机不再单独阻断发布。
+> 当前 Xcode 26.6、Intel Xcode 16.4、Intel Xcode 14.3.1 / Swift 5.8.1、
+> SwiftPM、CocoaPods、本地 HTTPS redirect、BOE STS、真机生命周期、sanitizer 和
+> 进程级 WAL recovery 已有执行证据。发布仍受隐私数据分类/App Store 校验、
+> 真机 Instruments 和远端版本 tag 阻断；缺少 iOS 13 真机不再单独阻断发布。
 
 ## 要求
 
 - deployment target：iOS 13.0+
 - SwiftPM manifest：Swift tools 5.8
 - 已验证工具链：Xcode 26.6 / Swift 6.3.3（Swift 5 与严格 Swift 6）、
-  Intel Xcode 16.4 / Swift 6.1.2
-- 声明但尚未现场验证：Xcode 14.3.1 / Swift 5.8
+  Intel Xcode 16.4 / Swift 6.1.2、Intel Xcode 14.3.1 / Swift 5.8.1
 
 iOS 13 最低版本合同不依赖找到同版本真机：SwiftPM 与 CocoaPods 声明必须一致为
 13.0，产品分别以 `arm64-apple-ios13.0` 和 arm64/x86_64 Simulator triple 编译，
@@ -167,7 +166,7 @@ sendConcurrency 不超过 8；正整数是精确线程数，Core 只把 0 作为
   结论。SDK 会传输并可能持久化调用方日志，发布前必须由产品/隐私/法务确认数据
   类型、linkage 与 purpose，并验证 archive privacy report。
 
-## 当前证据边界（2026-08-29）
+## 当前证据边界（2026-09-02）
 
 已验证：
 
@@ -186,6 +185,11 @@ sendConcurrency 不超过 8；正整数是精确线程数，Core 只把 0 作为
   x86_64 Simulator 全量 261 total：255 passed、0 failed、6 个 opt-in skipped；
   5 个测试 bundle 均为 x86_64。该证据与 arm64 Simulator 共同覆盖通用运行能力，
   不冒充 iOS 13 真机执行。
+- 精确提交 `6d3747e` 在 Intel Ventura 13.7.8 / Xcode 14.3.1 / Swift 5.8.1 /
+  iOS 16.4 x86_64 Simulator 全量 275 total：265 passed、0 failed、10 个真实
+  BOE/HTTPS redirect opt-in skipped；SwiftPM 外部消费者、CocoaPods 完整 lint、
+  默认 static library/static framework 外部消费者、Privacy、公共/私有符号门禁
+  全部通过，三个最终消费者 Mach-O 均为 `minos 13.0`。
 - 外部 SwiftPM public lifecycle/resource/symbol gate；CocoaPods 完整 lint、两种
   `:path` consumer、Privacy resource 与最终 Mach-O symbol gate；TLS 与 pinned
   SLS `4.3.4` 同 App 的 x86_64 CocoaPods 混编链接通过。临时覆盖 SLS podspec 的
@@ -202,36 +206,17 @@ sendConcurrency 不超过 8；正整数是精确线程数，Core 只把 0 作为
   delayed retry destroy 等待问题主动中止。精确 `19b8648` 的最终 v1 已完整通过：
   6920 accepted / observed / success、0 failure、单 PID；RSS 覆盖率 96.42%、最大
   间隔 2 秒、首尾 5 分钟中位数下降 15968 KiB、斜率 -6175.36 KiB/h。
+- 最终 exact `6a347f8` 的 Intel x86_64 顺序交换代表性性能矩阵 8/8 通过：
+  memory add/CPU/peak RSS `0.581/1.005/0.692`，persistent
+  `0.914/1.085/0.698`，均满足 `≤1.20` 门禁。按最终验收决定，不再重复完整
+  24-case 或 14 小时矩阵；SLS 4.3.4 close 仍按已知 UAF 边界未验证。
 
 仍为 BLOCKED / 未验证：
 
-- Xcode 14.3.1 / Swift 5.8 legacy runner。
-- STS 临时凭证；当前 BOE 材料只覆盖 AK/SK。
-- 通用真机 Data Protection/background/Instruments；App Store archive privacy
-  report。这些是设备行为/发布运营证据，不要求设备恰好运行 iOS 13。
+- 通用真机 Instruments；App Store archive privacy report。真机锁屏/后台、真实
+  断网、SIGKILL、重启后首次解锁、STS 过期/轮换和 WAL 恢复已在精确 `6d3747e`
+  通过；尚未独立导出每个 Core WAL 文件的精确 `NSFileProtection` 属性。
 - 隐私数据分类；远端 `0.0.2` tag 与发布动作。
-- 性能口径冻结为 1 KiB/10 fields/LZ4/1 sender，100/300 logs/s，memory/persistent
-  分组，pinned SLS `4.3.4` 同机 Release A/B；每组 warm-up 5 分钟、测量 30 分钟、
-  至少 3 次，P99 add latency/CPU/RSS 相对恶化不得超过 20%。SLS 原 podspec 排除
-  arm64 Simulator；direct merge、table CRC 与单日志 builder 复用后的 clean 24
-  组中，memory 100/300 与 persistent 100 全过，persistent 300 的 add P99
-  `1.002×`、RSS `1.118×` 通过，但 CPU `1.272×` 失败。剖析发现 Core 把显式
-  `sendConcurrency=1` 误当 auto，实际启动 2 sender + 2 pack worker；修复为精确
-  1+1 后，该组 6 轮定向复测为 CPU `1.083×`、add P99 `0.762×`、RSS `1.114×`
-  全过。随后 memory 300 组在 Intel 定向复测暴露 RSS `1.242×`；Core sealed batch
-  改为把 builder allocation 转移给 send task、避免第二份 wire buffer 后，精确
-  `2ed85f0` 的 arm64 同合同 6 轮为 CPU `1.158×`、add P99 `0.559×`、RSS
-  `1.119×`，三项均通过。绝对 RSS 不跨 Intel/arm64 比较，门禁只使用各自同机
-  TLS/SLS 中位数比值。独立 Linux 开发机固定 vCPU/NUMA 的 C persistent 5×2 交错复测进一步
-  确认线程数从 6 降到 4，250/1000 logs/s 的 user-space task-clock 中位数分别
-  下降 12.08%/13.30%；这证明 C Core 因果，但不替代 iOS/SLS A/B。`cd094d8`
-  的正式 24 组虽已全部执行，但 TLS persistent 六组均在 200,000 admissions 后
-  拒绝新日志；根因是 sender finish 释放了仍含未封批 builder 的 key queue，制造
-  ACK ID 空洞并阻断 WAL 回收。C Core `62241b5` / iOS `ca1a9c8` 已修复，
-  220,000 条高率容量回归全接收且零终态失败。随后 exact `bcf7bd7` 的 24 组短矩阵
-  全绿：memory 100/300 CPU `1.053×/1.173×`，persistent 100/300 CPU
-  `1.005×/1.184×`，四组 add P99/RSS 也全部 `≤1.20×`。正式 5 分钟 warm-up +
-  30 分钟测量矩阵仍须在新 clean SHA 重跑；Intel 功能全量通过不能替代性能结果。
 测试通过不等于可发布。仓库内冻结合同与门禁状态见
 [DECISIONS.md](DECISIONS.md) 和 [CORE_VERSION](CORE_VERSION)；完整执行证据保存在
 workspace 的 `docs/research/tls-ios-producer-sdk-remediation-acceptance-2026-08-28.md`。

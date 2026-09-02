@@ -102,6 +102,13 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
 - 精确提交 `bac7b22` 在 Intel Xcode 16.4 / iOS 18.5 x86_64 Simulator 全量
   261 total：255 passed、0 failed、6 opt-in skipped；5 个测试 bundle 均为
   x86_64。
+- 精确提交 `6d3747e` 在 Intel Ventura 13.7.8 / Xcode 14.3.1 / Swift 5.8.1 /
+  iOS 16.4 x86_64 Simulator 全量 275 total：265 passed、0 failed、10 个真实
+  BOE/HTTPS redirect opt-in skipped；SwiftPM/CocoaPods 外部消费者、Privacy、
+  public/private symbol gate 和最终 Mach-O `minos 13.0` 全部通过。
+- 精确提交 `6d3747e` 的真机 BOE STS、密码保护锁屏/后台、真实断网、SIGKILL、
+  重启后首次解锁与 WAL recovery 已通过；成功轮由官方 Go SDK Search/Consume
+  逐条验证，观测重复数为 0，但 at-least-once 合同仍允许模糊 ACK 后重复。
 - CocoaPods 1.17.0 完整 `pod lib lint`、默认 static library consumer、static
   framework consumer、私有 header/module 与 final symbols/resources 通过；TLS 与
   pinned SLS `4.3.4` 的 x86_64 混编 consumer 同 App 链接通过；临时覆盖 SLS
@@ -120,28 +127,18 @@ Preview 阶段不承诺 Semantic Versioning 兼容性。
   v1 完整 7200 秒通过：6920 accepted / observed / success、0 failure、单 PID；
   RSS 覆盖率 96.42%、最大间隔 2 秒、首尾 5 分钟中位数下降 15968 KiB、斜率
   -6175.36 KiB/h。
+- 最终 exact `6a347f8` 的 Intel x86_64 顺序交换代表性性能矩阵 8/8 通过：
+  memory add/CPU/peak RSS `0.581/1.005/0.692`，persistent
+  `0.914/1.085/0.698`，均满足 `≤1.20` 门禁。按最终验收决定，不再重复完整
+  24-case 或 14 小时矩阵；SLS 4.3.4 close 仍按已知 UAF 边界未验证。
 
 ### Release blockers
 
-- Xcode 14.3.1 / Swift 5.8、STS、通用真机 Instruments/background/Data
-  Protection、隐私数据分类/App Store privacy report 尚未完成。精确 iOS 13 真机
-  不再是 blocker；最低版本由声明、compile/link 与 Mach-O minos 门禁证明。
-- 性能口径已冻结为 1 KiB/10 fields/LZ4/1 sender、100/300 logs/s、
-  memory/persistent 分组、pinned SLS `4.3.4` 同机 Release A/B；P99 add latency、
-  CPU、RSS 相对恶化不得超过 20%。SLS 原 podspec 排除 arm64 Simulator；临时
-  source-build override 在 admission 优化后的 clean 24 组中，memory 100/300 与
-  persistent 100 全过，persistent 300 的 add P99 `1.002×`、RSS `1.118×` 通过，
-  CPU `1.272×` 失败。线程 auto/explicit 冲突修复后，该组 6 轮定向复测为 CPU
-  `1.083×`、add P99 `0.762×`、RSS `1.114×` 全过。随后 memory 300 的 Intel
-  定向证据 RSS `1.242×` 失败；sealed-batch ownership transfer 后，精确
-  `2ed85f0` arm64 同合同 6 轮 CPU `1.158×`、add P99 `0.559×`、RSS `1.119×`
-  全过。前后硬件不同，只使用各自同机 TLS/SLS 比值，不横比绝对 RSS。独立 Linux 开发机固定
-  vCPU/NUMA 的 C persistent 复测确认 task 数 6→4，250/1000 logs/s 的
-  user-space task-clock 中位数分别下降 12.08%/13.30%。`cd094d8` 正式 24 组因
-  persistent 200,000-record 正确性错误失败；该错误已在 C Core `62241b5` / iOS
-  `ca1a9c8` 修复并通过 220,000 条容量回归；exact `bcf7bd7` 的 24 组短矩阵随后
-  全绿，但仍需重跑正式 5 分钟 warm-up + 30 分钟测量矩阵。
-  Intel 功能全量通过也不能替代正式性能矩阵。
+- 通用真机 Instruments、隐私数据分类/App Store privacy report 尚未完成；每个
+  Core WAL 文件的精确 `NSFileProtection` 属性尚未独立导出。Xcode 14.3.1 /
+  Swift 5.8.1、STS、真机 background/Data Protection 功能恢复均已通过。精确
+  iOS 13 真机不再是 blocker；最低版本由声明、compile/link 与 Mach-O minos
+  门禁证明。
 - 远端 `0.0.2` tag 尚未创建。
 - 当前仍是 Development Preview / release candidate source，不可标记 Beta/GA。
 
