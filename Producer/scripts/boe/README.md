@@ -19,6 +19,11 @@
 命中分片数和同一 hash slot 的单分片稳定性。ACK 丢失恢复必须使用 `require`，否则
 不能声称已证明 at-least-once。
 
+`BOE_VERIFY_EXPECT_SCENARIO` 选择 volume payload/profile；默认也用于核对日志里的
+`scenario` 字段。如果调用方为 Instruments 或其他专项运行使用了独立场景名，可再
+设置 `BOE_VERIFY_EXPECT_LOG_SCENARIO`，两者会分别校验。run ID 与场景名只接受
+ASCII 字母、数字、`_`、`-`，避免把测试元数据带入查询语法。
+
 建议从一个已核对 commit、干净的官方 Go SDK checkout 执行：
 
 ```sh

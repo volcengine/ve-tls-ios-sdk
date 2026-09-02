@@ -24,6 +24,7 @@ type verifyConfig struct {
 	runID            string
 	profile          string
 	scenario         string
+	logScenario      string
 	persistence      string
 	expectCount      int
 	startMS          int64
@@ -88,6 +89,7 @@ func safeIdentifier(value string) bool {
 	}
 	for _, character := range value {
 		if (character < 'a' || character > 'z') &&
+			(character < 'A' || character > 'Z') &&
 			(character < '0' || character > '9') &&
 			character != '_' && character != '-' {
 			return false
@@ -132,6 +134,7 @@ func loadConfig() (verifyConfig, error) {
 		config.profile = "field_fidelity"
 	}
 	config.scenario = optionalEnvironment("BOE_VERIFY_EXPECT_SCENARIO", "BOE_VERIFY_SCENARIO")
+	config.logScenario = os.Getenv("BOE_VERIFY_EXPECT_LOG_SCENARIO")
 	config.persistence = optionalEnvironment("BOE_VERIFY_EXPECT_PERSISTENCE", "BOE_VERIFY_PERSISTENCE")
 	// Accept both forms for the new verifier: the explicit `volume` profile
 	// plus a scenario, and a direct volume profile name. The latter is useful
@@ -144,6 +147,9 @@ func loadConfig() (verifyConfig, error) {
 			config.scenario = config.profile
 			config.profile = "volume"
 		}
+	}
+	if config.logScenario == "" {
+		config.logScenario = config.scenario
 	}
 	config.duplicatePolicy = os.Getenv("BOE_VERIFY_DUPLICATE_POLICY")
 	if config.duplicatePolicy == "" {
@@ -174,13 +180,16 @@ func loadConfig() (verifyConfig, error) {
 	}
 	if config.profile == "volume" {
 		if !safeIdentifier(config.runID) {
-			return config, errors.New("BOE_VERIFY_RUN_ID must be a lowercase safe identifier for volume")
+			return config, errors.New("BOE_VERIFY_RUN_ID must be an ASCII alphanumeric safe identifier for volume")
 		}
 		if config.scenario == "" {
 			return config, errors.New("BOE_VERIFY_EXPECT_SCENARIO is required for volume")
 		}
 		if !safeIdentifier(config.scenario) {
-			return config, errors.New("BOE_VERIFY_EXPECT_SCENARIO must be a lowercase safe identifier for volume")
+			return config, errors.New("BOE_VERIFY_EXPECT_SCENARIO must be an ASCII alphanumeric safe identifier for volume")
+		}
+		if !safeIdentifier(config.logScenario) {
+			return config, errors.New("BOE_VERIFY_EXPECT_LOG_SCENARIO must be an ASCII alphanumeric safe identifier for volume")
 		}
 		if _, ok := volumePayloadLength(config.scenario); !ok {
 			return config, errors.New("BOE_VERIFY_EXPECT_SCENARIO is not a supported volume profile")
@@ -287,7 +296,7 @@ func expectedFieldValues(sequence int, config verifyConfig) map[string]string {
 	}
 	if config.profile == "volume" {
 		payloadLength, _ := volumePayloadLength(config.scenario)
-		values["scenario"] = config.scenario
+		values["scenario"] = config.logScenario
 		values["persistence"] = config.persistence
 		values["profile"] = config.scenario
 		values["payload_size"] = strconv.Itoa(payloadLength)
