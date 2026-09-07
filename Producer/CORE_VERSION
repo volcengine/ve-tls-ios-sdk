@@ -1,0 +1,14 @@
+# Vendored Producer Core provenance
+
+status: INTEGRATED
+component: ve-tls-c-sdk
+upstream_core_tag: v0.3.2
+upstream_core_full_sha: 1d41ec4edb850ee7dd0b7f63c49738d6a9669c21
+vendor_manifest: Producer/CORE_VENDOR_SHA256SUMS
+vendor_overlays: include/ve_tls_export.h,third_party/lz4/lz4.c
+vendor_additions: include/CTLSProducerCore.h,core/ve_tls_iosp_version.c
+license: Apache-2.0
+
+The vendored source matches the synchronized Core commit except for the listed
+Apple packaging overlays and wrapper files. Consumers should use the public
+VolcengineTLSProducer Swift or Objective-C API instead of the C symbols.

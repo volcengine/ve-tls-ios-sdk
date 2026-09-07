@@ -1,0 +1,5 @@
+/* Private CocoaPods-only Clang module for the mixed Swift/ObjC target. */
+module TLSProducerBridge {
+    header "../Sources/TLSProducerBridge/include/TLSProducerBridge.h"
+    export *
+}

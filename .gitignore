@@ -1,0 +1,43 @@
+# SwiftPM and dependency builds
+.build/
+.swiftpm/
+Pods/
+Carthage/Build/
+
+# Xcode build output and per-user settings
+build/
+Build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.hmap
+
+# Generated packages, test results and profiling output
+*.ipa
+*.dSYM
+*.zip
+*.tar.gz
+*.xcresult
+*.trace
+*.log
+
+# Local credentials and environment overrides
+*.env
+.env.*
+.*_env
+*.secrets
+
+# macOS
+.DS_Store

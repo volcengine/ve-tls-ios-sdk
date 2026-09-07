@@ -1,0 +1,538 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		06116F60C485EF728A15AD8A /* EntryBenchmarkEntry.m in Sources */ = {isa = PBXBuildFile; fileRef = 3CB0DDA81C9D414C4BAC0276 /* EntryBenchmarkEntry.m */; };
+		11455FC35A2F540FF8CF3279 /* EntryBenchmarkMain.m in Sources */ = {isa = PBXBuildFile; fileRef = 2160D25490558BD3560BC071 /* EntryBenchmarkMain.m */; };
+		26C2A52114A7FC8B37B429E2 /* EntryBenchmarkOptions.m in Sources */ = {isa = PBXBuildFile; fileRef = 1C928DE661AECB0488EF4A0A /* EntryBenchmarkOptions.m */; };
+		41697844D13390DE31094F45 /* EntryBenchmarkSwiftEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56CFC990408B07FA20A11149 /* EntryBenchmarkSwiftEntry.swift */; };
+		47BF765B1F977CCF9482109F /* EntryBenchmarkMain.m in Sources */ = {isa = PBXBuildFile; fileRef = 2160D25490558BD3560BC071 /* EntryBenchmarkMain.m */; };
+		533C105C2868A1B4E4B1DDC8 /* VolcengineTLSProducer in Frameworks */ = {isa = PBXBuildFile; productRef = C67646EBBAD0C64B083E7FC2 /* VolcengineTLSProducer */; };
+		5531DDF30D15739C4B668286 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 330F72943128F18E8C481EC9 /* Foundation.framework */; };
+		5E32C4AED37078490C955A21 /* EntryBenchmarkObjCEntry.m in Sources */ = {isa = PBXBuildFile; fileRef = A6102B70B920BE4F2808CDA1 /* EntryBenchmarkObjCEntry.m */; };
+		5E403BCC555D0A2A262DA684 /* EntryBenchmarkMetrics.m in Sources */ = {isa = PBXBuildFile; fileRef = 674574E50B9EC3FF5E422577 /* EntryBenchmarkMetrics.m */; };
+		68701FFCB28BDAF8B984EBDB /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E7CA635CBE23B4A47D8874A3 /* Cocoa.framework */; };
+		71EB0D43F176E8FAF8D5B0D5 /* EntryBenchmarkOptions.m in Sources */ = {isa = PBXBuildFile; fileRef = 1C928DE661AECB0488EF4A0A /* EntryBenchmarkOptions.m */; };
+		85B9E438D8E2357D397E9826 /* EntryBenchmarkRunner.m in Sources */ = {isa = PBXBuildFile; fileRef = 0DF1174EDD9AE48E9D4D91DF /* EntryBenchmarkRunner.m */; };
+		A4CB3E64BE336219189A2F10 /* EntryBenchmarkEntry.m in Sources */ = {isa = PBXBuildFile; fileRef = 3CB0DDA81C9D414C4BAC0276 /* EntryBenchmarkEntry.m */; };
+		AABB7ED350098BE808BBAD2D /* EntryBenchmarkMetrics.m in Sources */ = {isa = PBXBuildFile; fileRef = 674574E50B9EC3FF5E422577 /* EntryBenchmarkMetrics.m */; };
+		AB381DBE00AFFABEE1062E5B /* EntryBenchmarkProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = F0E25DE72B1438617413464B /* EntryBenchmarkProtocol.m */; };
+		B527536FE02555247B02C06E /* EntryBenchmarkSwiftEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56CFC990408B07FA20A11149 /* EntryBenchmarkSwiftEntry.swift */; };
+		D11AE43DDE381F72A400DA63 /* EntryBenchmarkProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = F0E25DE72B1438617413464B /* EntryBenchmarkProtocol.m */; };
+		DE84913B13FDFE31B3F8798E /* EntryBenchmarkRunner.m in Sources */ = {isa = PBXBuildFile; fileRef = 0DF1174EDD9AE48E9D4D91DF /* EntryBenchmarkRunner.m */; };
+		F3B785C82E953AC81998B9BE /* VolcengineTLSProducer in Frameworks */ = {isa = PBXBuildFile; productRef = 31B64582A8878AAA6EC8567E /* VolcengineTLSProducer */; };
+		F90F62C305595E83B4A4D12B /* EntryBenchmarkObjCEntry.m in Sources */ = {isa = PBXBuildFile; fileRef = A6102B70B920BE4F2808CDA1 /* EntryBenchmarkObjCEntry.m */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0DF1174EDD9AE48E9D4D91DF /* EntryBenchmarkRunner.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = EntryBenchmarkRunner.m; sourceTree = "<group>"; };
+		1C928DE661AECB0488EF4A0A /* EntryBenchmarkOptions.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = EntryBenchmarkOptions.m; sourceTree = "<group>"; };
+		2160D25490558BD3560BC071 /* EntryBenchmarkMain.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = EntryBenchmarkMain.m; sourceTree = "<group>"; };
+		24415EDDF6426111BE77790A /* EntryBenchmarkRunner.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = EntryBenchmarkRunner.h; sourceTree = "<group>"; };
+		2EBF2E097E5BF60D4D4811EA /* EntryBenchmark-Bridging-Header.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "EntryBenchmark-Bridging-Header.h"; sourceTree = "<group>"; };
+		330F72943128F18E8C481EC9 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		3CB0DDA81C9D414C4BAC0276 /* EntryBenchmarkEntry.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = EntryBenchmarkEntry.m; sourceTree = "<group>"; };
+		3DCAD2FAC6F868CCA38243AA /* EntryBenchmarkEntry.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = EntryBenchmarkEntry.h; sourceTree = "<group>"; };
+		3FC4F43C04415CF794D4D2B5 /* EntryBenchmarkObjCEntry.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = EntryBenchmarkObjCEntry.h; sourceTree = "<group>"; };
+		56CFC990408B07FA20A11149 /* EntryBenchmarkSwiftEntry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EntryBenchmarkSwiftEntry.swift; sourceTree = "<group>"; };
+		674574E50B9EC3FF5E422577 /* EntryBenchmarkMetrics.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = EntryBenchmarkMetrics.m; sourceTree = "<group>"; };
+		774541C1B22ABF1AA18285B0 /* EntryBenchmark-macCLI */ = {isa = PBXFileReference; includeInIndex = 0; path = "EntryBenchmark-macCLI"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9CB48DDC209345A0E01CB0BF /* EntryBenchmark-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "EntryBenchmark-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9EC512147EA241AE7821272A /* EntryBenchmark-iOS-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "EntryBenchmark-iOS-Info.plist"; sourceTree = "<group>"; };
+		A05D8AFBB96B421B5EE609AB /* EntryBenchmarkOptions.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = EntryBenchmarkOptions.h; sourceTree = "<group>"; };
+		A6102B70B920BE4F2808CDA1 /* EntryBenchmarkObjCEntry.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = EntryBenchmarkObjCEntry.m; sourceTree = "<group>"; };
+		AF5D5C4CECB120B811F6F37F /* EntryBenchmarkProtocol.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = EntryBenchmarkProtocol.h; sourceTree = "<group>"; };
+		BF424CED182A3E11007CA900 /* EntryBenchmarkMetrics.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = EntryBenchmarkMetrics.h; sourceTree = "<group>"; };
+		E7CA635CBE23B4A47D8874A3 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		F0E25DE72B1438617413464B /* EntryBenchmarkProtocol.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = EntryBenchmarkProtocol.m; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		17D4866DECA65EEBC4C45149 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5531DDF30D15739C4B668286 /* Foundation.framework in Frameworks */,
+				F3B785C82E953AC81998B9BE /* VolcengineTLSProducer in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B6233ABB06C7E3AEBD993439 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				68701FFCB28BDAF8B984EBDB /* Cocoa.framework in Frameworks */,
+				533C105C2868A1B4E4B1DDC8 /* VolcengineTLSProducer in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		3FB5CBB542D03FF6EB1D31FC /* EntryBenchmark */ = {
+			isa = PBXGroup;
+			children = (
+				3CB0DDA81C9D414C4BAC0276 /* EntryBenchmarkEntry.m */,
+				2160D25490558BD3560BC071 /* EntryBenchmarkMain.m */,
+				674574E50B9EC3FF5E422577 /* EntryBenchmarkMetrics.m */,
+				A6102B70B920BE4F2808CDA1 /* EntryBenchmarkObjCEntry.m */,
+				1C928DE661AECB0488EF4A0A /* EntryBenchmarkOptions.m */,
+				F0E25DE72B1438617413464B /* EntryBenchmarkProtocol.m */,
+				0DF1174EDD9AE48E9D4D91DF /* EntryBenchmarkRunner.m */,
+				56CFC990408B07FA20A11149 /* EntryBenchmarkSwiftEntry.swift */,
+				2EBF2E097E5BF60D4D4811EA /* EntryBenchmark-Bridging-Header.h */,
+				3DCAD2FAC6F868CCA38243AA /* EntryBenchmarkEntry.h */,
+				BF424CED182A3E11007CA900 /* EntryBenchmarkMetrics.h */,
+				3FC4F43C04415CF794D4D2B5 /* EntryBenchmarkObjCEntry.h */,
+				A05D8AFBB96B421B5EE609AB /* EntryBenchmarkOptions.h */,
+				AF5D5C4CECB120B811F6F37F /* EntryBenchmarkProtocol.h */,
+				24415EDDF6426111BE77790A /* EntryBenchmarkRunner.h */,
+				9EC512147EA241AE7821272A /* EntryBenchmark-iOS-Info.plist */,
+			);
+			name = EntryBenchmark;
+			path = .;
+			sourceTree = "<group>";
+		};
+		57AB40A56BB531030F075AB5 /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				E7CA635CBE23B4A47D8874A3 /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
+		613346074F59F45BAA8C67ED /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				FECE7497443D8819BFE31465 /* iOS */,
+				57AB40A56BB531030F075AB5 /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		A51C0C197419B2299EA59F11 = {
+			isa = PBXGroup;
+			children = (
+				C80B9F7563516A4FA991A050 /* Products */,
+				613346074F59F45BAA8C67ED /* Frameworks */,
+				3FB5CBB542D03FF6EB1D31FC /* EntryBenchmark */,
+			);
+			sourceTree = "<group>";
+		};
+		C80B9F7563516A4FA991A050 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				9CB48DDC209345A0E01CB0BF /* EntryBenchmark-iOS.app */,
+				774541C1B22ABF1AA18285B0 /* EntryBenchmark-macCLI */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		FECE7497443D8819BFE31465 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				330F72943128F18E8C481EC9 /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		9241127A0D243A5B58035E53 /* EntryBenchmark-macCLI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2078F3D63F8100B70922AF4A /* Build configuration list for PBXNativeTarget "EntryBenchmark-macCLI" */;
+			buildPhases = (
+				3D1B9DDCF254C975BFC88A25 /* Sources */,
+				B6233ABB06C7E3AEBD993439 /* Frameworks */,
+				C045537B93C5CDC588ABFEAD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "EntryBenchmark-macCLI";
+			packageProductDependencies = (
+				C67646EBBAD0C64B083E7FC2 /* VolcengineTLSProducer */,
+			);
+			productName = "EntryBenchmark-macCLI";
+			productReference = 774541C1B22ABF1AA18285B0 /* EntryBenchmark-macCLI */;
+			productType = "com.apple.product-type.tool";
+		};
+		F280E22CFAF385804B1E64DF /* EntryBenchmark-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 75E7B5A45519E6698FF1A1FE /* Build configuration list for PBXNativeTarget "EntryBenchmark-iOS" */;
+			buildPhases = (
+				A4412D6C6E9054C8CB1D5605 /* Sources */,
+				17D4866DECA65EEBC4C45149 /* Frameworks */,
+				56CB242CAEF1A77EF98B9587 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "EntryBenchmark-iOS";
+			packageProductDependencies = (
+				31B64582A8878AAA6EC8567E /* VolcengineTLSProducer */,
+			);
+			productName = "EntryBenchmark-iOS";
+			productReference = 9CB48DDC209345A0E01CB0BF /* EntryBenchmark-iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F7EA2FE0004148E65D8A1252 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastSwiftUpdateCheck = 1430;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = FD888ACA456E2300F8E9C945 /* Build configuration list for PBXProject "EntryBenchmark" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A51C0C197419B2299EA59F11;
+			minimizedProjectReferenceProxies = 0;
+			packageReferences = (
+				62DBC3FA226E1880C5E86D67 /* XCLocalSwiftPackageReference ".." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = C80B9F7563516A4FA991A050 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F280E22CFAF385804B1E64DF /* EntryBenchmark-iOS */,
+				9241127A0D243A5B58035E53 /* EntryBenchmark-macCLI */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		56CB242CAEF1A77EF98B9587 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C045537B93C5CDC588ABFEAD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3D1B9DDCF254C975BFC88A25 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				06116F60C485EF728A15AD8A /* EntryBenchmarkEntry.m in Sources */,
+				11455FC35A2F540FF8CF3279 /* EntryBenchmarkMain.m in Sources */,
+				5E403BCC555D0A2A262DA684 /* EntryBenchmarkMetrics.m in Sources */,
+				F90F62C305595E83B4A4D12B /* EntryBenchmarkObjCEntry.m in Sources */,
+				26C2A52114A7FC8B37B429E2 /* EntryBenchmarkOptions.m in Sources */,
+				D11AE43DDE381F72A400DA63 /* EntryBenchmarkProtocol.m in Sources */,
+				85B9E438D8E2357D397E9826 /* EntryBenchmarkRunner.m in Sources */,
+				B527536FE02555247B02C06E /* EntryBenchmarkSwiftEntry.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A4412D6C6E9054C8CB1D5605 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A4CB3E64BE336219189A2F10 /* EntryBenchmarkEntry.m in Sources */,
+				47BF765B1F977CCF9482109F /* EntryBenchmarkMain.m in Sources */,
+				AABB7ED350098BE808BBAD2D /* EntryBenchmarkMetrics.m in Sources */,
+				5E32C4AED37078490C955A21 /* EntryBenchmarkObjCEntry.m in Sources */,
+				71EB0D43F176E8FAF8D5B0D5 /* EntryBenchmarkOptions.m in Sources */,
+				AB381DBE00AFFABEE1062E5B /* EntryBenchmarkProtocol.m in Sources */,
+				DE84913B13FDFE31B3F8798E /* EntryBenchmarkRunner.m in Sources */,
+				41697844D13390DE31094F45 /* EntryBenchmarkSwiftEntry.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		08A9736B82D7CBD50E3828BE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		0F6DB7C94942F42C2F6F8E32 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				INFOPLIST_FILE = "EntryBenchmark-iOS-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 10.15;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.volcengine.tls.entry-benchmark";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/EntryBenchmark-Bridging-Header.h";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		624636AADF85752BAF83DEDA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MACH_O_TYPE = mh_execute;
+				MACOSX_DEPLOYMENT_TARGET = 10.15;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.volcengine.tls.entry-benchmark.maccli";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/EntryBenchmark-Bridging-Header.h";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		89A77B22D8C2302980A07426 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				INFOPLIST_FILE = "EntryBenchmark-iOS-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 10.15;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.volcengine.tls.entry-benchmark";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/EntryBenchmark-Bridging-Header.h";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		9D000A16110B4166AA0374AD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		ADD43C5D26B5470906B0F991 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MACH_O_TYPE = mh_execute;
+				MACOSX_DEPLOYMENT_TARGET = 10.15;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.volcengine.tls.entry-benchmark.maccli";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/EntryBenchmark-Bridging-Header.h";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2078F3D63F8100B70922AF4A /* Build configuration list for PBXNativeTarget "EntryBenchmark-macCLI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				624636AADF85752BAF83DEDA /* Release */,
+				ADD43C5D26B5470906B0F991 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		75E7B5A45519E6698FF1A1FE /* Build configuration list for PBXNativeTarget "EntryBenchmark-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				89A77B22D8C2302980A07426 /* Release */,
+				0F6DB7C94942F42C2F6F8E32 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		FD888ACA456E2300F8E9C945 /* Build configuration list for PBXProject "EntryBenchmark" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9D000A16110B4166AA0374AD /* Debug */,
+				08A9736B82D7CBD50E3828BE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		62DBC3FA226E1880C5E86D67 /* XCLocalSwiftPackageReference ".." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../../;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		31B64582A8878AAA6EC8567E /* VolcengineTLSProducer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 62DBC3FA226E1880C5E86D67 /* XCLocalSwiftPackageReference ".." */;
+			productName = VolcengineTLSProducer;
+		};
+		C67646EBBAD0C64B083E7FC2 /* VolcengineTLSProducer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 62DBC3FA226E1880C5E86D67 /* XCLocalSwiftPackageReference ".." */;
+			productName = VolcengineTLSProducer;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = F7EA2FE0004148E65D8A1252 /* Project object */;
+}

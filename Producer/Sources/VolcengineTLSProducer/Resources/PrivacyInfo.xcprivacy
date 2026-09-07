@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  PrivacyInfo.xcprivacy — VolcengineTLSProducer (release candidate source).
+
+  Current source inventory:
+    - The SDK does not track users (NSPrivacyTracking = false).
+    - NSPrivacyCollectedDataTypes is intentionally empty. The SDK does not
+      autonomously capture user, device, crash, usage, or diagnostic data; it
+      only transmits log contents explicitly supplied by the integrating app.
+      The app developer remains responsible for declaring the actual payload
+      categories, linkage, purposes, and tracking behavior in the app's privacy
+      disclosures. An empty array does not mean that caller-supplied logs stay
+      on-device.
+    - The persistent Core path uses POSIX stat(2) to inspect the size and other
+      metadata of WAL files inside the app container. Apple classifies stat as
+      NSPrivacyAccessedAPICategoryFileTimestamp; C617.1 is the approved reason
+      for metadata access to files inside the app container.
+    - The Core also uses POSIX clock_gettime for condition-variable deadlines
+      and elapsed timers. Apple's current required-reason SystemBootTime list
+      names systemUptime and mach_absolute_time, not clock_gettime, so this
+      manifest does not invent a SystemBootTime declaration for that API.
+-->
+<plist version="1.0">
+<dict>
+    <key>NSPrivacyTracking</key>
+    <false/>
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array/>
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>C617.1</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>
