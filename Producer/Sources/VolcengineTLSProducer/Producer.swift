@@ -9,9 +9,8 @@ import Foundation
 
 /// Entry point of the Volcengine TLS Producer SDK.
 ///
-/// P0 public API (frozen): `open`, `add(mode:)`, `updateCredentials`,
-/// `updateDestination`, `close`. There is no remote-terminal `flush`, no
-/// resume/delivery-state API, and no rich metrics in P0.
+/// Public API: `open`, `add(mode:)`, `updateCredentials`,
+/// `updateDestination`, and `close`.
 ///
 /// Threading:
 /// - `add` and `update*` are synchronous and non-blocking on the network;
@@ -121,7 +120,7 @@ public final class Producer: @unchecked Sendable {
         }
     }
 
-    /// Opens a producer with the real C Core adapter (ve-tls-c-sdk v0.3.1).
+    /// Opens a producer using the bundled engine.
     ///
     /// Public open requires a valid HTTPS destination. The adapter is built
     /// on a utility executor because construction can create persistent
@@ -148,7 +147,7 @@ public final class Producer: @unchecked Sendable {
         return producer
     }
 
-    /// Internal injection variant of `open` for tests / future adapters.
+    /// Internal injection variant of `open` for tests.
     internal static func open(
         adapter: CoreAdapter,
         configuration: ProducerConfiguration,
@@ -292,10 +291,15 @@ public final class Producer: @unchecked Sendable {
     /// snapshots it (value semantics), and hands it to the Core. Success
     /// means the event reached the local admission boundary of the
     /// configured durability, not that the server accepted it.
+    /// In persistent modes, a failure after WAL append (for example buffer
+    /// exhaustion, a storage sync failure, or a concurrent close) can leave
+    /// the event available for recovery on a later open. A thrown error does
+    /// not always mean nothing was stored. Use a stable business event ID
+    /// when retrying; validation failures before Core admission store nothing.
     ///
     /// - Throws: `ProducerError.invalidLog` if any field is invalid (the
     ///   whole event is rejected), `.singleLogTooLarge`, `.queueFull`,
-    ///   `.bufferFull`, `.invalidState`, or `.closed`.
+    ///   `.bufferFull`, `.timeout`, `.persistence`, `.invalidState`, or `.closed`.
     public func add(_ log: LogEvent, mode: AddMode = .normal) throws {
         let state = withStateLock { self.state }
         try requireReadyState(state)
@@ -347,6 +351,9 @@ public final class Producer: @unchecked Sendable {
     /// server. Concurrent callers waiting on the same close attempt receive
     /// the same outcome. After a failed attempt, a later call may retry the
     /// Core close; after success, later calls return success immediately.
+    /// Call this after the final `add` on normal, controlled shutdown paths.
+    /// A crash, forced termination, or direct process termination may prevent
+    /// it from running; use persistent mode when later recovery is required.
     public func close(timeout: TimeInterval) async throws {
         try ProducerConfiguration.validateMilliseconds(
             timeout,

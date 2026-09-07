@@ -1,7 +1,7 @@
 // TLSLifecycleManager.h
 // TLSProducerBridge/Lifecycle
 //
-// App lifecycle helper for the TLS Producer SDK (Beta design §9.3).
+// App lifecycle helper for the TLS Producer SDK.
 //
 // Behavior in an APP process:
 //   - Registers for UIApplicationDidEnterBackgroundNotification /
@@ -14,7 +14,7 @@
 //     Core; this helper never promises unlimited background upload.
 //   - willEnterForeground: invokes the wake handler so the Core sender /
 //     recoverable retry can resume. Wake does NOT rely on Reachability to
-//     assume network availability (design §9.3).
+//     assume network availability.
 //
 // Behavior in an APP EXTENSION process:
 //   - When extensionCheck returns YES the manager registers NO notifications
@@ -36,7 +36,7 @@
 //     UIApplicationWillEnterForegroundNotification, referenced by literal so
 //     the Bridge stays UIKit-link-free and App-Extension-safe.
 //
-// Best-effort boundary (design §9.3): background execution time is finite and
+// Background execution time is finite and
 // granted at the system's discretion. This helper only buys wrap-up time; it
 // does not guarantee delivery, does not promise unlimited background upload,
 // and always ends background tasks in pairs (begin/end).
@@ -57,7 +57,7 @@ FOUNDATION_EXPORT NSNotificationName const TLSLifecycleDidEnterBackgroundNotific
 FOUNDATION_EXPORT NSNotificationName const TLSLifecycleWillEnterForegroundNotificationName;
 
 /// Sentinel for "no background task". Equal to UIBackgroundTaskInvalid
-/// (NSNotFound); defined locally so this header does not import UIKit.
+/// (zero); defined locally so this header does not import UIKit.
 FOUNDATION_EXPORT const NSUInteger TLSLifecycleInvalidBackgroundTaskIdentifier;
 
 /// Abstracts the UIApplication background-task API so TLSLifecycleManager

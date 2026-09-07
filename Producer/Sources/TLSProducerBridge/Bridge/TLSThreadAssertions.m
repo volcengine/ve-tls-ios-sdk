@@ -10,7 +10,7 @@ void TLSAssertNotMainThread(void) {
     // NSCAssert (C-function variant of NSAssert, which references self/_cmd and
     // only compiles inside ObjC method scope) is compiled out in release
     // builds; the function then returns safely with no side effects
-    // (Beta design §6.2 execution-domain contract).
+    // This is the SDK execution-domain contract.
     NSCAssert(![NSThread isMainThread],
               @"TLSProducer: code must not run on the main thread");
 }

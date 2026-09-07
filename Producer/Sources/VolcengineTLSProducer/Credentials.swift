@@ -2,7 +2,7 @@
 //  Credentials.swift
 //  VolcengineTLSProducer
 //
-//  Worker A — Swift public value model.
+//  Producer credentials.
 //
 
 import Foundation

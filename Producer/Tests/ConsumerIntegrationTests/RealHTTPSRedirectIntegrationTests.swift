@@ -297,11 +297,12 @@ final class RealHTTPSRedirectIntegrationTests: XCTestCase {
             requestTimeout: 5,
             automaticLifecycleHandling: false,
             destination: fixture.destination(for: testCase))
+        let inputs = ["redirect-fixture-first", "redirect-fixture-second"]
         let producer = try await Producer.open(
             configuration: configuration,
             credentials: Credentials(
-                accessKeyID: "redirect-fixture-ak",
-                accessKeySecret: "redirect-fixture-sk")) { result in
+                accessKeyID: inputs[0],
+                accessKeySecret: inputs[1])) { result in
                     collector.append(result)
                     callbackDelivered.fulfill()
                 }

@@ -2,7 +2,7 @@
 //  AddModeContractTests.swift
 //  ContractTests
 //
-//  Worker A — normal/immediate admission contracts.
+//  Normal and immediate admission contracts.
 //
 
 import XCTest

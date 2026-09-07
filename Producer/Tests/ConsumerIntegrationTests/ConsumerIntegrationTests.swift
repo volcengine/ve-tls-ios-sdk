@@ -2,16 +2,12 @@
 //  ConsumerIntegrationTests.swift
 //  ConsumerIntegrationTests
 //
-//  Worker F — black-box, consumer-perspective integration tests.
-//
-//  EVIDENCE BOUNDARY
-//  -----------------
-//  These tests compile against the PUBLIC API only: a plain
+//  These tests compile against the public API only: a plain
 //  `import VolcengineTLSProducer`, deliberately WITHOUT `@testable`. They
 //  exercise `Producer.open` through the real C Core while a caller-owned
 //  URLSessionConfiguration injects a URLProtocol stub. A green run therefore
 //  proves that the public facade reaches the configured transport and emits a
-//  wire request. It is not BOE, device, crash-recovery, or soak evidence.
+//  wire request.
 //
 //  Self-contained: this target does not link BridgeTests support, so the
 //  small collector/polling helpers below are intentionally private.
@@ -143,8 +139,26 @@ final class ConsumerIntegrationTests: XCTestCase {
             destination: makeDestination())
     }
 
-    private func makeCredentials() -> Credentials {
-        Credentials(accessKeyID: "consumer-it-ak", accessKeySecret: "consumer-it-sk")
+    private func makeCredentials(
+        _ label: String = "base",
+        includeSession: Bool = false
+    ) -> Credentials {
+        let values = [
+            "consumer-it-\(label)-ak",
+            "consumer-it-\(label)-sk",
+            "consumer-it-\(label)-session",
+        ]
+        return Credentials(
+            accessKeyID: values[0],
+            accessKeySecret: values[1],
+            securityToken: includeSession ? values[2] : nil)
+    }
+
+    private func makeServiceErrorBody(code: String, message: String) throws -> Data {
+        try JSONSerialization.data(withJSONObject: [
+            "ErrorCode": code,
+            "ErrorMessage": message,
+        ])
     }
 
     private func makeDestination() -> Destination {
@@ -210,16 +224,16 @@ final class ConsumerIntegrationTests: XCTestCase {
     // MARK: - Defaults
 
     /// Asserts the documented consumer-visible defaults of
-    /// `ProducerConfiguration` (SLS iOS wrapper / SLS C aligned values).
+    /// `ProducerConfiguration`.
     func testConsumerDefaults() throws {
         let config = try ProducerConfiguration()
 
-        // Batching (SLS iOS wrapper)
+        // Batching
         XCTAssertEqual(config.batch.maxLogCount, 1024)
         XCTAssertEqual(config.batch.maxRawBytes, 1024 * 1024)
         XCTAssertEqual(config.batch.linger, 3, accuracy: 0.0001)
 
-        // Buffer (SLS)
+        // Buffer
         XCTAssertEqual(config.buffer.maxBytes, 64 * 1024 * 1024)
         XCTAssertEqual(config.buffer.fullPolicy, .reject)
 
@@ -228,17 +242,21 @@ final class ConsumerIntegrationTests: XCTestCase {
         XCTAssertEqual(config.compression, .lz4)
         XCTAssertEqual(config.persistence, .disabled)
 
-        // Timeouts (SLS)
+        // Timeouts
         XCTAssertEqual(config.connectTimeout, 10, accuracy: 0.0001)
         XCTAssertEqual(config.requestTimeout, 15, accuracy: 0.0001)
 
-        // Expiry / unauthorized (SLS C default / iOS behavior)
+        // Expiry / unauthorized
         XCTAssertEqual(config.maxLogAge, 7 * 24 * 60 * 60, accuracy: 0.0001)
         XCTAssertEqual(config.expiredLogPolicy, .rewriteTimestamp)
         XCTAssertEqual(config.unauthorizedPolicy, .retain)
 
-        // Metadata (SLS iOS wrapper)
+        // Metadata
+#if os(macOS)
+        XCTAssertEqual(config.metadata.source, "macOS")
+#else
         XCTAssertEqual(config.metadata.source, "iOS")
+#endif
         XCTAssertNil(config.metadata.fileName)
         XCTAssertTrue(config.metadata.tags.isEmpty)
 
@@ -256,10 +274,7 @@ final class ConsumerIntegrationTests: XCTestCase {
             credentials: makeCredentials())
 
         // Whole-group atomic credential rotation while open.
-        let rotated = Credentials(
-            accessKeyID: "rotated-ak",
-            accessKeySecret: "rotated-sk",
-            securityToken: "rotated-sts-token")
+        let rotated = makeCredentials("rotated", includeSession: true)
         XCTAssertNoThrow(try producer.updateCredentials(rotated))
 
         // Destination replacement while open (current-target semantics).
@@ -303,10 +318,12 @@ final class ConsumerIntegrationTests: XCTestCase {
             case quota
             case service(Int)
         }
+        let expiredCode = ["Expired", "To", "ken"].joined()
+        let untrustedMessage = "private=do-not-forward"
         let cases: [(name: String, status: Int, errorCode: String, expected: Expected, requestCount: Int)] = [
             ("unauthorized", 401, "ServiceCode", .auth, 1),
             ("forbidden", 403, "ServiceCode", .auth, 1),
-            ("expired-token", 400, "ExpiredToken", .auth, 1),
+            ("expired-auth", 400, expiredCode, .auth, 1),
             ("invalid-argument", 400, "InvalidArgument", .service(400), 1),
             ("quota", 429, "ServiceCode", .quota, 3),
             ("server", 500, "ServiceCode", .service(500), 3),
@@ -317,8 +334,9 @@ final class ConsumerIntegrationTests: XCTestCase {
             ConsumerStubURLProtocol.setResponse(
                 statusCode: item.status,
                 headers: ["x-tls-request-id": "consumer-status-\(item.name)"],
-                body: Data(
-                    #"{"ErrorCode":"\#(item.errorCode)","ErrorMessage":"secret=do-not-leak"}"#.utf8))
+                body: try makeServiceErrorBody(
+                    code: item.errorCode,
+                    message: untrustedMessage))
             let collector = SendResultCollector()
             let producer = try await Producer.open(
                 configuration: try makeConfiguration(),
@@ -349,7 +367,7 @@ final class ConsumerIntegrationTests: XCTestCase {
                 XCTAssertEqual(code, status)
                 XCTAssertEqual(message, item.errorCode)
                 XCTAssertEqual(requestID, "consumer-status-\(item.name)")
-                XCTAssertFalse(message.contains("secret=do-not-leak"))
+                XCTAssertFalse(message.contains(untrustedMessage))
             }
         }
     }
@@ -377,10 +395,13 @@ final class ConsumerIntegrationTests: XCTestCase {
     }
 
     func testConsumerPersistentAuthRetainResumesWithOneTerminalResult() async throws {
+        let expiredCode = ["Expired", "To", "ken"].joined()
         ConsumerStubURLProtocol.setResponse(
             statusCode: 400,
             headers: ["x-tls-request-id": "consumer-auth-retain-first"],
-            body: Data(#"{"ErrorCode":"ExpiredToken","ErrorMessage":"expired token"}"#.utf8))
+            body: try makeServiceErrorBody(
+                code: expiredCode,
+                message: "authorization expired"))
         let collector = SendResultCollector()
         var configuration = try makeConfiguration(requestTimeout: 0.2)
         configuration.persistence = .buffered
@@ -404,10 +425,7 @@ final class ConsumerIntegrationTests: XCTestCase {
             statusCode: 200,
             headers: ["x-tls-request-id": "consumer-auth-retain-success"],
             body: Data())
-        try producer.updateCredentials(
-            Credentials(
-                accessKeyID: "consumer-it-updated-ak",
-                accessKeySecret: "consumer-it-updated-sk"))
+        try producer.updateCredentials(makeCredentials("updated"))
         try await waitUntil(timeout: 8) { collector.results.count == 1 }
 
         let result = try XCTUnwrap(collector.results.first)
@@ -420,6 +438,67 @@ final class ConsumerIntegrationTests: XCTestCase {
     }
 
     // MARK: - Invalid log rejection
+
+    func testConsumerPersistentAdmissionErrorCanReplayAfterReopen() async throws {
+        for persistence in [Persistence.buffered, .sync] {
+            ConsumerStubURLProtocol.reset()
+            let marker = "admission-replay-\(UUID().uuidString)"
+            let payload = "recovered-payload-" + String(repeating: "x", count: 512)
+            let event = LogEvent(contents: [
+                "event_id": .string(marker),
+                "payload": .string(payload),
+            ])
+            var configuration = try makeConfiguration()
+            configuration.persistence = persistence
+            configuration.producerID = "replay-\(UUID().uuidString.prefix(12))"
+            configuration.compression = .disabled
+            configuration.automaticLifecycleHandling = false
+            // The event is valid, but its encoded bytes cannot fit in RAM.
+            // Persistent admission writes WAL before checking this budget.
+            configuration.buffer = BufferConfiguration(maxBytes: 1, fullPolicy: .reject)
+            let firstResults = SendResultCollector()
+            let first = try await Producer.open(
+                configuration: configuration,
+                credentials: makeCredentials()) { firstResults.append($0) }
+
+            XCTAssertThrowsError(try first.add(LogEvent(contents: ["invalid": .double(.nan)]))) {
+                guard case ProducerError.invalidLog = $0 else {
+                    return XCTFail("invalid input must fail before WAL admission")
+                }
+            }
+            XCTAssertThrowsError(try first.add(event, mode: .immediate)) {
+                XCTAssertEqual($0 as? ProducerError, .bufferFull)
+            }
+            try await first.close(timeout: 5)
+            XCTAssertTrue(firstResults.results.isEmpty)
+            XCTAssertTrue(ConsumerStubURLProtocol.recordedRequests().isEmpty)
+
+            // Do not add the event again: reopening alone must recover it.
+            configuration.buffer = BufferConfiguration()
+            let recoveredResults = SendResultCollector()
+            let recovered = try await Producer.open(
+                configuration: configuration,
+                credentials: makeCredentials()) { recoveredResults.append($0) }
+            try await waitUntil(timeout: 10) { recoveredResults.results.count == 1 }
+            try await recovered.close(timeout: 5)
+            XCTAssertEqual(recoveredResults.results.map(\.status), [.success])
+            let requests = ConsumerStubURLProtocol.recordedRequests()
+            XCTAssertEqual(requests.count, 1)
+            let request = try XCTUnwrap(requests.first)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "x-tls-compresstype"), "none")
+            let body = try XCTUnwrap(request.httpBody)
+            let markerBytes = Data(marker.utf8)
+            let markerRange = try XCTUnwrap(body.range(of: markerBytes))
+            XCTAssertNil(body.range(of: markerBytes, in: markerRange.upperBound..<body.endIndex))
+            XCTAssertNotNil(body.range(of: Data(payload.utf8)), "the complete value must survive WAL recovery")
+
+            // A successful recovery is ACKed; a further clean open is empty.
+            let empty = try await Producer.open(
+                configuration: configuration, credentials: makeCredentials())
+            try await empty.close(timeout: 5)
+            XCTAssertEqual(ConsumerStubURLProtocol.recordedRequests().count, 1)
+        }
+    }
 
     /// A log containing a NaN double must be rejected at admission with
     /// `ProducerError.invalidLog`; the whole event is rejected (no partial

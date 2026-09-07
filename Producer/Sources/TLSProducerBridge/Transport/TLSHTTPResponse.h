@@ -1,8 +1,7 @@
 // TLSHTTPResponse.h
 // TLSProducerBridge/Transport
 //
-// Immutable HTTP response model for the NSURLSession transport (Beta
-// design §8).
+// Immutable HTTP response model for the NSURLSession transport.
 //
 // Pure Objective-C; iOS 13.0+ safe APIs only.
 //
@@ -13,7 +12,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// Immutable HTTP response produced by `TLSTransport`.
 ///
-/// Ownership contract (Beta design §8.1): the transport accumulates the
+/// Ownership contract: the transport accumulates the
 /// body inside its per-request context and hands the caller a fully formed,
 /// immutable response exactly once. After completion the context is
 /// released; late URLSession callbacks only release themselves.

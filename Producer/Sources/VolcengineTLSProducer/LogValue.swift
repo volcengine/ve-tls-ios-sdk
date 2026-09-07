@@ -2,7 +2,7 @@
 //  LogValue.swift
 //  VolcengineTLSProducer
 //
-//  Worker A — Swift public value model.
+//  Log value model.
 //
 
 import Foundation
@@ -76,7 +76,7 @@ extension LogValue {
 
     /// - Parameter quoteStrings: When true (collection elements), `.string`
     ///   values are emitted as compact JSON string literals (quoted + escaped);
-    ///   when false (top-level), strings are verbatim per the P0 contract.
+    ///   when false (top-level), strings are encoded verbatim.
     private func encode(remainingDepth: Int, quoteStrings: Bool) throws -> String {
         switch self {
         case .string(let value):

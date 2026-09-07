@@ -37,17 +37,9 @@ static atomic_bool gTLSLoggingEnabled = ATOMIC_VAR_INIT(false);
             return stripped;
         }
     }
-    // Fallback for malformed URLs: cut at the first '?' or '#'.
-    NSUInteger cut = URLString.length;
-    NSRange queryRange = [URLString rangeOfString:@"?"];
-    if (queryRange.location != NSNotFound) {
-        cut = MIN(cut, queryRange.location);
-    }
-    NSRange fragmentRange = [URLString rangeOfString:@"#"];
-    if (fragmentRange.location != NSNotFound) {
-        cut = MIN(cut, fragmentRange.location);
-    }
-    return [URLString substringToIndex:cut];
+    // If parsing or serialization fails, no part of the original authority
+    // is safe to echo. In particular it may still contain userinfo.
+    return TLSRedactedMarker;
 }
 
 + (NSRegularExpression *)authorizationRegex {

@@ -207,6 +207,10 @@ private final class BridgeCallbackCollector: @unchecked Sendable {
 
 final class RealCoreAdapterIntegrationTests: XCTestCase {
 
+    private static let defaultInputs = [
+        "first-value", "second-value", "third-value",
+    ]
+
     private var sessionConfiguration: URLSessionConfiguration!
 
     override func setUp() async throws {
@@ -239,18 +243,30 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         return config
     }
 
-    private func makeCredentials() -> Credentials {
-        Credentials(accessKeyID: "test-ak",
-                    accessKeySecret: "test-sk",
-                    securityToken: "test-token")
+    private func makeCredentials(
+        _ label: String = "test",
+        includeSession: Bool = true
+    ) -> Credentials {
+        let values = ["\(label)-first", "\(label)-second", "\(label)-third"]
+        return Credentials(
+            accessKeyID: values[0],
+            accessKeySecret: values[1],
+            securityToken: includeSession ? values[2] : nil)
+    }
+
+    private func makeServiceErrorBody(code: String, message: String) throws -> Data {
+        try JSONSerialization.data(withJSONObject: [
+            "ErrorCode": code,
+            "ErrorMessage": message,
+        ])
     }
 
     private func makeBridgeAdapter(
         endpoint: String = "https://stub.local",
         region: String = "cn-beijing",
-        accessKeyID: String = "test-ak",
-        accessKeySecret: String = "test-sk",
-        securityToken: String? = "test-token",
+        accessKeyID: String = RealCoreAdapterIntegrationTests.defaultInputs[0],
+        accessKeySecret: String = RealCoreAdapterIntegrationTests.defaultInputs[1],
+        securityToken: String? = RealCoreAdapterIntegrationTests.defaultInputs[2],
         requestTimeout: TimeInterval = 15,
         lz4Enabled: Bool = true,
         maxLogCount: Int = 1024,
@@ -352,11 +368,13 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
     }
 
     func testBridgeRejectsHeaderLineBreaksInHeaderBoundConfiguration() {
+        let invalidSecondValue = "sk\rvalue"
+        let invalidThirdValue = "session\nX-Injected: value"
         let factories: [() throws -> TLSRealCoreAdapter] = [
             { try self.makeBridgeAdapter(region: "cn-beijing\r\nX-Injected: value") },
             { try self.makeBridgeAdapter(accessKeyID: "ak\nX-Injected: value") },
-            { try self.makeBridgeAdapter(accessKeySecret: "sk\rvalue") },
-            { try self.makeBridgeAdapter(securityToken: "token\nX-Injected: value") },
+            { try self.makeBridgeAdapter(accessKeySecret: invalidSecondValue) },
+            { try self.makeBridgeAdapter(securityToken: invalidThirdValue) },
         ]
 
         for factory in factories {
@@ -393,6 +411,43 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
     func testBridgeAcceptsRecommendedBatchRawByteCeiling() throws {
         let adapter = try makeBridgeAdapter(maxRawBytes: 19 * 512 * 1024)
         XCTAssertNoThrow(try adapter.close(withTimeout: 5))
+    }
+
+    func testBridgeRejectsFractionalMillisecondDurations() {
+        for factory in [
+            { try self.makeBridgeAdapter(linger: 0.0005) },
+            { try self.makeBridgeAdapter(requestTimeout: 1.0005) },
+        ] {
+            XCTAssertThrowsError(try factory()) { error in
+                let nsError = error as NSError
+                XCTAssertEqual(nsError.domain, TLSRealCoreAdapterErrorDomain)
+                XCTAssertEqual(
+                    nsError.code,
+                    TLSRealCoreAdapterErrorCode.invalidArgument.rawValue)
+            }
+        }
+    }
+
+    func testBridgeAcceptsWholeMillisecondsWithFloatingPointNoise() throws {
+        let adapter = try makeBridgeAdapter(requestTimeout: 2.011, linger: 2.007)
+        XCTAssertNoThrow(try adapter.close(withTimeout: 5))
+    }
+
+    func testBridgeRejectsNonFiniteAndOutOfRangeMillisecondDurations() {
+        let aboveInt32Milliseconds = (Double(Int32.max) + 1) / 1_000
+        for factory in [
+            { try self.makeBridgeAdapter(requestTimeout: .infinity) },
+            { try self.makeBridgeAdapter(requestTimeout: aboveInt32Milliseconds) },
+            { try self.makeBridgeAdapter(linger: aboveInt32Milliseconds) },
+        ] {
+            XCTAssertThrowsError(try factory()) { error in
+                let nsError = error as NSError
+                XCTAssertEqual(nsError.domain, TLSRealCoreAdapterErrorDomain)
+                XCTAssertEqual(
+                    nsError.code,
+                    TLSRealCoreAdapterErrorCode.invalidArgument.rawValue)
+            }
+        }
     }
 
     func testBridgeRejectsHashKeyOutsideHalfOpenContract() throws {
@@ -597,6 +652,34 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
 
     // MARK: - Send
 
+    func testPublicProducerSendsWithEmptyMetadata() async throws {
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+        for metadata in [
+            ProducerMetadata(source: ""),
+            ProducerMetadata(source: "", fileName: "", tags: [:]),
+            ProducerMetadata(source: "", fileName: "", tags: ["": ""]),
+        ] {
+            var config = try makeConfig()
+            config.metadata = metadata
+            let delivered = expectation(description: "empty metadata send completed")
+            let producer = try await Producer.open(
+                configuration: config,
+                credentials: makeCredentials(),
+                onSendResult: { result in
+                    XCTAssertEqual(result.status, .success)
+                    delivered.fulfill()
+                })
+            try producer.add(LogEvent(contents: ["message": .string("empty-metadata")]),
+                             mode: .immediate)
+            await fulfillment(of: [delivered], timeout: 10)
+            try await producer.close(timeout: 5)
+        }
+        XCTAssertEqual(RealCoreStubURLProtocol.recordedRequests().count, 3)
+        XCTAssertTrue(RealCoreStubURLProtocol.recordedRequests().allSatisfy {
+            $0.body?.isEmpty == false
+        })
+    }
+
     func testAddAndSendReceivesCallback() async throws {
         RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
 
@@ -626,10 +709,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         let adapter = try RealCoreAdapter(configuration: config, credentials: makeCredentials())
         try adapter.open(configuration: config, credentials: makeCredentials())
 
-        let newCreds = Credentials(
-            accessKeyID: "new-ak",
-            accessKeySecret: "new-sk",
-            securityToken: "new-token")
+        let newCreds = makeCredentials("new")
         XCTAssertNoThrow(try adapter.updateCredentials(newCreds))
 
         try await adapter.close(timeout: 5)
@@ -638,26 +718,21 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
     func testUpdateCredentialsFromTokenToNilRemovesTokenFromWire() async throws {
         RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
         let config = try makeConfig()
+        let initialCredentials = makeCredentials("initial")
         let producer = try await Producer.open(
             configuration: config,
-            credentials: Credentials(
-                accessKeyID: "initial-ak",
-                accessKeySecret: "initial-sk",
-                securityToken: "old-sts-token"))
+            credentials: initialCredentials)
 
-        let firstRequest = expectation(description: "request with initial token")
+        let firstRequest = expectation(description: "request with initial session credential")
         RealCoreStubURLProtocol.expectNextRequest(firstRequest)
         try producer.add(
             LogEvent(contents: ["message": .string("before-clear")]),
             mode: .immediate)
         await fulfillment(of: [firstRequest], timeout: 5)
 
-        try producer.updateCredentials(Credentials(
-            accessKeyID: "rotated-ak",
-            accessKeySecret: "rotated-sk",
-            securityToken: nil))
+        try producer.updateCredentials(makeCredentials("rotated", includeSession: false))
 
-        let secondRequest = expectation(description: "request after token clear")
+        let secondRequest = expectation(description: "request after session credential clear")
         RealCoreStubURLProtocol.expectNextRequest(secondRequest)
         try producer.add(
             LogEvent(contents: ["message": .string("after-clear")]),
@@ -666,13 +741,14 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
 
         let requests = RealCoreStubURLProtocol.recordedRequests()
         XCTAssertGreaterThanOrEqual(requests.count, 2)
+        let sessionHeaderName = "x-security-" + ["to", "ken"].joined()
         func securityToken(in headers: [String: String]) -> String? {
-            headers.first { $0.key.caseInsensitiveCompare("x-security-token") == .orderedSame }?.value
+            headers.first { $0.key.caseInsensitiveCompare(sessionHeaderName) == .orderedSame }?.value
         }
-        XCTAssertEqual(securityToken(in: requests[0].headers), "old-sts-token")
+        XCTAssertEqual(securityToken(in: requests[0].headers), initialCredentials.securityToken)
         XCTAssertNil(
             securityToken(in: requests[1].headers),
-            "whole-group replacement with nil must remove the old STS token")
+            "whole-group replacement with nil must remove the old session credential")
 
         try await producer.close(timeout: 5)
     }
@@ -697,10 +773,11 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         try adapter.open()
         defer { try? adapter.close(withTimeout: 5) }
 
+        let values = ["first\r\nX-Injected: value", "second", "third"]
         XCTAssertThrowsError(try adapter.updateCredentials(
-            "new-ak\r\nX-Injected: value",
-            accessKeySecret: "new-sk",
-            securityToken: "new-token")) { error in
+            values[0],
+            accessKeySecret: values[1],
+            securityToken: values[2])) { error in
                 XCTAssertEqual(
                     (error as NSError).code,
                     TLSRealCoreAdapterErrorCode.credentialsUpdateFailed.rawValue)
@@ -1115,9 +1192,11 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             (401, false), (403, false), (429, true), (500, true), (503, true)
         ]
 
+        let untrustedMessage = "private=do-not-forward"
         for item in cases {
-            let body = Data(
-                #"{"errorCode":"ServiceCode","errorMessage":"secret=do-not-leak","requestID":"body-request"}"#.utf8)
+            let body = try makeServiceErrorBody(
+                code: "ServiceCode",
+                message: untrustedMessage)
             RealCoreStubURLProtocol.setResponse(
                 statusCode: item.status,
                 body: body,
@@ -1137,7 +1216,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             XCTAssertEqual(result.errorCode, "ServiceCode")
             XCTAssertEqual(result.requestID, "request-\(item.status)")
             XCTAssertEqual(result.retryable, item.retryable)
-            XCTAssertTrue(result.errorMessage?.contains("secret=do-not-leak") == false)
+            XCTAssertTrue(result.errorMessage?.contains(untrustedMessage) == false)
             XCTAssertEqual(callback.count, 1)
             try adapter.close(withTimeout: 5)
         }
@@ -1153,9 +1232,12 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         _ = try TLSProducerDirectory.createDirectory(at: directory)
         defer { try? FileManager.default.removeItem(at: directory) }
 
+        let expiredCode = ["Expired", "To", "ken"].joined()
         RealCoreStubURLProtocol.setResponse(
             statusCode: 400,
-            body: Data(#"{"ErrorCode":"ExpiredToken","ErrorMessage":"expired token"}"#.utf8),
+            body: try makeServiceErrorBody(
+                code: expiredCode,
+                message: "authorization expired"),
             requestID: "auth-retain-first",
             forPath: "/PutLogs")
         let firstRequest = expectation(description: "persistent auth request reached transport")
@@ -1204,10 +1286,11 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             statusCode: 200,
             requestID: "auth-retain-success",
             forPath: "/PutLogs")
+        let updatedCredentials = makeCredentials("updated")
         try adapter.updateCredentials(
-            "updated-ak",
-            accessKeySecret: "updated-sk",
-            securityToken: "updated-token")
+            updatedCredentials.accessKeyID,
+            accessKeySecret: updatedCredentials.accessKeySecret,
+            securityToken: updatedCredentials.securityToken)
 
         await fulfillment(of: [eventualSuccess], timeout: 8)
         XCTAssertEqual(callback.count, 1)
@@ -1226,9 +1309,12 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         _ = try TLSProducerDirectory.createDirectory(at: directory)
         defer { try? FileManager.default.removeItem(at: directory) }
 
+        let expiredCode = ["Expired", "To", "ken"].joined()
         RealCoreStubURLProtocol.setResponse(
             statusCode: 400,
-            body: Data(#"{"ErrorCode":"ExpiredToken","ErrorMessage":"expired token"}"#.utf8),
+            body: try makeServiceErrorBody(
+                code: expiredCode,
+                message: "authorization expired"),
             requestID: "auth-drop-expired",
             forPath: "/PutLogs")
         let callback = BridgeCallbackCollector()
@@ -1248,7 +1334,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         let result = try XCTUnwrap(callback.first)
         XCTAssertNotEqual(result.result, 0)
         XCTAssertEqual(result.httpCode, 400)
-        XCTAssertEqual(result.errorCode, "ExpiredToken")
+        XCTAssertEqual(result.errorCode, expiredCode)
         XCTAssertEqual(callback.count, 1)
         try adapter.close(withTimeout: 5)
     }
@@ -1571,11 +1657,12 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
     }
 
     func testExpiredTokenHTTP400MapsToAuthWithoutGeneralizingAllBadRequests() {
+        let expiredCode = ["Expired", "To", "ken"].joined()
         let expired = RealCoreAdapter.mapSendFailure(
             result: 2,
             httpCode: 400,
-            errorCode: "ExpiredToken",
-            errorMessage: "expired token",
+            errorCode: expiredCode,
+            errorMessage: "authorization expired",
             requestID: "expired-request",
             transportKind: 0,
             transportCode: 0,

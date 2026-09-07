@@ -54,7 +54,7 @@ static NSString *const kTLSProducerSubdirectoryName = @"producer";
     }
 
     // Explicit ASCII-only allowed set. NSCharacterSet.alphanumericCharacterSet
-    // includes Unicode letters (e.g. "é", "中"), which the frozen contract
+    // includes Unicode letters (e.g. "é", "中"), which the public contract
     // forbids, so the set is built from the literal ASCII characters.
     NSCharacterSet *allowed =
         [NSCharacterSet characterSetWithCharactersInString:kTLSProducerIDAllowedCharacters];

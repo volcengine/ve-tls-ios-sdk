@@ -2,14 +2,13 @@
 //  CoreAdapter.swift
 //  VolcengineTLSProducer/Core
 //
-//  Worker A — provisional seam between the Swift facade and the Core engine.
+//  Internal boundary between the Swift API and the Core engine.
 //
 
 import Foundation
 
 /// `CoreAdapter` is the boundary between the Swift `Producer` facade and the
-/// underlying Core engine (C Core via Bridge, or a bundled in-memory
-/// implementation). It is package-internal; tests access it through
+/// underlying Core engine. It is package-internal; tests access it through
 /// `@testable import` and it is not part of the consumer API or ABI.
 ///
 /// Conformance rules:

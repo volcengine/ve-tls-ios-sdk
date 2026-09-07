@@ -2,15 +2,16 @@
 //  ProducerConfiguration.swift
 //  VolcengineTLSProducer
 //
-//  Worker A — Swift public value model.
+//  Producer configuration.
 //
 
 import Foundation
 
 /// Policy when the in-memory buffer is full.
 public enum BufferFullPolicy: Equatable, Sendable {
-    /// Fail fast: `add` throws `.bufferFull`. Never blocks the caller —
-    /// safe on the main thread.
+    /// Do not wait for memory space: `add` throws `.bufferFull`.
+    /// Persistent admission can still perform WAL I/O before this error;
+    /// `.reject` does not make disk operations non-blocking.
     case reject
     /// Block the calling thread until space is available. Must not be used
     /// on the main thread.
@@ -56,13 +57,13 @@ public enum UnauthorizedPolicy: Equatable, Sendable {
 
 /// Batching thresholds.
 public struct BatchConfiguration: Equatable, Sendable {
-    /// Max logs per batch. Default 1024 (SLS iOS wrapper).
+    /// Max logs per batch. Default 1024.
     public var maxLogCount: Int
-    /// Max uncompressed bytes per batch. Default 1 MiB (SLS iOS wrapper).
+    /// Max uncompressed bytes per batch. Default 1 MiB.
     /// The configurable ceiling is 9.5 MiB, retaining headroom below the
-    /// service's absolute 10 MiB request limit.
+    /// service's absolute 10 MB request limit.
     public var maxRawBytes: Int
-    /// Max wait before sealing a non-empty batch. Default 3 s (SLS iOS wrapper).
+    /// Max wait before sealing a non-empty batch. Default 3 s.
     public var linger: TimeInterval
 
     public init(maxLogCount: Int = 1024,
@@ -76,15 +77,15 @@ public struct BatchConfiguration: Equatable, Sendable {
 
 /// In-memory buffer limits.
 public struct BufferConfiguration: Equatable, Sendable {
-    /// Max buffered bytes across all pending batches. Default 64 MiB (SLS),
-    /// maximum 256 MiB per producer on iOS.
+    /// Max buffered bytes across all pending batches. Default 64 MiB,
+    /// maximum 256 MiB per producer.
     public var maxBytes: Int
-    /// Behavior when the buffer is full. Default `.reject` (SLS fail-fast).
+    /// Behavior when the buffer is full. Default `.reject`.
     public var fullPolicy: BufferFullPolicy
 
     /// Maximum time a `.block` admission may wait for buffer space. The
-    /// timeout is bounded and expressed in whole milliseconds when passed to
-    /// the C Core. It is ignored for `.reject`.
+    /// timeout is bounded and expressed in whole milliseconds. It is ignored
+    /// for `.reject`.
     public var blockTimeout: TimeInterval
 
     public init(maxBytes: Int = 64 * 1024 * 1024,
@@ -98,9 +99,8 @@ public struct BufferConfiguration: Equatable, Sendable {
 
 /// Build-time configuration for a `Producer`. Frozen at `open` time.
 ///
-/// All defaults align with the SLS iOS wrapper / SLS C defaults (see the
-/// Beta design §5.5 table). The initializer validates all locally complete
-/// fields, and `Producer.open` revalidates an immutable snapshot including
+/// The initializer validates all locally complete fields, and
+/// `Producer.open` revalidates an immutable snapshot including
 /// the destination and credentials. Validation throws the first applicable
 /// public `ProducerError`.
 /// The value is `Sendable`; callers may pass a copied configuration across
@@ -108,9 +108,7 @@ public struct BufferConfiguration: Equatable, Sendable {
 /// variable while another task is reading it for `Producer.open`.
 public struct ProducerConfiguration: Sendable {
 
-    /// Public-contract upper bounds for one batch. These are stricter than
-    /// the underlying C integer representation so callers cannot configure a
-    /// value that violates the TLS service admission contract.
+    /// Public upper bounds for one batch.
     internal static let maxBatchLogCount = 10_000
     internal static let maxBatchRawBytes = 19 * 512 * 1024
     internal static let maxBufferBytes = 256 * 1024 * 1024
@@ -139,9 +137,11 @@ public struct ProducerConfiguration: Sendable {
     /// automatic cookies even for caller-supplied configurations.
     public var urlSessionConfiguration: URLSessionConfiguration
 
-    /// Whether the SDK manages app lifecycle notifications (background/fetch
-    /// flushing). Default: `true` in app processes, `false` in app
-    /// extensions (runtime detection). Pass an explicit value to override.
+    /// Whether the SDK manages iOS app lifecycle notifications (background
+    /// flushing and foreground retry). Default: `true` in iOS app processes,
+    /// `false` in iOS app extensions and on macOS. This setting has no effect
+    /// on macOS. It does not close the producer or guarantee background
+    /// delivery.
     public var automaticLifecycleHandling: Bool
 
     /// Optional stable producer identifier. Required when `persistence` is
@@ -237,8 +237,8 @@ public struct ProducerConfiguration: Sendable {
 
         // --- normalization ----------------------------------------------
         // Copy before sanitizing: the caller's instance must not be mutated
-        // (Beta design §8.2 — configuration is copied before the session is
-        // built; the session configuration is not hot-updated afterwards).
+        // The configuration is copied before the session is built; the
+        // session configuration is not hot-updated afterwards.
         guard let sanitizedSessionConfiguration = urlSessionConfiguration.copy()
             as? URLSessionConfiguration else {
             throw ProducerError.configuration(
@@ -268,10 +268,16 @@ public struct ProducerConfiguration: Sendable {
         self.destination = destination
     }
 
-    /// Runtime detection: app extensions carry an `NSExtension` key in their
-    /// Info.plist. No UIKit dependency.
+    /// Platform default for automatic lifecycle handling. iOS app extensions
+    /// carry an `NSExtension` key in their Info.plist. Native macOS processes
+    /// do not use UIApplication lifecycle notifications, so the default is
+    /// always `false` there. No UIKit or AppKit dependency.
     public static func defaultAutomaticLifecycleHandling() -> Bool {
+#if os(iOS)
         return Bundle.main.infoDictionary?["NSExtension"] == nil
+#else
+        return false
+#endif
     }
 
     // MARK: - Open-time validation
@@ -352,8 +358,8 @@ public struct ProducerConfiguration: Sendable {
         return validated
     }
 
-    /// Validates a timeout that is converted to the C Core's int32
-    /// millisecond representation. `allowZero` is used for close and linger;
+    /// Validates a timeout represented as signed 32-bit milliseconds.
+    /// `allowZero` is used for close and linger;
     /// send/connect/block timeouts require at least one millisecond.
     internal static func validateMilliseconds(
         _ value: TimeInterval,
@@ -370,26 +376,28 @@ public struct ProducerConfiguration: Sendable {
 
         let milliseconds = value * 1_000
         guard milliseconds.isFinite else {
-            throw ProducerError.configuration("\(name) exceeds the C Core millisecond range")
+            throw ProducerError.configuration("\(name) exceeds the supported millisecond range")
         }
         if !allowZero && milliseconds < 1 {
             throw ProducerError.configuration("\(name) must be at least 1 millisecond")
         }
         guard milliseconds <= Double(Int32.max) else {
             throw ProducerError.configuration(
-                "\(name) exceeds the C Core Int32 millisecond range")
+                "\(name) exceeds the supported Int32 millisecond range")
         }
         // The bridge currently casts to int32_t rather than explicitly
         // rounding. Reject a fractional millisecond so it cannot silently
         // become zero or a different timeout.
-        guard milliseconds.rounded() == milliseconds else {
+        let roundedMilliseconds = milliseconds.rounded()
+        let tolerance = max(milliseconds.ulp, roundedMilliseconds.ulp) * 2
+        guard abs(milliseconds - roundedMilliseconds) <= tolerance else {
             throw ProducerError.configuration(
                 "\(name) must be representable in whole milliseconds")
         }
     }
 
     /// `maxLogAge` is passed as whole seconds to the ObjC bridge and then as
-    /// int64 milliseconds to the C Core. Reject fractional seconds and values
+    /// signed 64-bit milliseconds. Reject fractional seconds and values
     /// that would overflow either conversion.
     private static func validateWholeSeconds(
         _ value: TimeInterval,
@@ -406,7 +414,7 @@ public struct ProducerConfiguration: Sendable {
         }
         guard value <= Double(Int64.max) / 1_000 else {
             throw ProducerError.configuration(
-                "\(name) exceeds the C Core integer millisecond range")
+                "\(name) exceeds the supported integer millisecond range")
         }
     }
 

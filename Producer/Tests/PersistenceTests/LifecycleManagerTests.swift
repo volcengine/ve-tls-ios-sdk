@@ -1,7 +1,7 @@
 // LifecycleManagerTests.swift
 // PersistenceTests
 //
-// Tests for TLSLifecycleManager (Beta design §9.3):
+// Tests for TLSLifecycleManager:
 //   - App process: didEnterBackground -> flush + background task request with
 //     an expirationHandler that ends the task immediately;
 //     willEnterForeground -> wake handler;
@@ -12,14 +12,12 @@
 // The UIApplication surface is faked via RecordingLifecycleHost (the
 // TLSLifecycleHost protocol), so no real UIApplication/UIKit is touched.
 //
-// SCOPE: these are helper-level tests for the Lifecycle helper. They are NOT
-// evidence of C WAL crash-recovery, checkpoint, lease or fsync behavior —
-// that evidence comes from the process-kill Core recovery harness and future
-// on-device validation, not from these helper-level assertions alone.
-//
 
 import XCTest
 import TLSProducerBridge
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Fake TLSLifecycleHost recording begin/end calls and retaining the
 /// expiration handler so tests can fire it manually.
@@ -32,20 +30,74 @@ final class RecordingLifecycleHost: NSObject, TLSLifecycleHost {
 
     private(set) var beginCalls: [BeginCall] = []
     private(set) var endCalls: [UInt] = []
+    private(set) var endCallWasOnMainThread: [Bool] = []
+    var endExpectation: XCTestExpectation?
+    var grantedIdentifier: UInt?
 
     func beginBackgroundTask(withName name: String,
                              expirationHandler: (() -> Void)?) -> UInt {
-        let identifier = UInt(beginCalls.count + 1)
+        let identifier = grantedIdentifier ?? UInt(beginCalls.count + 1)
         beginCalls.append(BeginCall(name: name, expirationHandler: expirationHandler))
         return identifier
     }
 
     func endBackgroundTask(_ identifier: UInt) {
         endCalls.append(identifier)
+        endCallWasOnMainThread.append(Thread.isMainThread)
+        endExpectation?.fulfill()
+    }
+}
+
+private final class ExpirationHandlerBox: @unchecked Sendable {
+    let handler: (() -> Void)?
+
+    init(_ handler: (() -> Void)?) {
+        self.handler = handler
     }
 }
 
 final class LifecycleManagerTests: XCTestCase {
+
+    func testDeniedBackgroundTaskNeverEndsInvalidIdentifier() {
+        let host = RecordingLifecycleHost()
+#if canImport(UIKit)
+        // Check the actual system constant, not just our copy of it.
+        let systemInvalid = UInt(bitPattern: UIBackgroundTaskIdentifier.invalid.rawValue)
+        host.grantedIdentifier = systemInvalid
+        XCTAssertEqual(TLSLifecycleInvalidBackgroundTaskIdentifier,
+                       systemInvalid)
+#else
+        host.grantedIdentifier = 0
+#endif
+        var flushCount = 0
+        var wakeCount = 0
+        var manager: TLSLifecycleManager? = TLSLifecycleManager(
+            flushHandler: { flushCount += 1 },
+            wakeHandler: { wakeCount += 1 },
+            host: host,
+            extensionCheck: { false })
+        weak var weakManager = manager
+        let center = NotificationCenter.default
+        let background = NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName
+        let foreground = NSNotification.Name.TLSLifecycleWillEnterForegroundNotificationName
+
+        center.post(name: background, object: nil)
+        center.post(name: background, object: nil)
+        XCTAssertEqual(flushCount, 2, "denial does not disable best-effort flush")
+        XCTAssertEqual(host.beginCalls.count, 2)
+        XCTAssertTrue(host.endCalls.isEmpty, "repeated background must not end an invalid task")
+        host.beginCalls[0].expirationHandler?()
+        host.beginCalls[1].expirationHandler?()
+        center.post(name: foreground, object: nil)
+        XCTAssertEqual(wakeCount, 1)
+        XCTAssertTrue(host.endCalls.isEmpty)
+
+        center.post(name: background, object: nil)
+        manager = nil
+        XCTAssertNil(weakManager)
+        host.beginCalls[2].expirationHandler?()
+        XCTAssertTrue(host.endCalls.isEmpty, "teardown and late expiration must ignore invalid tasks")
+    }
 
     // MARK: - Extension process
 
@@ -110,11 +162,35 @@ final class LifecycleManagerTests: XCTestCase {
         XCTAssertEqual(host.beginCalls.count, 1)
 
         // Fire the system expiration: the task must be ended immediately
-        // (no continued blocking of system suspension, design §9.3).
+        // (no continued blocking of system suspension).
         host.beginCalls[0].expirationHandler?()
 
         XCTAssertEqual(host.endCalls, [1],
                        "expiration must end the exact task that was begun")
+        _ = manager
+    }
+
+    func testExpirationHandlerFromBackgroundEndsTaskOnMainThread() {
+        let host = RecordingLifecycleHost()
+        let manager = TLSLifecycleManager(
+            flushHandler: {},
+            wakeHandler: {},
+            host: host,
+            extensionCheck: { false })
+
+        NotificationCenter.default.post(
+            name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+        XCTAssertEqual(host.beginCalls.count, 1)
+        host.endExpectation = expectation(description: "background task ended")
+        let box = ExpirationHandlerBox(host.beginCalls[0].expirationHandler)
+
+        DispatchQueue.global().async {
+            box.handler?()
+        }
+
+        wait(for: [host.endExpectation!], timeout: 5)
+        XCTAssertEqual(host.endCalls, [1])
+        XCTAssertEqual(host.endCallWasOnMainThread, [true])
         _ = manager
     }
 
@@ -133,6 +209,30 @@ final class LifecycleManagerTests: XCTestCase {
         XCTAssertEqual(host.beginCalls.count, 2)
         XCTAssertEqual(host.endCalls, [1],
                        "the stale task must be ended before a new one begins")
+        _ = manager
+    }
+
+    func testExpiredStaleTaskDoesNotEndNewerBackgroundTask() {
+        let host = RecordingLifecycleHost()
+        let manager = TLSLifecycleManager(
+            flushHandler: {},
+            wakeHandler: {},
+            host: host,
+            extensionCheck: { false })
+        let center = NotificationCenter.default
+
+        center.post(name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+        let firstExpiration = host.beginCalls[0].expirationHandler
+        center.post(name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+        let secondExpiration = host.beginCalls[1].expirationHandler
+        XCTAssertEqual(host.endCalls, [1])
+
+        firstExpiration?()
+        XCTAssertEqual(host.endCalls, [1],
+                       "an old expiration callback must not end the newer task")
+
+        secondExpiration?()
+        XCTAssertEqual(host.endCalls, [1, 2])
         _ = manager
     }
 

@@ -4,20 +4,20 @@
 // TEST-ONLY FAKE IMPLEMENTATION. NOT FOR RELEASE. Does not perform network,
 // persistence, signing, or real batching.
 //
-// CONTRACT ALIGNMENT:
+// Test behavior:
 //   - CoreAdapter is an internal protocol visible here through @testable.
 //   - ProducerConfiguration carries an optional initial destination and is
 //     revalidated at open.
 //   - PreparedLogEvent.rawBytes is used for facade-equivalent accounting.
 //
-// Semantics implemented here mirror the frozen P0 contracts:
+// Semantics implemented here mirror the public contracts:
 //   - add(.normal) enters the batch window; the batch seals when
 //     count >= batch.maxLogCount, estimated raw bytes >= batch.maxRawBytes,
 //     or the linger timer fires. add(.immediate) seals immediately after
-//     admission (ledger O10). Delivery is always asynchronous.
+//     admission. Delivery is always asynchronous.
 //   - updateCredentials replaces the whole group atomically; each sealed
 //     batch keeps its own credentials snapshot (no AK/SK/token mixing).
-//   - updateDestination is current-target (ledger O2): every not-yet-delivered
+//   - updateDestination is current-target: every not-yet-delivered
 //     batch is atomically retargeted; delivered batches keep their history.
 //   - close(timeout:) is idempotent, rejects new adds with .closed, cancels
 //     timers, and bounds the wait for in-flight callback delivery. On timeout
@@ -216,7 +216,7 @@ final class FakeCoreAdapter: CoreAdapter, @unchecked Sendable {
 
         switch mode {
         case .immediate:
-            // Ledger O10: seal immediately after admission; still async,
+            // Seal immediately after admission; delivery remains async,
             // never waits for network/ACK.
             cancelLingerLocked()
             sealCurrentBatchLocked(reason: .immediate)
@@ -266,7 +266,7 @@ final class FakeCoreAdapter: CoreAdapter, @unchecked Sendable {
         case .closing, .closed:
             throw ProducerError.closed
         }
-        // Ledger O2 current-target semantics: every not-yet-delivered batch
+        // Current-target semantics: every not-yet-delivered batch
         // is atomically retargeted. Delivered batches keep their history.
         self.destination = destination
         for index in sealed.indices where sealed[index].deliveredAt == nil {

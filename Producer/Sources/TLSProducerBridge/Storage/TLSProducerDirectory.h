@@ -1,7 +1,7 @@
 // TLSProducerDirectory.h
 // TLSProducerBridge/Storage
 //
-// App-sandbox storage helper for the TLS Producer SDK (Beta design §9.2).
+// App-sandbox storage helper for the TLS Producer SDK.
 //
 // Responsibilities:
 //   - Validate the stable `producerID` used to identify the on-disk directory.
@@ -13,15 +13,15 @@
 //   - Validate that a caller-supplied custom directory stays inside the App
 //     container (home-directory prefix check, injectable base for testing).
 //
-// Boundaries (frozen):
+// Boundaries:
 //   - This layer NEVER touches credentials. Credentials must never be written
 //     into directory names, extended attributes, WAL/manifest file names or
-//     contents (design §9.2 / ledger O-security). This helper does not accept
+//     contents. This helper does not accept
 //     credential material in any parameter and stores nothing but the
 //     producerID-derived path and filesystem attributes above.
 //   - The two attributes are set on the DIRECTORY only. They are not inherited
 //     by children; the Core/platform adapter must re-verify them on every WAL/
-//     checkpoint/manifest create, rotate, rename and recover (design §9.2).
+//     checkpoint/manifest create, rotate, rename and recover.
 //     The Real Core platform file-open wrapper performs that per-file work;
 //     it is intentionally outside this stateless directory helper.
 //   - This helper does NOT implement WAL / recover / checkpoint / lease.
@@ -59,7 +59,7 @@ typedef NS_ENUM(NSInteger, TLSProducerDirectoryErrorCode) {
     TLSProducerDirectoryErrorCodeOutsideAppContainer = 5,
 };
 
-/// Maximum producerID length in UTF-8 bytes (design §9.2).
+/// Maximum producerID length in UTF-8 bytes.
 FOUNDATION_EXPORT const NSUInteger TLSProducerDirectoryMaxProducerIDUTF8Length;
 
 /// App-sandbox directory helper. All methods are thread-safe (stateless).

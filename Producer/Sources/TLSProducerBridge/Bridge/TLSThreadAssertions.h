@@ -18,7 +18,7 @@ FOUNDATION_EXPORT const void *TLSSerialQueueIdentityKey;
 /// Asserts (debug builds only) that the current code is NOT running on the
 /// main thread. In release builds this compiles to a safe no-op return.
 ///
-/// Rationale (Beta design §6.2/§8.1): C sender/transport work must never run
+/// C sender/transport work must never run
 /// on the main thread; this is the cheap tripwire for that contract.
 FOUNDATION_EXPORT void TLSAssertNotMainThread(void);
 

@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 #
-# verify-consumer-packages.sh — verify the actual iOS package consumption
-# paths. This script deliberately does not run `swift test` on the host:
-# Package.swift declares iOS as the product platform, so a host test run is
-# neither an iOS test nor valid evidence for the iOS 13 contract.
+# verify-consumer-packages.sh — verify the actual iOS and macOS package
+# consumption paths.
 #
 # On macOS, runs:
-#   1. minimum-iOS declaration and privacy/resource inspection
+#   1. minimum-platform declarations and privacy/resource inspection
 #   2. strict Swift 6 library builds for iOS 13 Simulator and generic device
 #   3. external temporary SwiftPM consumer builds for Simulator and generic
 #      iPhoneOS; the final iPhoneOS Mach-O must retain a minimum OS of 13.0
-#   4. xcodebuild test on an available iOS Simulator destination
-#   5. CocoaPods manifest/resource inspection and pod lib lint (when `pod`
+#   4. strict Swift 6 macOS arm64/x86_64 library builds, native tests, and
+#      external executable consumers whose Mach-O minima match each
+#      architecture's platform floor
+#   5. xcodebuild test on an available iOS Simulator destination
+#   6. CocoaPods manifest/resource inspection and pod lib lint (when `pod`
 #      exists)
 #
 # Usage: verify-consumer-packages.sh [xcode-scheme]
@@ -20,9 +21,8 @@
 #   IOS_SIMULATOR_ARCH         default arm64
 #   IOS_DEPLOYMENT_TARGET      SwiftPM minimum iOS target, default 13.0
 #
-# No skipped or blocked step is presented as a test pass. The script exits
-# non-zero when a required tool/target exists but its verification fails, or
-# when the host cannot provide the requested simulator/package evidence.
+# The script exits non-zero when a required check fails or the requested
+# simulator/package environment is unavailable.
 #
 set -euo pipefail
 
@@ -32,6 +32,7 @@ cd "${REPO_ROOT}"
 
 SCHEME="${1:-VolcengineTLSProducer}"
 MINIMUM_IOS_TARGET="13.0"
+MINIMUM_MACOS_TARGET="10.15"
 PRODUCER_RELEASE_VERSION="2.0.0"
 PRODUCER_RELEASE_TAG="v${PRODUCER_RELEASE_VERSION}"
 overall=0
@@ -49,23 +50,33 @@ mark_blocked() {
     overall=1
 }
 
-check_minimum_ios_contract() {
+check_minimum_platform_contract() {
     local requested_target="${IOS_DEPLOYMENT_TARGET:-${MINIMUM_IOS_TARGET}}"
-    echo "== minimum iOS contract =="
+    echo "== minimum platform contract =="
 
     if [[ "${requested_target}" != "${MINIMUM_IOS_TARGET}" ]]; then
         mark_fail "IOS_DEPLOYMENT_TARGET must be ${MINIMUM_IOS_TARGET} for the minimum-version gate (got ${requested_target})."
         return
     fi
-    if grep -Eq 'platforms:[[:space:]]*\[[[:space:]]*\.iOS\(\.v13\)[[:space:]]*\]' "${REPO_ROOT}/Package.swift"; then
-        echo "PASS: SwiftPM minimum deployment target is iOS ${MINIMUM_IOS_TARGET}."
+    if grep -Eq '\.iOS\(\.v13\)' "${REPO_ROOT}/Package.swift"; then
+        echo "OK: SwiftPM minimum deployment target is iOS ${MINIMUM_IOS_TARGET}."
     else
         mark_fail "Package.swift does not declare the frozen iOS ${MINIMUM_IOS_TARGET} minimum."
     fi
     if grep -Eq "s\.ios\.deployment_target[[:space:]]*=[[:space:]]*'13\.0'" "${REPO_ROOT}/VolcengineTLSProducer.podspec"; then
-        echo "PASS: CocoaPods minimum deployment target is iOS ${MINIMUM_IOS_TARGET}."
+        echo "OK: CocoaPods minimum deployment target is iOS ${MINIMUM_IOS_TARGET}."
     else
         mark_fail "VolcengineTLSProducer.podspec does not declare the frozen iOS ${MINIMUM_IOS_TARGET} minimum."
+    fi
+    if grep -Eq '\.macOS\(\.v10_15\)' "${REPO_ROOT}/Package.swift"; then
+        echo "OK: SwiftPM minimum deployment target is macOS ${MINIMUM_MACOS_TARGET}."
+    else
+        mark_fail "Package.swift does not declare the frozen macOS ${MINIMUM_MACOS_TARGET} minimum."
+    fi
+    if grep -Eq "s\.osx\.deployment_target[[:space:]]*=[[:space:]]*'10\.15'" "${REPO_ROOT}/VolcengineTLSProducer.podspec"; then
+        echo "OK: CocoaPods minimum deployment target is macOS ${MINIMUM_MACOS_TARGET}."
+    else
+        mark_fail "VolcengineTLSProducer.podspec does not declare the frozen macOS ${MINIMUM_MACOS_TARGET} minimum."
     fi
 }
 
@@ -74,13 +85,13 @@ check_release_version_contract() {
     echo "== Producer release version contract =="
 
     if grep -Eq "s\.version[[:space:]]*=[[:space:]]*'${PRODUCER_RELEASE_VERSION}'" "${podspec}"; then
-        echo "PASS: CocoaPods Producer version is ${PRODUCER_RELEASE_VERSION}."
+        echo "OK: CocoaPods Producer version is ${PRODUCER_RELEASE_VERSION}."
     else
         mark_fail "VolcengineTLSProducer.podspec does not declare Producer ${PRODUCER_RELEASE_VERSION}."
     fi
 
     if grep -Fq ':tag => "v#{s.version}"' "${podspec}"; then
-        echo "PASS: CocoaPods source tag resolves to ${PRODUCER_RELEASE_TAG}."
+        echo "OK: CocoaPods source tag is configured as ${PRODUCER_RELEASE_TAG}; remote tag existence is not checked."
     else
         mark_fail "VolcengineTLSProducer.podspec does not derive the v-prefixed source tag from s.version."
     fi
@@ -97,7 +108,7 @@ check_privacy_manifest() {
 
     if command -v plutil >/dev/null 2>&1; then
         if plutil -lint "${manifest}" >/dev/null; then
-            echo "PASS: PrivacyInfo.xcprivacy is a valid plist."
+            echo "OK: PrivacyInfo.xcprivacy is a valid plist."
         else
             mark_fail "PrivacyInfo.xcprivacy failed plutil -lint."
         fi
@@ -107,7 +118,7 @@ check_privacy_manifest() {
 
     if grep -q 'NSPrivacyAccessedAPICategoryFileTimestamp' "${manifest}" && \
        grep -q '<string>C617.1</string>' "${manifest}"; then
-        echo "PASS: PrivacyInfo declares stat(2) file metadata access as FileTimestamp/C617.1."
+        echo "OK: PrivacyInfo declares stat(2) file metadata access as FileTimestamp/C617.1."
     else
         mark_fail "PrivacyInfo.xcprivacy is missing FileTimestamp/C617.1 for the persistent Core's stat(2) use."
     fi
@@ -118,7 +129,7 @@ check_privacy_manifest() {
         cache="$(mktemp -d "${TMPDIR:-/tmp}/tls-package-cache.XXXXXX")"
         if CLANG_MODULE_CACHE_PATH="${cache}" swift package dump-package >"${dump_file}" 2>&1; then
             if grep -q 'PrivacyInfo.xcprivacy' "${dump_file}"; then
-                echo "PASS: SwiftPM declares PrivacyInfo.xcprivacy as a processed resource."
+                echo "OK: SwiftPM declares PrivacyInfo.xcprivacy as a processed resource."
             else
                 mark_fail "SwiftPM dump-package did not contain PrivacyInfo.xcprivacy."
             fi
@@ -136,7 +147,7 @@ check_privacy_manifest() {
         pod_spec="$(mktemp "${TMPDIR:-/tmp}/tls-pod-spec.XXXXXX")"
         if pod ipc spec "${REPO_ROOT}/VolcengineTLSProducer.podspec" >"${pod_spec}" 2>&1; then
             if grep -q 'PrivacyInfo.xcprivacy' "${pod_spec}" && grep -q 'resource_bundles' "${pod_spec}"; then
-                echo "PASS: CocoaPods declares PrivacyInfo.xcprivacy in a resource bundle."
+                echo "OK: CocoaPods declares PrivacyInfo.xcprivacy in a resource bundle."
             else
                 mark_fail "pod ipc spec output did not contain the PrivacyInfo resource bundle."
             fi
@@ -152,7 +163,7 @@ check_privacy_manifest() {
     if [[ -f "${bridge_module_map}" ]] && \
        grep -q 'module TLSProducerBridge' "${bridge_module_map}" && \
        grep -q 'TLSProducerBridge/include/TLSProducerBridge.h' "${bridge_module_map}"; then
-        echo "PASS: CocoaPods private TLSProducerBridge module map is present."
+        echo "OK: CocoaPods private TLSProducerBridge module map is present."
     else
         mark_fail "CocoaPods private TLSProducerBridge module map is missing or incomplete."
     fi
@@ -217,7 +228,7 @@ run_swiftpm_ios_build() {
         --sdk "${IOS_SDK}" \
         --triple "${triple}" \
         -Xswiftc -swift-version -Xswiftc 6; then
-        echo "PASS: SwiftPM strict Swift 6 iOS Simulator library build (${triple}, SDK ${IOS_SDK_VERSION})."
+        echo "OK: SwiftPM strict Swift 6 iOS Simulator library build (${triple}, SDK ${IOS_SDK_VERSION})."
     else
         mark_fail "SwiftPM iOS Simulator library build failed (${triple})."
     fi
@@ -252,7 +263,7 @@ run_swiftpm_ios_device_build() {
         --sdk "${IPHONEOS_SDK}" \
         --triple "${triple}" \
         -Xswiftc -swift-version -Xswiftc 6; then
-        echo "PASS: SwiftPM strict Swift 6 generic iOS device library build (${triple}, SDK ${IPHONEOS_SDK_VERSION}); no physical device is required."
+        echo "OK: SwiftPM strict Swift 6 generic iOS device library build (${triple}, SDK ${IPHONEOS_SDK_VERSION}); no physical device is required."
     else
         mark_fail "SwiftPM generic iOS device library build failed (${triple})."
     fi
@@ -283,7 +294,7 @@ verify_macho_minimum_ios() {
     fi
     case "${minos}" in
         "${expected_target}"|"${expected_target}.0")
-            echo "PASS: external consumer Mach-O records platform ${platform} and minos ${minos}."
+            echo "OK: external consumer Mach-O records platform ${platform} and minos ${minos}."
             ;;
         *)
             echo "${build_info}" >&2
@@ -291,6 +302,210 @@ verify_macho_minimum_ios() {
             return 1
             ;;
     esac
+}
+
+resolve_macos_sdk() {
+    MACOS_SDK=""
+    MACOS_SDK_VERSION=""
+    if ! command -v xcrun >/dev/null 2>&1; then
+        return 1
+    fi
+    if ! MACOS_SDK="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null)"; then
+        return 1
+    fi
+    if ! MACOS_SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version 2>/dev/null)"; then
+        return 1
+    fi
+    [[ -n "${MACOS_SDK}" && -n "${MACOS_SDK_VERSION}" ]]
+}
+
+verify_macho_minimum_macos() {
+    local binary="$1"
+    local expected_target="$2"
+    local build_info platform minos
+
+    if ! command -v xcrun >/dev/null 2>&1 || ! xcrun --find vtool >/dev/null 2>&1; then
+        mark_blocked "vtool is unavailable; final macOS consumer minimum OS cannot be verified."
+        return 1
+    fi
+    if ! build_info="$(xcrun vtool -show-build "${binary}" 2>&1)"; then
+        echo "${build_info}" >&2
+        mark_fail "vtool could not inspect the final macOS consumer binary."
+        return 1
+    fi
+    platform="$(printf '%s\n' "${build_info}" | awk '$1 == "platform" { print $2; exit }')"
+    minos="$(printf '%s\n' "${build_info}" | awk '$1 == "minos" { print $2; exit }')"
+    if [[ "${platform}" != "MACOS" ]]; then
+        echo "${build_info}" >&2
+        mark_fail "external consumer Mach-O platform is ${platform:-missing}, expected MACOS."
+        return 1
+    fi
+    case "${minos}" in
+        "${expected_target}"|"${expected_target}.0")
+            echo "OK: external consumer Mach-O records platform ${platform} and minos ${minos}."
+            ;;
+        *)
+            echo "${build_info}" >&2
+            mark_fail "external macOS consumer Mach-O minos is ${minos:-missing}, expected ${expected_target}."
+            return 1
+            ;;
+    esac
+}
+
+macos_binary_minimum_for_arch() {
+    case "$1" in
+        arm64) echo "11.0" ;;
+        x86_64) echo "${MINIMUM_MACOS_TARGET}" ;;
+        *) return 1 ;;
+    esac
+}
+
+run_swiftpm_macos_builds() {
+    echo "== SwiftPM macOS library builds =="
+    if ! command -v swift >/dev/null 2>&1 || ! resolve_macos_sdk; then
+        echo "SKIP: Swift/macOS SDK not found; macOS builds require Xcode."
+        return
+    fi
+
+    local arch build_root cache triple
+    for arch in arm64 x86_64; do
+        build_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-macos-${arch}-build.XXXXXX")"
+        cache="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-macos-${arch}-cache.XXXXXX")"
+        triple="${arch}-apple-macosx${MINIMUM_MACOS_TARGET}"
+        ran=1
+        if CLANG_MODULE_CACHE_PATH="${cache}" swift build \
+            --package-path "${REPO_ROOT}" \
+            --scratch-path "${build_root}" \
+            --target VolcengineTLSProducer \
+            --sdk "${MACOS_SDK}" \
+            --triple "${triple}" \
+            -Xswiftc -swift-version -Xswiftc 6; then
+            echo "OK: SwiftPM strict Swift 6 macOS library build (${triple}, SDK ${MACOS_SDK_VERSION})."
+        else
+            mark_fail "SwiftPM macOS library build failed (${triple})."
+        fi
+        rm -rf "${build_root}" "${cache}"
+    done
+}
+
+run_macos_tests() {
+    echo "== native macOS tests =="
+    if ! command -v swift >/dev/null 2>&1 || ! resolve_macos_sdk; then
+        echo "SKIP: Swift/macOS SDK not found; native macOS tests require Xcode."
+        return
+    fi
+
+    local build_root cache
+    build_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-macos-tests.XXXXXX")"
+    cache="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-macos-tests-cache.XXXXXX")"
+    ran=1
+    if CLANG_MODULE_CACHE_PATH="${cache}" swift test \
+        --package-path "${REPO_ROOT}" \
+        --scratch-path "${build_root}" \
+        -Xswiftc -swift-version -Xswiftc 6; then
+        echo "OK: native macOS strict Swift 6 test suite completed."
+    else
+        mark_fail "native macOS strict Swift 6 test suite failed."
+    fi
+    rm -rf "${build_root}" "${cache}"
+}
+
+run_external_macos_consumer() {
+    echo "== external macOS SwiftPM consumer =="
+    if ! command -v swift >/dev/null 2>&1 || ! resolve_macos_sdk; then
+        echo "SKIP: Swift/macOS SDK not found; external macOS consumer requires Xcode."
+        return
+    fi
+
+    local consumer_root package_identity native_arch arch build_root cache triple
+    local binary resource_copy expected_target
+    consumer_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-macos-consumer.XXXXXX")"
+    package_identity="$(basename "${REPO_ROOT}")"
+    native_arch="$(uname -m)"
+    case "${native_arch}" in
+        arm64|x86_64) ;;
+        *)
+            mark_blocked "unsupported macOS host architecture: ${native_arch}."
+            rm -rf "${consumer_root}"
+            return
+            ;;
+    esac
+
+    mkdir -p "${consumer_root}/Sources/TLSMacConsumerSmoke"
+    printf '%s\n' \
+        '// swift-tools-version: 5.8' \
+        'import PackageDescription' \
+        '' \
+        'let package = Package(' \
+        '    name: "TLSMacConsumerSmoke",' \
+        '    platforms: [.macOS(.v10_15)],' \
+        '    dependencies: [' \
+        "        .package(path: \"${REPO_ROOT}\")" \
+        '    ],' \
+        '    targets: [' \
+        '        .executableTarget(' \
+        '            name: "TLSMacConsumerSmoke",' \
+        '            dependencies: [' \
+        "                .product(name: \"VolcengineTLSProducer\", package: \"${package_identity}\")" \
+        '            ]' \
+        '        )' \
+        '    ]' \
+        ')' > "${consumer_root}/Package.swift"
+    printf '%s\n' \
+        'import VolcengineTLSProducer' \
+        '' \
+        'let metadata = ProducerMetadata()' \
+        'precondition(metadata.source == "macOS")' \
+        'let configuration = try ProducerConfiguration()' \
+        'precondition(configuration.automaticLifecycleHandling == false)' \
+        'print("VolcengineTLSProducer macOS consumer PASS")' \
+        > "${consumer_root}/Sources/TLSMacConsumerSmoke/main.swift"
+
+    ran=1
+    for arch in arm64 x86_64; do
+        build_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-macos-consumer-${arch}-build.XXXXXX")"
+        cache="$(mktemp -d "${TMPDIR:-/tmp}/tls-macos-consumer-${arch}-cache.XXXXXX")"
+        triple="${arch}-apple-macosx${MINIMUM_MACOS_TARGET}"
+        expected_target="$(macos_binary_minimum_for_arch "${arch}")"
+        if CLANG_MODULE_CACHE_PATH="${cache}" swift build \
+            --package-path "${consumer_root}" \
+            --scratch-path "${build_root}" \
+            --product TLSMacConsumerSmoke \
+            --sdk "${MACOS_SDK}" \
+            --triple "${triple}" \
+            -Xswiftc -swift-version -Xswiftc 6; then
+            binary="$(find "${build_root}" -type f -name 'TLSMacConsumerSmoke' ! -path '*.dSYM/*' -print -quit 2>/dev/null || true)"
+            resource_copy="$(find "${build_root}" -type f -name 'PrivacyInfo.xcprivacy' -print -quit 2>/dev/null || true)"
+            if [[ -z "${binary}" ]]; then
+                mark_fail "external macOS ${arch} consumer built but its executable was not found."
+            else
+                if [[ "${arch}" == "${native_arch}" ]]; then
+                    if "${binary}"; then
+                        echo "OK: external strict Swift 6 macOS ${arch} consumer built and ran (${triple})."
+                    else
+                        mark_fail "external macOS ${arch} consumer executable failed at runtime."
+                    fi
+                else
+                    echo "OK: external strict Swift 6 macOS ${arch} consumer linked (${triple}); runtime execution requires a ${arch} host."
+                fi
+                verify_macho_minimum_macos "${binary}" "${expected_target}" || true
+                if "${SCRIPT_DIR}/verify-public-symbols.sh" "${binary}"; then
+                    echo "OK: linked external macOS ${arch} consumer does not export private Core/LZ4 symbols."
+                else
+                    mark_fail "linked external macOS ${arch} consumer exported private Core/LZ4 symbols."
+                fi
+            fi
+            if [[ -n "${resource_copy}" ]]; then
+                echo "OK: external macOS ${arch} consumer build contains PrivacyInfo.xcprivacy."
+            else
+                mark_fail "external macOS ${arch} consumer build did not contain PrivacyInfo.xcprivacy."
+            fi
+        else
+            mark_fail "external macOS SwiftPM consumer build failed (${triple})."
+        fi
+        rm -rf "${build_root}" "${cache}"
+    done
+    rm -rf "${consumer_root}"
 }
 
 run_external_swiftpm_consumer() {
@@ -347,26 +562,24 @@ run_external_swiftpm_consumer() {
         'import VolcengineTLSProducer' \
         '' \
         '// Type-check the real public async lifecycle; no network code is run.' \
-        'func compilePublicLifecycle() async throws {' \
+        'func compilePublicLifecycle(input: Credentials) async throws {' \
         '    let destination = Destination(' \
         '        endpoint: "https://example.com",' \
         '        region: "cn-beijing",' \
         '        projectID: "project",' \
         '        topicID: "topic")' \
         '    let configuration = try ProducerConfiguration(destination: destination)' \
-        '    let credentials = Credentials(accessKeyID: "ak", accessKeySecret: "sk")' \
         '    let producer = try await Producer.open(' \
         '        configuration: configuration,' \
-        '        credentials: credentials)' \
+        '        credentials: input)' \
         '    try await producer.close(timeout: 1)' \
         '}' \
         '' \
         '// Also type-check the common strict-concurrency call pattern.' \
-        'func compileDetachedOpen(configuration: ProducerConfiguration, credentials: Credentials) async throws {' \
-        '    let task = Task.detached {' \
-        '        try await Producer.open(configuration: configuration, credentials: credentials)' \
-        '    }' \
-        '    let producer = try await task.value' \
+        'func compileDetachedOpen(configuration: ProducerConfiguration, input: Credentials) async throws {' \
+        '    let producer = try await Task.detached {' \
+        '        try await Producer.open(configuration: configuration, credentials: input)' \
+        '    }.value' \
         '    try await producer.close(timeout: 1)' \
         '}' \
         > "${consumer_root}/Sources/TLSConsumerSmoke/main.swift"
@@ -387,14 +600,14 @@ run_external_swiftpm_consumer() {
         local consumer_binary resource_copy
         resource_copy="$(find "${consumer_sim_build}" -type f -name 'PrivacyInfo.xcprivacy' -print -quit 2>/dev/null || true)"
         if [[ -n "${resource_copy}" ]]; then
-            echo "PASS: external strict Swift 6 Simulator consumer built the public lifecycle (requested ${sim_triple}, SDK ${IOS_SDK_VERSION}); dependency settings were accepted and the privacy resource was copied. The Simulator Mach-O minimum is toolchain-controlled and is not used as iOS 13 device evidence."
+            echo "OK: external strict Swift 6 Simulator consumer built the public lifecycle (requested ${sim_triple}, SDK ${IOS_SDK_VERSION}); dependency settings were accepted and the privacy resource was copied. The Simulator Mach-O minimum is toolchain-controlled and is not used as iOS 13 device evidence."
         else
             mark_fail "external SwiftPM build succeeded but PrivacyInfo.xcprivacy was not found in the built resource output."
         fi
         consumer_binary="$(find "${consumer_sim_build}" -type f -name 'TLSConsumerSmoke' ! -path '*.dSYM/*' -print -quit 2>/dev/null || true)"
         if [[ -n "${consumer_binary}" ]]; then
             if "${SCRIPT_DIR}/verify-public-symbols.sh" "${consumer_binary}"; then
-                echo "PASS: linked external SwiftPM Simulator consumer does not export private Core/LZ4 symbols."
+                echo "OK: linked external SwiftPM Simulator consumer does not export private Core/LZ4 symbols."
             else
                 mark_fail "linked external SwiftPM Simulator consumer exported private Core/LZ4 symbols."
             fi
@@ -421,7 +634,7 @@ run_external_swiftpm_consumer() {
         device_binary="$(find "${consumer_device_build}" -type f -name 'TLSConsumerSmoke' ! -path '*.dSYM/*' -print -quit 2>/dev/null || true)"
         if [[ -n "${device_binary}" ]]; then
             if "${SCRIPT_DIR}/verify-public-symbols.sh" "${device_binary}"; then
-                echo "PASS: linked external SwiftPM iPhoneOS consumer does not export private Core/LZ4 symbols."
+                echo "OK: linked external SwiftPM iPhoneOS consumer does not export private Core/LZ4 symbols."
             else
                 mark_fail "linked external SwiftPM iPhoneOS consumer exported private Core/LZ4 symbols."
             fi
@@ -474,10 +687,8 @@ run_xcodebuild_tests() {
         return
     fi
     rm -f "${simctl_error}"
-    # A repository checkout also contains the legacy VeTLSiOSSDK workspace.
-    # Running xcodebuild from that directory makes it select the legacy
-    # workspace and report a missing package scheme. Exercise the package from
-    # an isolated temporary checkout containing only Package.swift + Producer.
+    # Exercise the distributable package in isolation from local Xcode state
+    # and generated files, using only Package.swift + Producer.
     package_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-xcode-package.XXXXXX")"
     if ! cp "${REPO_ROOT}/Package.swift" "${package_root}/Package.swift" || \
        ! cp -R "${REPO_ROOT}/Producer" "${package_root}/Producer"; then
@@ -493,7 +704,7 @@ run_xcodebuild_tests() {
             -derivedDataPath "${derived_data}" \
             test \
             CODE_SIGNING_ALLOWED=NO); then
-        echo "PASS: xcodebuild tests executed on ${destination}."
+        echo "OK: xcodebuild tests executed on ${destination}."
     else
         mark_fail "xcodebuild tests failed on ${destination}."
     fi
@@ -508,18 +719,21 @@ run_pod_lint() {
     fi
     ran=1
     if pod lib lint "${REPO_ROOT}/VolcengineTLSProducer.podspec" --allow-warnings; then
-        echo "PASS: pod lib lint completed."
+        echo "OK: pod lib lint completed."
     else
         mark_fail "pod lib lint failed."
     fi
 }
 
-check_minimum_ios_contract
+check_minimum_platform_contract
 check_release_version_contract
 check_privacy_manifest
 run_swiftpm_ios_build
 run_swiftpm_ios_device_build
 run_external_swiftpm_consumer
+run_swiftpm_macos_builds
+run_macos_tests
+run_external_macos_consumer
 run_xcodebuild_tests
 run_pod_lint
 
@@ -527,7 +741,7 @@ echo ""
 if [[ "${overall}" -eq 0 && "${ran}" -eq 0 && "${blocked}" -eq 0 ]]; then
     echo "SKIP: no package tools available on this host (needs macOS + Xcode + CocoaPods)."
 elif [[ "${overall}" -eq 0 ]]; then
-    echo "PASS: consumer package verification completed; every executed check passed."
+    echo "OK: consumer package verification completed; every executed check succeeded."
 else
     echo "FAIL: consumer package verification is incomplete or one or more checks failed."
 fi

@@ -34,13 +34,7 @@ static void ve_tls_sender_release_task(ve_tls_producer * producer, ve_tls_send_t
 
 static void ve_tls_sender_heartbeat_persistent(ve_tls_producer * producer) {
     if (producer && producer->persistent) {
-        if (producer->persistent_mutex) {
-            producer->config.platform.mutex_lock(producer->persistent_mutex);
-        }
         (void)ve_tls_persistent_heartbeat_if_due(producer->persistent, 0);
-        if (producer->persistent_mutex) {
-            producer->config.platform.mutex_unlock(producer->persistent_mutex);
-        }
     }
 }
 
@@ -1003,6 +997,56 @@ static ve_tls_send_callbacks ve_tls_capture_callbacks(ve_tls_producer * producer
     return out;
 }
 
+/* The popped task stays owned by the sender until push_front succeeds. A
+ * concurrent enqueue can fill its former slot and force a failing allocation.
+ * Persistent tasks remain unacknowledged for recovery; memory-only tasks get
+ * one explicit terminal failure. Neither failure path allocates memory. */
+static void ve_tls_sender_defer_task(
+    ve_tls_producer * producer, ve_tls_key_queue * kq,
+    ve_tls_send_task * task, int64_t next_ready_ms
+) {
+    producer->config.platform.mutex_lock(producer->mutex);
+    if (ve_tls_key_queue_push_front_task(kq, task) == 0) {
+        memset(task, 0, sizeof(*task));
+        kq->inflight = 0;
+        ve_tls_delayed_add_sorted(producer, kq, next_ready_ms);
+        producer->config.platform.cond_signal(producer->send_cond);
+        producer->config.platform.mutex_unlock(producer->mutex);
+        return;
+    }
+    producer->config.platform.mutex_unlock(producer->mutex);
+
+    if (producer->persistent) {
+        ve_tls_metrics_emit(producer, "persistent_reschedule_failed", task->start_id, task->end_id);
+    } else {
+        ve_tls_error error;
+        memset(&error, 0, sizeof(error));
+        error.http_code = -1;
+        /* Borrowed literals are valid only during the synchronous callbacks. */
+        error.error_code = "OutOfMemory";
+        error.error_message = "failed to reschedule send task";
+        error.transport_kind = VE_TLS_TRANSPORT_GENERIC;
+        uint64_t logs = task->log_count > 0 ? (uint64_t)task->log_count : 1;
+        ve_tls_metric_inc_u64(&producer->m_logs_dropped_total, logs);
+        ve_tls_metric_inc_u64(&producer->m_bytes_dropped_total, task->batch_bytes);
+        ve_tls_metrics_emit(producer, "send_reschedule_failed", task->start_id, task->end_id);
+        ve_tls_send_callbacks cbs = ve_tls_capture_callbacks(producer);
+        if (cbs.cb) {
+            cbs.cb(VE_TLS_DROP_ERROR, task->batch_bytes, 0, NULL, error.error_message,
+                NULL, cbs.cb_param, task->start_id, task->end_id);
+        }
+        if (cbs.cb2) {
+            cbs.cb2(VE_TLS_DROP_ERROR, task->batch_bytes, 0, &error,
+                NULL, cbs.cb2_param, task->start_id, task->end_id);
+        }
+    }
+    ve_tls_sender_release_task(producer, task);
+    producer->config.platform.mutex_lock(producer->mutex);
+    ve_tls_key_queue_finish(producer, kq);
+    producer->config.platform.cond_signal(producer->send_cond);
+    producer->config.platform.mutex_unlock(producer->mutex);
+}
+
 static int ve_tls_should_retain_auth_failure(
     ve_tls_producer * producer,
     const ve_tls_error * error,
@@ -1347,10 +1391,9 @@ static int ve_tls_send_put_logs(ve_tls_producer * producer, const char * access_
             out_error->http_code = -1;
             out_error->transport_kind = resp.transport_kind ? resp.transport_kind : VE_TLS_TRANSPORT_GENERIC;
             out_error->transport_code = resp.transport_code;
-            // Retryability is part of the transport adapter contract, not a
-            // CURL-only capability. Ignoring it for custom transports causes
-            // deterministic validation/cancel/redirect failures to be retried
-            // after the adapter explicitly marked them terminal.
+            /* Retryability is part of the transport adapter contract, not a
+             * CURL-only capability. Deterministic custom-transport failures
+             * must remain terminal when the adapter marks them so. */
             out_error->retryable = resp.transport_retryable ? 1 : 0;
             out_error->error_code = resp.error_code ? ve_tls_strdup(resp.error_code) : ve_tls_strdup("ClientError");
             out_error->error_message = resp.error_message ? ve_tls_strdup(resp.error_message) : ve_tls_strdup("http request failed");
@@ -1521,13 +1564,7 @@ have_task: {
             if (next <= 0) {
                 next = gate_now + 10;
             }
-            producer->config.platform.mutex_lock(producer->mutex);
-            (void)ve_tls_key_queue_push_front_task(kq, &task);
-            memset(&task, 0, sizeof(task));
-            kq->inflight = 0;
-            ve_tls_delayed_add_sorted(producer, kq, next);
-            producer->config.platform.cond_signal(producer->send_cond);
-            producer->config.platform.mutex_unlock(producer->mutex);
+            ve_tls_sender_defer_task(producer, kq, &task, next);
             ve_tls_error_free_fields(&err);
             if (producer->use_global_env) {
                 ve_tls_env_notify(producer);
@@ -1613,10 +1650,10 @@ have_task: {
     }
     if (!sent_ok &&
         ve_tls_should_retain_auth_failure(producer, &err, credential_version)) {
-        // Retained authentication failures suspend this delivery attempt;
-        // they are not terminal batch results. Publishing a failure callback
-        // here and a success callback after credential rotation violates the
-        // public exactly-once SendResult contract.
+        /* Retained authentication failures suspend this delivery attempt;
+         * they are not terminal batch results. Publishing a failure here and
+         * a success after credential rotation violates the single-terminal
+         * callback contract. */
         ve_tls_record_send_failure_metrics(producer, &err, total_ms);
         if (entered_breaker && half_open_guard) {
             ve_tls_breaker_release_half_open_guard(producer);
@@ -1930,6 +1967,7 @@ next_task:
                 producer->config.platform.mutex_lock(producer->mutex);
                 continue;
             }
+            ve_tls_sender_heartbeat_persistent(producer);
             producer->config.platform.mutex_lock(producer->mutex);
             if (producer->stop && !producer->ready_head) {
                 int pending = 0;
@@ -2068,13 +2106,7 @@ retry_keyed_after_auth_update:
                 if (next <= 0) {
                     next = gate_now + 10;
                 }
-                producer->config.platform.mutex_lock(producer->mutex);
-                (void)ve_tls_key_queue_push_front_task(kq, &task);
-                memset(&task, 0, sizeof(task));
-                kq->inflight = 0;
-                ve_tls_delayed_add_sorted(producer, kq, next);
-                producer->config.platform.cond_signal(producer->send_cond);
-                producer->config.platform.mutex_unlock(producer->mutex);
+                ve_tls_sender_defer_task(producer, kq, &task, next);
                 ve_tls_error_free_fields(&err);
                 goto next_task;
             }

@@ -2,7 +2,7 @@
 //  ProducerLifecycleTests.swift
 //  ContractTests
 //
-//  Worker A — open/close state machine, idempotency, error propagation.
+//  Producer lifecycle tests.
 //
 
 import XCTest
@@ -203,10 +203,11 @@ final class ProducerLifecycleTests: XCTestCase {
             configuration: .makeTesting(),
             credentials: .testing)
 
+        let values = ["first-value", "second-value", "third-value"]
         let newCredentials = Credentials(
-            accessKeyID: "new-ak",
-            accessKeySecret: "new-sk",
-            securityToken: "new-token")
+            accessKeyID: values[0],
+            accessKeySecret: values[1],
+            securityToken: values[2])
         try producer.updateCredentials(newCredentials)
         XCTAssertEqual(recording.updateCredentialsCalls.count, 1)
         XCTAssertEqual(recording.updateCredentialsCalls.first, newCredentials)

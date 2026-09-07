@@ -2,7 +2,7 @@
 //  LogValueEncodingTests.swift
 //  ContractTests
 //
-//  Worker A — encoding matrix, verbatim assertions.
+//  Log value encoding tests.
 //
 
 import XCTest

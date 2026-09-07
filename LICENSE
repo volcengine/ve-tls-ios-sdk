@@ -199,3 +199,14 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+Third-party files or components:
+===
+Bolts-iOS 
+Copyright (c) 2014, Facebook, Inc.
+SPDX-License-Identifier: BSD-3-Clause
+===
+CocoaDebug/CocoaDebug
+Copyright © 2020 man.li.
+SPDX-License-Identifier: MIT
+===

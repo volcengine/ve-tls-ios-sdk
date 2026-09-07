@@ -3,12 +3,10 @@
 //
 // Constructs a `Producer` backed by an injected (fake) `CoreAdapter`.
 //
-// Aligned with Worker A's landed Sources (2026-08-27): Producer exposes the
-// internal injection entry point
+// Producer exposes the internal injection entry point
 // `Producer.open(adapter:configuration:credentials:onSendResult:)`
 // (visible via @testable). The public `Producer.open(configuration:...)`
-// wires the provisional BundledCoreAdapter and must not be used by
-// BridgeTests.
+// uses the production Core and must not be used by BridgeTests.
 //
 
 import Foundation

@@ -2,7 +2,7 @@
 //  Destination.swift
 //  VolcengineTLSProducer
 //
-//  Worker A — Swift public value model.
+//  Producer destination.
 //
 
 import Foundation
@@ -12,11 +12,8 @@ import Foundation
 ///
 /// A destination is always replaced as a whole via
 /// `Producer.updateDestination(_:)`; there are no per-field setters.
-/// With the bundled C Core v0.3.1, wire routing is determined by endpoint,
-/// region and topic. `projectID` is retained for future project-domain
-/// routing and receives only minimum transport-safe validation in this
-/// release. Changing it alone does not retarget requests because the bundled
-/// Core ABI has no project update parameter.
+/// Requests are routed by endpoint, region and topic. `projectID` is retained
+/// for project-domain routing and receives transport-safe validation.
 /// Construction does not throw, so a destination can be built declaratively;
 /// validation runs at `Producer.open` / `updateDestination` time via
 /// `validate()`.
@@ -30,10 +27,7 @@ public struct Destination: Equatable, Sendable {
     /// Region ID, e.g. `cn-beijing`. Non-empty.
     public var region: String
 
-    /// TLS Project ID. Reserved for future project-domain routing. This
-    /// release requires a non-empty value without NUL or line breaks, but
-    /// intentionally does not guess a service length or character set.
-    /// It is not part of request routing in bundled C Core v0.3.1.
+    /// TLS Project ID. Must be non-empty and contain no NUL or line breaks.
     public var projectID: String
 
     /// TLS Topic ID. Non-empty.
@@ -101,6 +95,14 @@ public struct Destination: Equatable, Sendable {
               topicID.rangeOfCharacter(from: .newlines) == nil else {
             throw ProducerError.configuration(
                 "destination fields must not contain line break characters")
+        }
+        for (name, value) in [
+            ("region", region),
+            ("projectID", projectID),
+            ("topicID", topicID),
+        ] where value != value.trimmingCharacters(in: .whitespacesAndNewlines) {
+            throw ProducerError.configuration(
+                "\(name) must not contain leading or trailing whitespace")
         }
     }
 

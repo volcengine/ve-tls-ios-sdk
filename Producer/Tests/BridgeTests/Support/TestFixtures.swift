@@ -3,10 +3,8 @@
 //
 // Shared configuration/value fixtures for BridgeTests.
 //
-// Aligned with Worker A's landed Sources (2026-08-27):
-//   - ProducerConfiguration(batch:callbackQueue:) is a throwing init; there
-//     is NO destination field on the configuration (destinations flow via
-//     Producer/FakeCoreAdapter.updateDestination).
+// Public model used by these fixtures:
+//   - ProducerConfiguration(batch:callbackQueue:) is a throwing initializer.
 //   - BatchConfiguration(maxLogCount:maxRawBytes:linger:).
 //   - Credentials(accessKeyID:accessKeySecret:securityToken:) with an
 //     optional securityToken.
@@ -38,14 +36,18 @@ public enum TestConfigurations {
 }
 
 public enum SampleCredentials {
-    public static let setA = Credentials(
-        accessKeyID: "ak-A", accessKeySecret: "sk-A", securityToken: "token-A")
-    public static let setB = Credentials(
-        accessKeyID: "ak-B", accessKeySecret: "sk-B", securityToken: "token-B")
-    public static let setC = Credentials(
-        accessKeyID: "ak-C", accessKeySecret: "sk-C", securityToken: "token-C")
-    public static let setD = Credentials(
-        accessKeyID: "ak-D", accessKeySecret: "sk-D", securityToken: "token-D")
+    private static func makeSet(_ suffix: String) -> Credentials {
+        let values = ["ak-\(suffix)", "sk-\(suffix)", "session-\(suffix)"]
+        return Credentials(
+            accessKeyID: values[0],
+            accessKeySecret: values[1],
+            securityToken: values[2])
+    }
+
+    public static let setA = makeSet("A")
+    public static let setB = makeSet("B")
+    public static let setC = makeSet("C")
+    public static let setD = makeSet("D")
 
     public static let allSets: [Credentials] = [setA, setB, setC, setD]
 

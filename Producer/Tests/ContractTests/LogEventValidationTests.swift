@@ -2,7 +2,7 @@
 //  LogEventValidationTests.swift
 //  ContractTests
 //
-//  Worker A — whole-event rejection, field paths, depth, snapshot semantics.
+//  Log event validation tests.
 //
 
 import XCTest
@@ -108,7 +108,7 @@ final class LogEventValidationTests: XCTestCase {
 
     func testHashKeyUsesHalfOpenRoutableRange() throws {
         let valid = [
-            // SLS freezes the hash-key range as
+            // The public hash-key range is
             // [00000000000000000000000000000000, ffffffffffffffffffffffffffffffff).
             String(repeating: "0", count: 32),
             "0123456789abcdef0123456789abcdef",

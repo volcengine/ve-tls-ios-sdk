@@ -1,13 +1,8 @@
 // ProducerDirectoryValidationTests.swift
 // PersistenceTests
 //
-// Tests for TLSProducerDirectory producerID validation (Beta design §9.2:
+// Tests for TLSProducerDirectory producerID validation:
 // non-empty, [A-Za-z0-9._-] only, at most 64 UTF-8 bytes).
-//
-// SCOPE: these are helper-level tests for the Storage helper. They are NOT
-// evidence of C WAL crash-recovery, checkpoint, lease or fsync behavior —
-// that evidence comes from the process-kill Core recovery harness and future
-// on-device validation, not from these helper-level assertions alone.
 //
 
 import XCTest

@@ -31,7 +31,7 @@ typedef NS_ENUM(NSInteger, TLSTransportRequestState) {
 
 /// Per-request state, confined to the transport's serial queue.
 ///
-/// Ownership (Beta design §8.1): the context is retained by the transport's
+/// Ownership: the context is retained by the transport's
 /// registries while running and released at terminal completion. The
 /// URLSession task does not retain it; delegate callbacks look it up by
 /// task identifier. A late callback after terminal only releases itself.
@@ -131,6 +131,44 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
 
 #pragma mark - TLSTransport
 
+static void TLSCompleteContextForTransportDeallocation(
+    TLSRequestContext *context,
+    NSMutableDictionary<NSString *, TLSRequestContext *> *contextsByID,
+    NSMutableDictionary<NSNumber *, TLSRequestContext *> *contextsByTaskID
+) {
+    if (context.state == TLSTransportRequestStateTerminal) {
+        return;
+    }
+    context.state = TLSTransportRequestStateTerminal;
+    [contextsByID removeObjectForKey:context.requestID];
+    if (context.taskIdentifier != 0) {
+        [contextsByTaskID removeObjectForKey:@(context.taskIdentifier)];
+    }
+
+    NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithObject:@"transport released"
+                                                                        forKey:NSLocalizedDescriptionKey];
+    if (context.statusCode > 0) {
+        userInfo[TLSTransportErrorStatusCodeKey] = @(context.statusCode);
+    }
+    if (context.responseRequestID.length > 0) {
+        userInfo[TLSTransportErrorRequestIDKey] = context.responseRequestID;
+    }
+    NSError *error = [NSError errorWithDomain:TLSTransportErrorDomain
+                                         code:TLSTransportErrorCodeCancelled
+                                     userInfo:userInfo];
+    NSData *body = [context.accumulatedBody copy];
+    TLSHTTPResponse *response = [[TLSHTTPResponse alloc] initWithStatusCode:context.statusCode
+                                                                    headers:context.responseHeaders
+                                                                       body:body
+                                                                  requestID:context.responseRequestID
+                                                                      error:error];
+    TLSTransportCompletionHandler handler = context.completionHandler;
+    context.completionHandler = nil;
+    if (handler != nil) {
+        handler(response);
+    }
+}
+
 @interface TLSTransport ()
 @property (nonatomic, strong) NSURLSession *session;
 @property (nonatomic, strong) NSOperationQueue *delegateQueue;
@@ -212,11 +250,29 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
 }
 
 - (void)dealloc {
-    // Best-effort cleanup (safe from any thread; a second
-    // invalidateAndCancel after an explicit -invalidate is a no-op). The
-    // weak proxy keeps the session from retaining this transport, so
-    // dealloc actually runs when the caller drops the transport.
-    [_session invalidateAndCancel];
+    // The session retains only the weak delegate proxy, so URLSession
+    // cancellation callbacks cannot be relied on after deallocation starts.
+    // Drain every context on the transport queue first, preserving the
+    // exactly-once/off-main completion contract even when requestTimeout=0.
+    _delegateProxy.transport = nil;
+    NSURLSession *session = _session;
+    dispatch_queue_t queue = _queue;
+    NSMutableDictionary<NSString *, TLSRequestContext *> *contextsByID = _contextsByID;
+    NSMutableDictionary<NSNumber *, TLSRequestContext *> *contextsByTaskID = _contextsByTaskID;
+    dispatch_block_t drain = ^{
+        NSArray<TLSRequestContext *> *pending = [contextsByID.allValues copy];
+        for (TLSRequestContext *context in pending) {
+            TLSCompleteContextForTransportDeallocation(context, contextsByID, contextsByTaskID);
+        }
+        [session invalidateAndCancel];
+    };
+    if (queue == nil) {
+        [session invalidateAndCancel];
+    } else if (dispatch_get_specific(TLSSerialQueueIdentityKey) == (__bridge const void *)queue) {
+        drain();
+    } else {
+        dispatch_sync(queue, drain);
+    }
 }
 
 #pragma mark - Public API

@@ -1,7 +1,7 @@
 // TLSHTTPRequest.h
 // TLSProducerBridge/Transport
 //
-// Immutable HTTP request model for the NSURLSession transport (Beta design §8).
+// Immutable HTTP request model for the NSURLSession transport.
 //
 // Pure Objective-C; iOS 13.0+ safe APIs only.
 //
@@ -19,7 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly, copy) NSString *method;
 
 /// Absolute request URL. Only the `https` scheme is accepted by the
-/// transport (Beta design §8.2 / decision ledger O-security).
+/// transport.
 @property (nonatomic, readonly, copy) NSString *URLString;
 
 /// HTTP header fields. The transport applies them verbatim; protected
@@ -32,7 +32,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// Best-effort connect-phase budget, in seconds.
 ///
-/// HONESTY NOTE (Beta design §8.3): NSURLSession provides no fully
+/// NSURLSession provides no fully
 /// independent, portable DNS/TCP/TLS connect-phase hard timer. This value
 /// is mapped to `NSURLSessionConfiguration.timeoutIntervalForRequest` /
 /// `NSMutableURLRequest.timeoutInterval` on a best-effort basis only. The

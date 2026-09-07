@@ -2,7 +2,7 @@
 //  AddMode.swift
 //  VolcengineTLSProducer
 //
-//  Worker A — Swift public value model.
+//  Log admission mode.
 //
 
 import Foundation

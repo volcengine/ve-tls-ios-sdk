@@ -1,15 +1,10 @@
 // ProducerDirectoryContainerTests.swift
 // PersistenceTests
 //
-// Tests for TLSProducerDirectory container validation (Beta design §9.2:
+// Tests for TLSProducerDirectory container validation:
 // custom directories must stay inside the App container). The container base
 // is injected so the tests are deterministic and do not depend on the real
 // NSHomeDirectory() layout.
-//
-// SCOPE: these are helper-level tests for the Storage helper. They are NOT
-// evidence of C WAL crash-recovery, checkpoint, lease or fsync behavior —
-// that evidence comes from the process-kill Core recovery harness and future
-// on-device validation, not from these helper-level assertions alone.
 //
 
 import XCTest

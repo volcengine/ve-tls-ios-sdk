@@ -2,7 +2,7 @@
 //  LogEvent.swift
 //  VolcengineTLSProducer
 //
-//  Worker A — Swift public value model.
+//  Log event model.
 //
 
 import Foundation
@@ -122,7 +122,7 @@ public struct LogEvent: Equatable, Sendable {
                     (byte >= 0x30 && byte <= 0x39) ||
                         (byte >= 0x61 && byte <= 0x66)
                 }
-            // SLS freezes the hash-key range as
+            // The service hash-key range is
             // [00000000000000000000000000000000,
             // ffffffffffffffffffffffffffffffff): all-`f` is excluded.
             let isExclusiveUpperBound = isLowercaseHex &&
@@ -142,7 +142,7 @@ public struct LogEvent: Equatable, Sendable {
         encodedLengths.reserveCapacity(reservedFieldCount * 2)
         var rawBytes = 0
         for (key, value) in contents {
-            // Keys must be non-empty UTF-8 strings (Beta design §5.3).
+            // Keys must be non-empty UTF-8 strings.
             if key.isEmpty {
                 violations.append("<empty-key>: key must be a non-empty UTF-8 string")
                 continue

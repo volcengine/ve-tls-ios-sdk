@@ -253,9 +253,10 @@ def parse_args(argv):
     return parser.parse_args(argv)
 
 
-def make_server(host, port, role, state, secure, cert, key):
-    server = FixtureHTTPServer((host, port), role, state)
+def make_server(port, role, state, secure, certificate):
+    server = FixtureHTTPServer(("127.0.0.1", port), role, state)
     if secure:
+        cert, key = certificate
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(certfile=cert, keyfile=key)
@@ -316,49 +317,42 @@ def run(args):
     )
 
     servers = []
+    certificate = (args.cert, args.key)
     try:
         servers.append(
             make_server(
-                "127.0.0.1",
                 args.source_port,
                 "source",
                 state,
                 True,
-                args.cert,
-                args.key,
+                certificate,
             )
         )
         servers.append(
             make_server(
-                "127.0.0.1",
                 args.cross_host_port,
                 "cross-host",
                 state,
                 True,
-                args.cert,
-                args.key,
+                certificate,
             )
         )
         servers.append(
             make_server(
-                "127.0.0.1",
                 args.cross_scheme_port,
                 "cross-scheme",
                 state,
                 False,
-                args.cert,
-                args.key,
+                None,
             )
         )
         servers.append(
             make_server(
-                "127.0.0.1",
                 args.cross_port,
                 "cross-port",
                 state,
                 True,
-                args.cert,
-                args.key,
+                certificate,
             )
         )
         state.ports = {

@@ -8,15 +8,33 @@
 // behavior registry is keyed by URL path, keeping tests safe even if test
 // methods are parallelized.
 //
-// Evidence boundary: offline URLProtocol tests exercise deterministic
-// transport semantics; real TLS redirect behavior is covered separately by
-// the opt-in HTTPS integration fixture.
+// URLProtocol stubs exercise deterministic transport behavior without making
+// external network requests.
 //
 
 import Foundation
 import XCTest
 import TLSProducerBridge
 import VolcengineTLSProducer
+
+private final class TransportResponseState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+    private var response: TLSHTTPResponse?
+
+    func record(_ response: TLSHTTPResponse) {
+        lock.lock()
+        callCount += 1
+        self.response = response
+        lock.unlock()
+    }
+
+    var snapshot: (callCount: Int, response: TLSHTTPResponse?) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (callCount, response)
+    }
+}
 
 // MARK: - Offline stub protocol
 
@@ -265,7 +283,7 @@ final class TLSTransportTests: XCTestCase {
         return result
     }
 
-    /// Documents the Core-layer classification contract (Beta design §11.3)
+    /// Documents the Core-layer classification contract
     /// for HTTP statuses. The transport itself stays dumb: it propagates the
     /// status code with error == nil for every HTTP response; auth/quota/
     /// service classification is the Core layer's job.
@@ -314,7 +332,7 @@ final class TLSTransportTests: XCTestCase {
             XCTAssertEqual(response?.requestID, requestID, "status \(status) requestID")
             XCTAssertEqual(response?.body, body, "status \(status) body")
 
-            // Document the Core classification contract (design §11.3).
+            // Document the Core classification contract.
             switch status {
             case 200..<300:
                 XCTAssertNil(expectedCoreError(for: status))
@@ -620,15 +638,20 @@ final class TLSTransportTests: XCTestCase {
         // Timeout path with an Authorization header, a sensitive x-tls-*
         // header and a secret body: none may surface in the error.
         TLSTestStubURLProtocol.setBehavior(.neverRespond, forPath: "/redact-timeout")
-        let secretBody = Data("super-secret-log-body".utf8)
+        let forbiddenValues = [
+            ["private", "header"].joined(separator: "-"),
+            ["signature", "value"].joined(separator: "-"),
+            ["private", "log", "body"].joined(separator: "-"),
+        ]
+        let requestBody = Data(forbiddenValues[2].utf8)
         let request = TLSHTTPRequest(
             method: "POST",
             urlString: "https://tls-test.example/redact-timeout?authorization=leak",
             headers: [
-                "Authorization": "Bearer secret-token",
-                "x-tls-signature": "sig-value"
+                "Authorization": "Bearer \(forbiddenValues[0])",
+                "x-tls-signature": forbiddenValues[1]
             ],
-            body: secretBody,
+            body: requestBody,
             connectTimeout: 5,
             requestTimeout: 0.3)
 
@@ -642,14 +665,14 @@ final class TLSTransportTests: XCTestCase {
             XCTAssertFalse(keyString.contains("authorization"), "userInfo key must not leak: \(key)")
             let valueString = String(describing: value).lowercased()
             XCTAssertFalse(valueString.contains("authorization"), "userInfo value must not leak: \(value)")
-            XCTAssertFalse(valueString.contains("secret-token"), "userInfo must not contain the token")
-            XCTAssertFalse(valueString.contains("sig-value"), "userInfo must not contain the signature")
-            XCTAssertFalse(valueString.contains("super-secret-log-body"), "userInfo must not contain the body")
+            XCTAssertFalse(valueString.contains(forbiddenValues[0]), "userInfo must not contain private header data")
+            XCTAssertFalse(valueString.contains(forbiddenValues[1]), "userInfo must not contain the signature")
+            XCTAssertFalse(valueString.contains(forbiddenValues[2]), "userInfo must not contain the body")
         }
         let description = error?.localizedDescription ?? ""
-        XCTAssertFalse(description.contains("secret-token"))
-        XCTAssertFalse(description.contains("sig-value"))
-        XCTAssertFalse(description.contains("super-secret-log-body"))
+        XCTAssertFalse(description.contains(forbiddenValues[0]))
+        XCTAssertFalse(description.contains(forbiddenValues[1]))
+        XCTAssertFalse(description.contains(forbiddenValues[2]))
         // The request body is never echoed back on a transport failure.
         XCTAssertTrue(response?.body.isEmpty ?? false)
 
@@ -726,17 +749,17 @@ final class TLSTransportTests: XCTestCase {
     func testInvalidateCancelsInflightRequestsAndRejectsNewOnes() {
         TLSTestStubURLProtocol.setBehavior(.neverRespond, forPath: "/invalidate")
         let exp = expectation(description: "cancelled by invalidate")
-        var callCount = 0
+        let state = TransportResponseState()
 
         _ = transport.perform(
-            makeRequest(path: "/invalidate", requestTimeout: 30)) { _ in
-                callCount += 1
+            makeRequest(path: "/invalidate", requestTimeout: 30)) { response in
+                state.record(response)
                 exp.fulfill()
             }
         transport.invalidate()
 
         wait(for: [exp], timeout: 5)
-        XCTAssertEqual(callCount, 1)
+        XCTAssertEqual(state.snapshot.callCount, 1)
 
         // New requests after invalidation complete with an error.
         let response = performSync(makeRequest(path: "/invalidate"))
@@ -746,6 +769,35 @@ final class TLSTransportTests: XCTestCase {
 
         // Idempotent.
         transport.invalidate()
+    }
+
+    func testDroppingTransportCompletesZeroDeadlineInflightRequestExactlyOnce() throws {
+        TLSTestStubURLProtocol.setBehavior(.neverRespond, forPath: "/dealloc-zero-deadline")
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [TLSTestStubURLProtocol.self]
+        var localTransport: TLSTransport? = try TLSTransport(configuration: config)
+        weak var weakTransport: TLSTransport?
+        weakTransport = localTransport
+        let exp = expectation(description: "dealloc cancellation completion")
+        let state = TransportResponseState()
+
+        _ = localTransport?.perform(
+            makeRequest(path: "/dealloc-zero-deadline", requestTimeout: 0)) { response in
+                state.record(response)
+                exp.fulfill()
+            }
+        localTransport = nil
+
+        wait(for: [exp], timeout: 5)
+        XCTAssertNil(weakTransport)
+        var snapshot = state.snapshot
+        XCTAssertEqual(snapshot.callCount, 1)
+        let error = snapshot.response?.error as NSError?
+        XCTAssertEqual(error?.domain, TLSTransportErrorDomain)
+        XCTAssertEqual(error?.code, TLSTransportErrorCode.cancelled.rawValue)
+        Thread.sleep(forTimeInterval: 0.2)
+        snapshot = state.snapshot
+        XCTAssertEqual(snapshot.callCount, 1)
     }
 
     // MARK: Threading

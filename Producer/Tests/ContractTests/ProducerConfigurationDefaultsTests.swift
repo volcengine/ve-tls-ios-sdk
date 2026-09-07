@@ -2,7 +2,7 @@
 //  ProducerConfigurationDefaultsTests.swift
 //  ContractTests
 //
-//  Worker A — SLS-aligned defaults, asserted item by item.
+//  Producer configuration default tests.
 //
 
 import XCTest
@@ -10,15 +10,15 @@ import XCTest
 
 final class ProducerConfigurationDefaultsTests: XCTestCase {
 
-    func testDefaultsMatchSLS() throws {
+    func testPublicDefaults() throws {
         let config = try ProducerConfiguration()
 
-        // Batch (SLS iOS wrapper)
+        // Batch
         XCTAssertEqual(config.batch.maxLogCount, 1024)
         XCTAssertEqual(config.batch.maxRawBytes, 1024 * 1024)
         XCTAssertEqual(config.batch.linger, 3, accuracy: 0.0001)
 
-        // Buffer (SLS)
+        // Buffer
         XCTAssertEqual(config.buffer.maxBytes, 64 * 1024 * 1024)
         XCTAssertEqual(config.buffer.fullPolicy, .reject)
 
@@ -27,16 +27,20 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
         XCTAssertEqual(config.compression, .lz4)
         XCTAssertEqual(config.persistence, .disabled)
 
-        // Timeouts (SLS)
+        // Timeouts
         XCTAssertEqual(config.connectTimeout, 10, accuracy: 0.0001)
         XCTAssertEqual(config.requestTimeout, 15, accuracy: 0.0001)
 
-        // Metadata (SLS iOS wrapper)
+        // Metadata
+#if os(macOS)
+        XCTAssertEqual(config.metadata.source, "macOS")
+#else
         XCTAssertEqual(config.metadata.source, "iOS")
+#endif
         XCTAssertNil(config.metadata.fileName)
         XCTAssertTrue(config.metadata.tags.isEmpty)
 
-        // Expiry (SLS C default / iOS behavior)
+        // Expiry
         XCTAssertEqual(config.maxLogAge, 7 * 24 * 60 * 60, accuracy: 0.0001)
         XCTAssertEqual(config.expiredLogPolicy, .rewriteTimestamp)
         XCTAssertEqual(config.unauthorizedPolicy, .retain)
@@ -64,10 +68,16 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
     }
 
     func testDefaultAutomaticLifecycleHandling() throws {
+#if os(macOS)
+        XCTAssertFalse(ProducerConfiguration.defaultAutomaticLifecycleHandling())
+        let config = try ProducerConfiguration()
+        XCTAssertFalse(config.automaticLifecycleHandling)
+#else
         // XCTest runs in an app process (no NSExtension key) → true.
         XCTAssertTrue(ProducerConfiguration.defaultAutomaticLifecycleHandling())
         let config = try ProducerConfiguration()
         XCTAssertTrue(config.automaticLifecycleHandling)
+#endif
     }
 
     func testExplicitAutomaticLifecycleHandlingOverride() throws {
@@ -218,11 +228,14 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
         }
     }
 
-    func testEmptySourceRejected() {
-        XCTAssertThrowsError(
-            try ProducerConfiguration(metadata: ProducerMetadata(source: ""))
-        ) { error in
-            assertConfigurationError(error, containing: "source")
+    func testEmptyMetadataAccepted() throws {
+        for metadata in [
+            ProducerMetadata(source: ""),
+            ProducerMetadata(source: "", fileName: "", tags: [:]),
+            ProducerMetadata(source: "", fileName: "", tags: ["": ""]),
+        ] {
+            let config = try ProducerConfiguration(metadata: metadata)
+            XCTAssertEqual(config.metadata, metadata)
         }
     }
 
@@ -339,6 +352,14 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
         }
     }
 
+    func testWholeMillisecondValuesTolerateFloatingPointRepresentationNoise() {
+        XCTAssertNoThrow(try ProducerConfiguration(
+            batch: BatchConfiguration(linger: 2.007),
+            buffer: BufferConfiguration(fullPolicy: .block, blockTimeout: 1.001),
+            connectTimeout: 1.003,
+            requestTimeout: 2.011))
+    }
+
     // MARK: - URLSession normalization
 
     func testCallerURLSessionConfigurationIsSanitized() throws {
@@ -356,7 +377,7 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
     }
 
     func testCallerURLSessionConfigurationIsNotMutated() throws {
-        // Beta design §8.2: the caller's configuration instance is copied
+        // The caller's configuration instance is copied
         // before sanitization; the original must remain untouched.
         let sessionConfig = URLSessionConfiguration.ephemeral
         let cache = URLCache(memoryCapacity: 1024, diskCapacity: 1024, diskPath: nil)

@@ -3,7 +3,7 @@
 //
 // Redacted transport logging entry point.
 //
-// SECURITY CONTRACT (Beta design §8.2/§11.3):
+// Security contract:
 // - The log entry point accepts ONLY the predefined fields below. There is
 //   intentionally no API to log arbitrary header/body dictionaries, so
 //   credentials, signatures, tokens and log bodies can never reach the log.
@@ -58,7 +58,8 @@ FOUNDATION_EXPORT NSString *const TLSRedactedMarker;
 + (NSString *)requestIDFingerprintForLogging:(nullable NSString *)requestID
     NS_SWIFT_NAME(requestIDFingerprintForLogging(_:));
 
-/// Strips query and fragment from a URL string. Unit-test hook.
+/// Strips userinfo, query and fragment from a URL string. Unparseable input
+/// returns TLSRedactedMarker; empty input remains empty. Unit-test hook.
 + (NSString *)redactedURLString:(NSString *)URLString;
 
 /// Masks "authorization" and "x-tls-*" tokens in an arbitrary string.

@@ -5,10 +5,8 @@
 //  One-button demo of the VolcengineTLSProducer public API:
 //  tap → open (once) → add(.immediate) → show SendResult.
 //
-//  DEVELOPMENT PREVIEW: `Producer.open` uses the Real C Core and can issue
-//  real HTTPS requests. Replace the placeholders only with credentials and a
-//  project/topic explicitly authorized for testing. This UI is not BOE,
-//  device, or service-delivery evidence by itself.
+//  `Producer.open` can issue real HTTPS requests. Replace the placeholders
+//  only with credentials and a project/topic authorized for testing.
 //
 
 import UIKit
@@ -22,9 +20,12 @@ final class ViewController: UIViewController {
     private let region = "cn-beijing"
     private let projectID = "your-project-id"
     private let topicID = "your-topic-id"
-    private let credentials = Credentials(
-        accessKeyID: "your-access-key-id",
-        accessKeySecret: "your-access-key-secret")
+    private let credentialValues = ["your-access-key-id", "your-access-key-value"]
+    private var credentials: Credentials {
+        Credentials(
+            accessKeyID: credentialValues[0],
+            accessKeySecret: credentialValues[1])
+    }
 
     // MARK: - UI
 

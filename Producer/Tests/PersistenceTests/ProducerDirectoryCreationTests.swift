@@ -2,22 +2,17 @@
 // PersistenceTests
 //
 // Tests for TLSProducerDirectory default URL computation and directory
-// creation with the two mandatory attributes (Beta design §9.2):
+// creation with the two mandatory attributes:
 //   - NSURLIsExcludedFromBackupKey = YES
 //   - NSFileProtectionKey = .completeUntilFirstUserAuthentication
 // including the mandatory re-read verification.
-//
-// SCOPE: these are helper-level tests for the Storage helper. They are NOT
-// evidence of C WAL crash-recovery, checkpoint, lease or fsync behavior —
-// that evidence comes from the process-kill Core recovery harness and future
-// on-device validation, not from these helper-level assertions alone.
 //
 // ENVIRONMENT NOTE: Data Protection attributes are iOS-specific. The helper
 // guards NSFileProtectionKey with TARGET_OS_IOS and these tests guard the
 // corresponding assertions with #if os(iOS), so the file compiles on macOS
 // host builds (assertions skipped there) and runs in full on an iOS Simulator
-// destination (the SDK targets iOS 13). Simulator attributes are not evidence
-// of locked-device Data Protection behavior.
+// destination (the SDK targets iOS 13). Locked-device behavior requires a
+// physical device.
 //
 
 import XCTest

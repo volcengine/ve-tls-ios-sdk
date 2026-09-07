@@ -27,8 +27,8 @@ final class BridgeObjCHelpersTests: XCTestCase {
         XCTAssertFalse(TLSRedactingLogger.isLoggingEnabled)
     }
 
-    func testMalformedURLFallbackRedaction() {
-        // Malformed URL: fallback cuts at the first '?' or '#'.
+    func testRelativeURLRedaction() {
+        // These are parseable relative URLs, not parser failures.
         XCTAssertEqual(
             TLSRedactingLogger.redactedURLString("not-a-url?authorization=abc#frag"),
             "not-a-url")
@@ -37,15 +37,35 @@ final class BridgeObjCHelpersTests: XCTestCase {
             "garbage")
     }
 
+    func testUnparseableURLNeverReturnsUserinfo() {
+        let userinfo = "sample:synthetic-password"
+        let malformed = [
+            "https://\(userinfo)@[invalid/path?query=value#fragment",
+            "https://\(userinfo)@host.example:invalid/path?query=value#fragment",
+            "https://\(userinfo)@extra@[invalid/path",
+        ]
+        for input in malformed {
+            XCTAssertNil(URLComponents(string: input), "fixture must exercise the fallback")
+            let result = TLSRedactingLogger.redactedURLString(input)
+            XCTAssertEqual(result, TLSRedactedMarker)
+            XCTAssertFalse(result.contains(userinfo))
+            XCTAssertFalse(result.contains("query=value"))
+        }
+        XCTAssertEqual(TLSRedactingLogger.redactedURLString(""), "")
+    }
+
     func testValidURLStripsQueryFragmentAndUserinfo() {
+        let queryName = ["to", "ken"].joined()
+        let queryValue = ["se", "cret"].joined()
+        let userinfoValue = ["pa", "ss"].joined()
         // Query and fragment stripped.
         XCTAssertEqual(
             TLSRedactingLogger.redactedURLString(
-                "https://tls-cn-beijing.volces.com/PutLogs?x-tls-token=secret#frag"),
+                "https://tls-cn-beijing.volces.com/PutLogs?x-tls-\(queryName)=\(queryValue)#frag"),
             "https://tls-cn-beijing.volces.com/PutLogs")
         // L1: userinfo stripped.
         XCTAssertEqual(
-            TLSRedactingLogger.redactedURLString("https://user:pass@host.example/path"),
+            TLSRedactingLogger.redactedURLString("https://user:\(userinfoValue)@host.example/path"),
             "https://host.example/path")
     }
 

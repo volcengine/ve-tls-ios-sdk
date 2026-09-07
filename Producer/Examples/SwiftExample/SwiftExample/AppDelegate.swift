@@ -2,8 +2,7 @@
 //  AppDelegate.swift
 //  SwiftExample
 //
-//  Minimal iOS 13 scene-based app delegate for the VolcengineTLSProducer
-//  Development Preview example.
+//  Minimal iOS 13 scene-based app delegate for VolcengineTLSProducer.
 //
 
 import UIKit

@@ -2,7 +2,7 @@
 //  SendResult.swift
 //  VolcengineTLSProducer
 //
-//  Worker A — Swift public value model.
+//  Producer send result.
 //
 
 import Foundation
@@ -13,9 +13,8 @@ import Foundation
 /// recovered by a later instance, so the earlier handler is not guaranteed a
 /// terminal result after that instance stops.
 ///
-/// This is the stable minimal field set (ledger O7/O9): no attemptCount,
-/// dropReason, or checkpointDurable — the Core cannot provide them stably
-/// yet.
+/// The result intentionally contains only fields that are available for every
+/// terminal outcome.
 public struct SendResult: Equatable, Sendable {
 
     public enum Status: Equatable, Sendable {

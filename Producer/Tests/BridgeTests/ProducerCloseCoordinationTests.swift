@@ -5,8 +5,7 @@
 // multiple/concurrent close awaits finalize exactly once, Task cancellation
 // must not cause duplicate resume or crash, and add after close is rejected.
 //
-// Producer construction goes through ProducerTestHarness.makeProducer(...)
-// (Worker A's internal `Producer.open(adapter:...)` injection point).
+// Producer construction goes through ProducerTestHarness.makeProducer(...).
 //
 
 import XCTest

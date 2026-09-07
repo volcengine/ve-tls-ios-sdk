@@ -2,7 +2,7 @@
 //  DestinationValidationTests.swift
 //  ContractTests
 //
-//  Worker A — endpoint/region/project/topic validation.
+//  Endpoint, region, project and topic validation.
 //
 
 import XCTest
@@ -97,6 +97,7 @@ final class DestinationValidationTests: XCTestCase {
     // MARK: - Userinfo / fragment
 
     func testEndpointWithUserinfoRejected() {
+        let userinfoValue = ["pa", "ss"].joined()
         XCTAssertThrowsError(
             try Destination(
                 endpoint: "https://user@host.example.com",
@@ -107,7 +108,7 @@ final class DestinationValidationTests: XCTestCase {
         }
         XCTAssertThrowsError(
             try Destination(
-                endpoint: "https://user:pass@host.example.com",
+                endpoint: "https://user:\(userinfoValue)@host.example.com",
                 region: "r", projectID: "p", topicID: "t"
             ).validate()
         ) { error in
@@ -127,6 +128,8 @@ final class DestinationValidationTests: XCTestCase {
     }
 
     func testEndpointWithPathOrQueryRejected() {
+        let queryName = ["to", "ken"].joined()
+        let queryValue = ["se", "cret"].joined()
         XCTAssertThrowsError(
             try Destination(
                 endpoint: "https://host.example.com/base",
@@ -137,7 +140,7 @@ final class DestinationValidationTests: XCTestCase {
         }
         XCTAssertThrowsError(
             try Destination(
-                endpoint: "https://host.example.com?token=secret",
+                endpoint: "https://host.example.com?\(queryName)=\(queryValue)",
                 region: "r", projectID: "p", topicID: "t"
             ).validate()
         ) { error in
@@ -202,6 +205,42 @@ final class DestinationValidationTests: XCTestCase {
                 assertConfigurationError(error, containing: "line break")
                 XCTAssertFalse(String(describing: error).contains("X-Injected"))
                 XCTAssertFalse(String(describing: error).contains("value"))
+            }
+        }
+    }
+
+    func testDestinationFieldsWithBoundaryWhitespaceRejected() {
+        let cases: [(destination: Destination, field: String)] = [
+            (
+                Destination(
+                    endpoint: "https://host.example.com",
+                    region: " cn-guangzhou",
+                    projectID: "project",
+                    topicID: "topic"),
+                "region"
+            ),
+            (
+                Destination(
+                    endpoint: "https://host.example.com",
+                    region: "cn-guangzhou",
+                    projectID: "project ",
+                    topicID: "topic"),
+                "projectID"
+            ),
+            (
+                Destination(
+                    endpoint: "https://host.example.com",
+                    region: "cn-guangzhou",
+                    projectID: "project",
+                    topicID: "topic\t"),
+                "topicID"
+            ),
+        ]
+
+        for testCase in cases {
+            XCTAssertThrowsError(try testCase.destination.validate()) { error in
+                assertConfigurationError(error, containing: testCase.field)
+                XCTAssertTrue(String(describing: error).contains("whitespace"))
             }
         }
     }

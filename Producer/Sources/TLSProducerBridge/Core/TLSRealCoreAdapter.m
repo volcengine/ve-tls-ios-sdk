@@ -1,7 +1,7 @@
 // TLSRealCoreAdapter.m
 // TLSProducerBridge/Core
 //
-// Real C Core adapter implementation — wraps ve-tls-c-sdk v0.3.1.
+// Real C Core adapter implementation. See Producer/CORE_VERSION for provenance.
 //
 
 #import "TLSRealCoreAdapter.h"
@@ -11,6 +11,7 @@
 #import "Transport/TLSTransport.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <float.h>
 #import <limits.h>
 #import <pthread.h>
 #include <sys/file.h>
@@ -652,11 +653,14 @@ static BOOL TLSCheckedMilliseconds(NSTimeInterval seconds,
     if (!isfinite(milliseconds) || milliseconds > (double)INT32_MAX) {
         return NO;
     }
-    int64_t value = (int64_t)milliseconds;
+    double roundedMilliseconds = round(milliseconds);
+    double tolerance = fmax(1.0, fabs(milliseconds)) * DBL_EPSILON * 2.0;
+    if (fabs(milliseconds - roundedMilliseconds) > tolerance) {
+        return NO;
+    }
+    int64_t value = (int64_t)roundedMilliseconds;
     if (strictlyPositive && value == 0) {
-        // Preserve a positive caller budget instead of silently turning a
-        // sub-millisecond value into the C Core's zero/unbounded sentinel.
-        value = 1;
+        return NO;
     }
     if (out) {
         *out = (int32_t)value;
@@ -689,7 +693,7 @@ static BOOL TLSValidHashKey(NSString *value) {
             isExclusiveUpperBound = NO;
         }
     }
-    // SLS freezes the hash-key range as
+    // The service hash-key range is
     // [00000000000000000000000000000000, ffffffffffffffffffffffffffffffff):
     // all-`f` is the exclusive upper bound, not a routable hash key.
     return !isExclusiveUpperBound;
@@ -794,7 +798,7 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
     int32_t cSendConcurrency = 0;
     int32_t cBlockTimeout = 0;
     if (!TLSValidEndpoint(endpoint) || region.length == 0 || projectID.length == 0 || topicID.length == 0 ||
-        accessKeyID.length == 0 || accessKeySecret.length == 0 || source.length == 0 ||
+        accessKeyID.length == 0 || accessKeySecret.length == 0 ||
         TLSHasLineBreak(region) || TLSHasLineBreak(projectID) || TLSHasLineBreak(topicID) ||
         TLSHasLineBreak(accessKeyID) || TLSHasLineBreak(accessKeySecret) || TLSHasLineBreak(securityToken) ||
         !TLSCheckedInt32(maxLogCount, YES, &cMaxLogCount) ||
@@ -979,7 +983,7 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
     cConfig.send_queue_size = 1024;
 
     // Retry
-    // v0.3.1 sender reads retry_policy.max_attempts. Keep the legacy mirror
+    // The Core sender reads retry_policy.max_attempts. Keep the legacy mirror
     // populated as well for ABI/forward compatibility, but do not mistake it
     // for the effective policy field in this Core version.
     cConfig.retry_max_attempts = 3;
@@ -1442,7 +1446,7 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         region.UTF8String,
         topicID.UTF8String);
     if (rc == VE_TLS_OK) {
-        // v0.3.1 does not expose a project-id update field. Keep the full
+        // Core does not expose a project-id update field. Keep the full
         // Swift destination group atomically in the bridge for lifecycle
         // consistency; the C sender's wire target is determined by the
         // endpoint/region/topic snapshot.

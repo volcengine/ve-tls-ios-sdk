@@ -292,6 +292,7 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
     // MARK: - Lifecycle
 
     private func installLifecycleManagerIfNeeded() {
+#if os(iOS)
         guard automaticLifecycleHandling else { return }
         runOnMainSync {
             guard self.lifecycleManager == nil else { return }
@@ -299,10 +300,14 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
                 flushHandler: { [weak self] in self?.adapter.flush() },
                 wakeHandler: { [weak self] in self?.adapter.flush() })
         }
+#endif
     }
 
     private func removeLifecycleManager() {
+#if os(iOS)
+        guard lifecycleManager != nil else { return }
         runOnMainSync { self.lifecycleManager = nil }
+#endif
     }
 
     private func transferLifecycleManagerReleaseToMainThread() {

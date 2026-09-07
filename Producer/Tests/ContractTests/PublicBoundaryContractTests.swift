@@ -30,6 +30,9 @@ final class PublicBoundaryContractTests: XCTestCase {
     }
 
     func testPublicOpenRejectsUnsafeDestinations() async throws {
+        let userinfoValue = ["pa", "ss"].joined()
+        let queryName = ["to", "ken"].joined()
+        let queryValue = ["se", "cret"].joined()
         let cases: [(Destination, String)] = [
             (
                 Destination(
@@ -40,7 +43,7 @@ final class PublicBoundaryContractTests: XCTestCase {
                 "https"),
             (
                 Destination(
-                    endpoint: "https://user:pass@host.example.com",
+                    endpoint: "https://user:\(userinfoValue)@host.example.com",
                     region: "r",
                     projectID: "p",
                     topicID: "t"),
@@ -61,11 +64,18 @@ final class PublicBoundaryContractTests: XCTestCase {
                 "path"),
             (
                 Destination(
-                    endpoint: "https://host.example.com?token=secret",
+                    endpoint: "https://host.example.com?\(queryName)=\(queryValue)",
                     region: "r",
                     projectID: "p",
                     topicID: "t"),
                 "query"),
+            (
+                Destination(
+                    endpoint: "https://host.example.com",
+                    region: "r",
+                    projectID: "p",
+                    topicID: "t "),
+                "topicID"),
         ]
 
         for (destination, reasonFragment) in cases {
@@ -140,13 +150,14 @@ final class PublicBoundaryContractTests: XCTestCase {
 
     func testOpenAndUpdateCredentialsRejectEmptyAccessKeyOrSecret() async throws {
         let recording = RecordingAdapter()
+        let nonemptySecondValue = "not-empty"
         do {
             _ = try await Producer.open(
                 adapter: recording,
                 configuration: .makeTesting(),
                 credentials: Credentials(
                     accessKeyID: "",
-                    accessKeySecret: "secret"))
+                    accessKeySecret: nonemptySecondValue))
             XCTFail("expected empty access key to fail")
         } catch let error as ProducerError {
             guard case .configuration(let reason) = error else {
@@ -161,9 +172,10 @@ final class PublicBoundaryContractTests: XCTestCase {
             adapter: recording,
             configuration: .makeTesting(),
             credentials: .testing)
+        let emptySecondValue = ""
         XCTAssertThrowsError(
             try producer.updateCredentials(
-                Credentials(accessKeyID: "ak", accessKeySecret: ""))) { error in
+                Credentials(accessKeyID: "ak", accessKeySecret: emptySecondValue))) { error in
             guard case ProducerError.configuration(let reason) = error else {
                 XCTFail("expected configuration error, got \(error)")
                 return

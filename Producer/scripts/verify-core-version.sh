@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
 #
-# verify-core-version.sh — C Core integration gate.
-#
-# Parses Producer/CORE_VERSION. While status is BLOCKED, this script FAILS on
-# purpose: the real C Core has not passed the release gate, so no persistent/
-# retry/ACK/real-send/Beta claims may be made. This is an intentional red gate.
-#
-# Environment: any (Linux dev machine OK). Read-only.
-# Evidence level: script PASS ≠ device/Beta pass; it only checks the registry.
+# Verify that the vendored Producer Core is registered as integrated.
 #
 set -euo pipefail
 
@@ -22,7 +15,31 @@ if [[ ! -f "${CORE_VERSION}" ]]; then
     exit 1
 fi
 
-status="$(grep -E '^status:' "${CORE_VERSION}" | head -n1 | sed 's/^status:[[:space:]]*//')"
+read_field() {
+    local key="$1"
+    local count
+    local value
+    count="$(grep -Ec "^${key}:" "${CORE_VERSION}" || true)"
+    if [[ "${count}" != "1" ]]; then
+        echo "FAIL: expected exactly one ${key} field in ${CORE_VERSION}"
+        exit 1
+    fi
+    value="$(grep -E "^${key}:" "${CORE_VERSION}" | sed "s/^${key}:[[:space:]]*//")"
+    if [[ -z "${value}" ]]; then
+        echo "FAIL: ${key} must not be empty"
+        exit 1
+    fi
+    printf '%s' "${value}"
+}
+
+status="$(read_field status)"
+component="$(read_field component)"
+core_tag="$(read_field upstream_core_tag)"
+core_sha="$(read_field upstream_core_full_sha)"
+manifest="$(read_field vendor_manifest)"
+overlays="$(read_field vendor_overlays)"
+additions="$(read_field vendor_additions)"
+
 echo "CORE_VERSION status: ${status}"
 
 if [[ "${status}" == BLOCKED* ]]; then
@@ -32,4 +49,34 @@ if [[ "${status}" == BLOCKED* ]]; then
     exit 1
 fi
 
-echo "PASS: Core integration gate met."
+if [[ "${status}" != "INTEGRATED" ]]; then
+    echo "FAIL: unsupported Core integration status: ${status}"
+    exit 1
+fi
+if [[ "${component}" != "ve-tls-c-sdk" ]]; then
+    echo "FAIL: unexpected Core component: ${component}"
+    exit 1
+fi
+if [[ ! "${core_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "FAIL: upstream_core_tag is not a release tag: ${core_tag}"
+    exit 1
+fi
+if [[ ! "${core_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "FAIL: upstream_core_full_sha must be a full lowercase Git SHA"
+    exit 1
+fi
+if [[ "${manifest}" != "Producer/CORE_VENDOR_SHA256SUMS" ]] || \
+   [[ ! -f "${REPO_ROOT}/${manifest}" ]]; then
+    echo "FAIL: registered vendor manifest is missing or unexpected: ${manifest}"
+    exit 1
+fi
+if [[ "${overlays}" != "include/ve_tls_export.h,third_party/lz4/lz4.c" ]]; then
+    echo "FAIL: the registered Apple packaging overlays changed"
+    exit 1
+fi
+if [[ "${additions}" != "include/CTLSProducerCore.h,core/ve_tls_iosp_version.c" ]]; then
+    echo "FAIL: the registered Apple wrapper files changed"
+    exit 1
+fi
+
+echo "OK: Core integration registry is complete and well formed."

@@ -12,7 +12,9 @@ NSNotificationName const TLSLifecycleDidEnterBackgroundNotificationName =
 NSNotificationName const TLSLifecycleWillEnterForegroundNotificationName =
     @"UIApplicationWillEnterForegroundNotification";
 
-const NSUInteger TLSLifecycleInvalidBackgroundTaskIdentifier = NSNotFound;
+// UIKit's UIBackgroundTaskInvalid is zero. Keep this target UIKit-link-free;
+// iOS tests compare this sentinel with the actual framework constant.
+const NSUInteger TLSLifecycleInvalidBackgroundTaskIdentifier = 0;
 
 static NSString *const kTLSBackgroundTaskName =
     @"com.volcengine.tls.producer.flush";
@@ -87,6 +89,7 @@ static NSString *const kTLSBackgroundTaskName =
 
 - (void)tls_registerObservers;
 - (void)tls_endOutstandingBackgroundTask;
+- (void)tls_endBackgroundTaskIfCurrent:(NSUInteger)taskIdentifier;
 
 @end
 
@@ -160,8 +163,7 @@ static NSString *const kTLSBackgroundTaskName =
         return;
     }
 
-    // Request the background task BEFORE doing any work (design §9.3:
-    // "尽早申请有限 background task"): the system may suspend the process
+    // Request the background task before doing any work: the system may suspend the process
     // shortly after backgrounding, so the wrap-up window must be claimed
     // first. End a stale task before requesting a new one — background
     // tasks are a finite system resource and must always be paired.
@@ -171,23 +173,31 @@ static NSString *const kTLSBackgroundTaskName =
     if (host != nil) {
         // The expiration handler ends the task IMMEDIATELY instead of
         // continuing to block system suspension. WAL is preserved by the
-        // Core; this helper does not promise unlimited background upload
-        // (design §9.3).
+        // Core; this helper does not promise unlimited background upload.
         __weak typeof(self) weakSelf = self;
-        NSUInteger taskIdentifier =
+        __block NSUInteger taskIdentifier = TLSLifecycleInvalidBackgroundTaskIdentifier;
+        taskIdentifier =
             [host beginBackgroundTaskWithName:kTLSBackgroundTaskName
                             expirationHandler:^{
-            __strong typeof(weakSelf) strongSelf = weakSelf;
-            if (strongSelf == nil) {
-                return;
+            NSUInteger expiredTaskIdentifier = taskIdentifier;
+            dispatch_block_t endExpiredTask = ^{
+                __strong typeof(weakSelf) strongSelf = weakSelf;
+                if (strongSelf == nil) {
+                    return;
+                }
+                [strongSelf tls_endBackgroundTaskIfCurrent:expiredTaskIdentifier];
+            };
+            if ([NSThread isMainThread]) {
+                endExpiredTask();
+            } else {
+                dispatch_async(dispatch_get_main_queue(), endExpiredTask);
             }
-            [strongSelf tls_endOutstandingBackgroundTask];
         }];
         self.backgroundTaskIdentifier = taskIdentifier;
     }
 
     // Best-effort flush: the handler triggers the Core's flush path; it does
-    // not block until remote delivery (design §9.3). Runs even when no
+    // not block until remote delivery. Runs even when no
     // background task was granted (invalid identifier) — flush is
     // best-effort and does not depend on the task.
     void (^flush)(void) = self.flushHandler;
@@ -203,7 +213,7 @@ static NSString *const kTLSBackgroundTaskName =
 
     // Wake the Core sender / recoverable retry. This does not rely on
     // Reachability: foregrounding is the signal to retry, not a guarantee
-    // that the network is available (design §9.3).
+    // that the network is available.
     void (^wake)(void) = self.wakeHandler;
     if (wake != nil) {
         wake();
@@ -216,8 +226,14 @@ static NSString *const kTLSBackgroundTaskName =
 #pragma mark - Private
 
 - (void)tls_endOutstandingBackgroundTask {
-    NSUInteger taskIdentifier = self.backgroundTaskIdentifier;
+    [self tls_endBackgroundTaskIfCurrent:self.backgroundTaskIdentifier];
+}
+
+- (void)tls_endBackgroundTaskIfCurrent:(NSUInteger)taskIdentifier {
     if (taskIdentifier == TLSLifecycleInvalidBackgroundTaskIdentifier) {
+        return;
+    }
+    if (self.backgroundTaskIdentifier != taskIdentifier) {
         return;
     }
     self.backgroundTaskIdentifier = TLSLifecycleInvalidBackgroundTaskIdentifier;

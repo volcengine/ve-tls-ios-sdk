@@ -1,122 +1,65 @@
-#
-# VolcengineTLSProducer.podspec
-#
-# VolcengineTLSProducer — Volcengine TLS iOS Producer SDK.
-#
-# STATUS: release candidate source — the repository tag is still pending.
-# The SDK acceptance lanes are complete. This podspec must not be published
-# until the release owner approves and the exact tag below exists remotely.
-#
-# CocoaPods and SwiftPM compile the SAME Producer/Sources tree (no dual
-# implementation). This podspec only ever pulls from Producer/Sources; the
-# legacy VeTLSiOSSDK targets are never compiled into this Pod.
-#
-# Internal symbol hiding strategy
-# --------------------------------
-# CocoaPods compiles the C Core, the Objective-C bridge and the Swift public
-# API into a single pod target. To keep consumers on the Swift API only:
-#
-#   * C Core headers (Producer/Sources/CTLSProducerCore) and Bridge headers
-#     (Producer/Sources/TLSProducerBridge) are NOT declared as
-#     public_header_files. They compile as private/project headers.
-#   * the C Core is compiled with hidden default visibility and without its
-#     standalone VE_TLS_API export annotations; no bare C API is re-exported to
-#     consumers. LZ4 is additionally namespaced by lz4_namespace.h.
-#   * Consumers see only the single VolcengineTLSProducer module; the Swift
-#     public API does not expose bare C types.
-#
-# The mixed Swift/Objective-C visibility and resource-bundle behavior still
-# require `pod lib lint` on a host with CocoaPods; see
-# Producer/scripts/verify-consumer-packages.sh.
-#
+# Volcengine TLS Producer SDK for iOS and macOS.
 
 Pod::Spec.new do |s|
   s.name             = 'VolcengineTLSProducer'
   s.version          = '2.0.0'
-  s.summary          = 'Volcengine TLS iOS Producer SDK (release candidate source; tag pending).'
+  s.summary          = 'Volcengine TLS Producer SDK for iOS and macOS.'
   s.description      = <<-DESC
-Volcengine TLS (Tinder Log Service) iOS Producer SDK.
-
-Release-candidate source for internal validation. The exact `v2.0.0` repository
-tag has not been created yet; do not publish this spec from an untagged
-checkout. Release-owner approval remains required before Beta or GA claims. The iOS 13
-minimum is verified by declaration, compile/link and final Mach-O minos gates;
-an exact iOS 13 physical device is not required.
+Volcengine TLS Producer SDK for iOS and macOS.
+Provides asynchronous batching, compression, retry, and optional persistent
+delivery for Apple applications.
                        DESC
   s.homepage         = 'https://github.com/volcengine/ve-tls-ios-sdk'
   s.license          = { :type => 'Apache License, Version 2.0', :file => 'LICENSE' }
   s.author           = { 'Volcengine TLS Team' => 'tls@volcengine.com' }
-  # Producer releases use the v2.0.x line; v1.x remains the legacy SDK line.
-  # The v2.0.0 tag is intentionally
-  # not fabricated in this checkout; create and push that exact tag only after
-  # the release gates pass, then `pod lib lint` against the tagged source.
+  # Producer releases use v2.0.x; v1.x remains the legacy SDK line.
   s.source           = { :git => 'https://github.com/volcengine/ve-tls-ios-sdk.git',
                          :tag => "v#{s.version}" }
 
   s.ios.deployment_target = '13.0'
+  s.osx.deployment_target = '10.15'
   s.swift_version         = '5.8'
   s.requires_arc          = true
 
-  # Single source tree shared with SwiftPM. Only Producer/Sources is compiled.
+  # SwiftPM and CocoaPods compile the same source tree.
   s.source_files = 'Producer/Sources/**/*.{h,m,c,swift}'
 
-  # Explicit excludes (defense in depth):
-  #  - Producer/Tests/** is never shipped.
-  #  - Fake*/Placeholder sources are structure/test-only and must not ship.
-  # The exclusion patterns are defensive and currently match no production
-  # Core file; the vendored v0.3.1 Core under Producer/Sources is shipped.
+  # Tests and test doubles are not shipped.
   s.exclude_files = 'Producer/Tests/**',
                     'Producer/Sources/**/Fake*',
                     'Producer/Sources/**/*Fake*',
                     'Producer/Sources/**/*Placeholder*',
                     'Producer/Sources/**/_Placeholder*'
 
-  # Internal symbol hiding: no Bridge/C header is a public header. The
-  # VE_TLS_PACKAGE_INTERNAL preprocessor marker is consumed by the vendored
-  # export header to select package-internal visibility; OTHER_CFLAGS applies
-  # hidden default visibility to C/ObjC compilation. The source-level export
-  # branch must be present before publishing this spec.
-  # The public surface is Swift-only; keep CocoaPods from warning about an
-  # intentionally empty public-header glob.
+  # Public Objective-C APIs are exported through the generated Swift header.
+  # C Core and bridge headers remain private.
   s.public_header_files  = []
   s.private_header_files = 'Producer/Sources/CTLSProducerCore/**/*.h',
                            'Producer/Sources/TLSProducerBridge/**/*.h'
 
   s.compiler_flags = '-DVE_TLS_HAVE_LZ4=1 -DVE_TLS_NO_CURL=1 -DVE_TLS_PACKAGE_INTERNAL=1'
 
-  # Privacy Manifest bundled as a resource bundle.
   s.resource_bundles = {
     'VolcengineTLSProducer' => ['Producer/Sources/VolcengineTLSProducer/Resources/PrivacyInfo.xcprivacy']
   }
 
-  # Modules on; no EXCLUDED_ARCHS hack (per design §12.1).
   s.pod_target_xcconfig = {
     'CLANG_ENABLE_MODULES' => 'YES',
     'DEFINES_MODULE'       => 'YES',
     'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) VE_TLS_HAVE_LZ4=1 VE_TLS_NO_CURL=1 VE_TLS_PACKAGE_INTERNAL=1',
     'OTHER_CFLAGS'         => '$(inherited) -fvisibility=hidden',
     'OTHER_CPLUSPLUSFLAGS' => '$(inherited) -fvisibility=hidden',
-    # RealCoreAdapter.swift uses an implementation-only import of the
-    # package-internal Clang module. CocoaPods has one mixed-language target
-    # rather than a separate TLSProducerBridge target, so explicitly make this
-    # private module map visible to Swift without promoting its headers to the
-    # public SDK or recording it as a public Swift module dependency.
+    # Make the private bridge module visible to the Swift implementation.
     'OTHER_SWIFT_FLAGS'    => '$(inherited) -Xcc -fmodule-map-file=$(PODS_TARGET_SRCROOT)/Producer/scripts/TLSProducerBridge.modulemap',
     'HEADER_SEARCH_PATHS'  => '"$(PODS_TARGET_SRCROOT)/Producer/Sources/CTLSProducerCore/include" "$(PODS_TARGET_SRCROOT)/Producer/Sources/TLSProducerBridge"',
   }
 
-  # Minimal public test specs (ContractTests + ConsumerIntegrationTests).
   s.test_spec 'ContractTests' do |test_spec|
     test_spec.source_files = 'Producer/Tests/ContractTests/**/*.swift'
   end
 
   s.test_spec 'ConsumerIntegrationTests' do |test_spec|
-    # This spec is a public black-box consumer target. The RealCoreAdapter
-    # integration file imports the package-internal bridge and directly
-    # references private Objective-C classes, so it cannot link against the
-    # intentionally hidden symbols in a consumer-facing Pod framework.
     test_spec.source_files = 'Producer/Tests/ConsumerIntegrationTests/ConsumerIntegrationTests.swift',
-                             'Producer/Tests/ConsumerIntegrationTests/RealBOEIntegrationTests.swift',
                              'Producer/Tests/ConsumerIntegrationTests/RealHTTPSRedirectIntegrationTests.swift'
   end
 end

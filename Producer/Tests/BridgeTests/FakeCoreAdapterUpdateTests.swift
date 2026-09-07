@@ -2,8 +2,7 @@
 // BridgeTests
 //
 // updateCredentials whole-group atomicity (no AK/SK/token mixing in
-// in-flight batches) and updateDestination current-target semantics
-// (ledger O2).
+// in-flight batches) and updateDestination current-target semantics.
 //
 
 import XCTest
@@ -29,12 +28,8 @@ final class FakeCoreAdapterUpdateTests: XCTestCase {
         await fulfillment(of: [delivered], timeout: 5)
 
         let batch = try XCTUnwrap(fake.sealedBatches.first)
-        XCTAssertEqual(batch.credentials.accessKeyID, "ak-A")
-        XCTAssertEqual(batch.credentials.accessKeySecret, "sk-A")
-        XCTAssertEqual(batch.credentials.securityToken, "token-A")
-        XCTAssertEqual(fake.currentCredentials?.accessKeyID, "ak-B")
-        XCTAssertEqual(fake.currentCredentials?.accessKeySecret, "sk-B")
-        XCTAssertEqual(fake.currentCredentials?.securityToken, "token-B")
+        XCTAssertEqual(batch.credentials, SampleCredentials.setA)
+        XCTAssertEqual(fake.currentCredentials, SampleCredentials.setB)
     }
 
     func testConcurrentCredentialUpdatesNeverMixGroups() throws {
@@ -61,7 +56,7 @@ final class FakeCoreAdapterUpdateTests: XCTestCase {
         for batch in fake.sealedBatches {
             XCTAssertTrue(
                 SampleCredentials.isCoherentWholeGroup(batch.credentials),
-                "batch \(batch.id) mixes AK/SK/token across credential groups: "
+                "batch \(batch.id) mixes values across credential groups: "
                     + "\(batch.credentials.accessKeyID)/"
                     + "\(batch.credentials.accessKeySecret)/"
                     + "\(batch.credentials.securityToken ?? "<nil>")")

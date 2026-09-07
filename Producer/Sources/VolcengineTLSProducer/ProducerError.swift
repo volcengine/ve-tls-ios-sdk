@@ -2,7 +2,7 @@
 //  ProducerError.swift
 //  VolcengineTLSProducer
 //
-//  Worker A — Swift public value model.
+//  Producer error model.
 //
 
 import Foundation

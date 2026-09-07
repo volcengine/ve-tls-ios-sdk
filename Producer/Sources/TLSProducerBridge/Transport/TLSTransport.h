@@ -1,9 +1,9 @@
 // TLSTransport.h
 // TLSProducerBridge/Transport
 //
-// NSURLSession-based HTTP transport for the TLS producer (Beta design §8).
+// NSURLSession-based HTTP transport for the TLS producer.
 //
-// Security contract (Beta design §8.2 / decision ledger):
+// Security contract:
 // - HTTPS only; plain-http requests fail with
 //   TLSTransportErrorCodeHTTPSRequired before any task is created.
 // - Redirects are followed only when the normalized origin (scheme, host,
@@ -20,14 +20,14 @@
 // - Response bodies are capped at 64 KiB. Oversized responses terminate once
 //   with a non-retryable transport error and no partial body is returned.
 //
-// Threading/ownership contract (Beta design §8.1):
+// Threading/ownership contract:
 // - One transport owns one NSURLSession on a SDK-owned serial, non-main
 //   queue. All per-request state lives in a request context confined to
 //   that queue; completion is invoked exactly once on that queue.
 // - After completion the context is released; late URLSession callbacks
 //   only release themselves and never touch already-returned objects.
 //
-// Timeout mapping (Beta design §8.3, honest naming):
+// Timeout mapping:
 // - `requestTimeout` is the outer hard deadline, enforced by the transport
 //   itself (timer fires -> cancel task -> stable timeout error).
 // - `connectTimeout` is best-effort only; NSURLSession has no fully
@@ -87,14 +87,14 @@ typedef void (^TLSTransportCompletionHandler)(TLSHTTPResponse *response);
 /// NSURLSession-backed transport.
 ///
 /// One transport per producer; the producer's senders share its connection
-/// pool (Beta design §8). Isolation across producers is preferred over
+/// pool. Isolation across producers is preferred over
 /// cross-producer connection reuse.
 @interface TLSTransport : NSObject <NSURLSessionDataDelegate>
 
 /// Builds a transport with a copied session configuration.
 ///
-/// The configuration is copied before the session is created (Beta design
-/// §8.2 — no hot updates afterwards). Hardening is enforced on the copy
+/// The configuration is copied before the session is created; there are no
+/// hot updates afterwards. Hardening is enforced on the copy
 /// even for caller-supplied configurations: URLCache, cookie storage and
 /// credential storage are disabled. When `configuration` is nil an
 /// ephemeral configuration is used.

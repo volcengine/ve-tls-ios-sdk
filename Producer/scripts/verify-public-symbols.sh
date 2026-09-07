@@ -22,8 +22,8 @@
 #   PUBLIC_SYMBOL_ALLOWLIST=...  override the checked-in exact allowlist.
 #   VERIFY_PUBLIC_SYMBOLS_SELF_TEST=1  run portable positive/negative fixtures.
 #
-# Evidence boundary: symbol-table inspection only; this is not runtime,
-# device, or App Store verification.
+# This check inspects symbol tables only; it does not validate runtime behavior
+# or App Store packaging.
 #
 set -euo pipefail
 
@@ -61,11 +61,29 @@ find_leaks() {
     '
 }
 
+inspect_product() {
+    local product="$1"
+    local allowlist_path="$2"
+    local nm_output
+    local nm_tool="${NM_TOOL:-nm}"
+    nm_output="$(mktemp "${TMPDIR:-/tmp}/verify-public-symbols.nm.XXXXXX")"
+    if ! "${nm_tool}" -m "${product}" >"${nm_output}" 2>/dev/null; then
+        rm -f "${nm_output}"
+        return 2
+    fi
+    find_leaks "${allowlist_path}" <"${nm_output}"
+    rm -f "${nm_output}"
+}
+
 run_self_test() {
     local allowlist_fixture
+    local invalid_product_fixture
     local leaked
+    local nm_failure_fixture
     allowlist_fixture="$(mktemp "${TMPDIR:-/tmp}/verify-public-symbols.allowlist.XXXXXX")"
-    trap 'if [[ -n "${allowlist_fixture:-}" ]]; then rm -f "${allowlist_fixture}"; fi' EXIT
+    invalid_product_fixture="$(mktemp "${TMPDIR:-/tmp}/verify-public-symbols.invalid.XXXXXX")"
+    nm_failure_fixture="$(mktemp "${TMPDIR:-/tmp}/verify-public-symbols.nm-failure.XXXXXX")"
+    trap 'rm -f "${allowlist_fixture:-}" "${invalid_product_fixture:-}" "${nm_failure_fixture:-}"' EXIT
     printf '%s\n' '# exact reviewed exception used only by this fixture' 've_tls_allowed' > "${allowlist_fixture}"
 
     # Hidden symbols and undefined references must not be reported.
@@ -79,7 +97,7 @@ run_self_test() {
         return 1
     fi
 
-    # Exact allowlist entries pass, while Core and both LZ4 naming forms fail.
+    # Exact allowlist entries are accepted, while Core and both LZ4 naming forms fail.
     leaked="$(printf '%s\n' \
         '000 (__TEXT,__text) external _ve_tls_allowed' \
         '000 (__TEXT,__text) external _ve_tls_leak' \
@@ -96,7 +114,14 @@ run_self_test() {
         return 1
     fi
 
-    echo "PASS: public-symbol self-test (hidden/undefined/allowlisted/rejected fixtures)."
+    printf '%s\n' '#!/bin/sh' 'exit 42' > "${nm_failure_fixture}"
+    chmod +x "${nm_failure_fixture}"
+    if NM_TOOL="${nm_failure_fixture}" inspect_product "${invalid_product_fixture}" "${allowlist_fixture}" >/dev/null 2>&1; then
+        echo "FAIL: self-test accepted an artifact after nm failed."
+        return 1
+    fi
+
+    echo "OK: public-symbol self-test (hidden/undefined/allowlisted/rejected/nm-failure fixtures)."
 }
 
 if [[ "${VERIFY_PUBLIC_SYMBOLS_SELF_TEST:-0}" == "1" ]]; then
@@ -111,8 +136,9 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
     exit 0
 fi
 
-if ! command -v nm >/dev/null 2>&1; then
-    echo "SKIP: nm not found."
+nm_tool="${NM_TOOL:-nm}"
+if ! command -v "${nm_tool}" >/dev/null 2>&1; then
+    echo "SKIP: nm tool not found: ${nm_tool}."
     exit 0
 fi
 
@@ -164,11 +190,14 @@ echo "Exact public-symbol allowlist: ${allowlist}"
 # Do not use `nm -gU`: it also reports private external definitions on Darwin,
 # which made the former script accept the wrong object set and could not prove
 # that hidden symbols stayed hidden in the final linked artifact.
-leaked="$(nm -m "${product}" 2>/dev/null | find_leaks "${allowlist}" || true)"
+if ! leaked="$(inspect_product "${product}" "${allowlist}")"; then
+    echo "FAIL: nm could not inspect the supplied SDK artifact: ${product}"
+    exit 1
+fi
 if [[ -n "${leaked}" ]]; then
     echo "FAIL: exported C symbols found outside the reviewed public allowlist:"
     echo "${leaked}"
     exit 1
 fi
 
-echo "PASS: no exported ve_tls_*/VE_TLS_LZ4_*/LZ4_* symbols in ${product}."
+echo "OK: no exported ve_tls_*/VE_TLS_LZ4_*/LZ4_* symbols in ${product}."

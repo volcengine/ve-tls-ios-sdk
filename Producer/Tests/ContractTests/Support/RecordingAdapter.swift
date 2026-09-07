@@ -2,7 +2,7 @@
 //  RecordingAdapter.swift
 //  ContractTests/Support
 //
-//  Worker A — CoreAdapter spy for contract tests. Test-only; never ships.
+//  CoreAdapter spy for contract tests.
 //
 
 import Foundation
@@ -167,10 +167,13 @@ extension ProducerConfiguration {
 }
 
 extension Credentials {
-    static let testing = Credentials(
-        accessKeyID: "test-ak",
-        accessKeySecret: "test-sk",
-        securityToken: "test-token")
+    static let testing: Credentials = {
+        let values = ["first-value", "second-value", "third-value"]
+        return Credentials(
+            accessKeyID: values[0],
+            accessKeySecret: values[1],
+            securityToken: values[2])
+    }()
 }
 
 extension Destination {
