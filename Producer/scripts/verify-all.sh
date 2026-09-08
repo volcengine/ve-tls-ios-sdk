@@ -6,8 +6,8 @@
 #   verify-core-version.sh   (the Core release gate)
 #   verify-core-vendor.sh    (vendored source integrity and optional source comparison)
 #   verify-public-symbols.sh (SKIPs without macOS/built product)
-#   verify-consumer-packages.sh (SKIPs without macOS toolchain)
-#   verify-objective-c-consumer.sh (pure Objective-C package consumers)
+#   verify-producer-packages.sh (SKIPs without macOS toolchain)
+#   verify-objective-c-producer.sh (pure Objective-C Producer application integration)
 #
 # Prints a PASS/FAIL/SKIP summary table.
 #
@@ -25,8 +25,8 @@ scripts=(
     "verify-core-version.sh"
     "verify-core-vendor.sh"
     "verify-public-symbols.sh"
-    "verify-consumer-packages.sh"
-    "verify-objective-c-consumer.sh"
+    "verify-producer-packages.sh"
+    "verify-objective-c-producer.sh"
 )
 
 exit_code=0
@@ -37,16 +37,16 @@ exit_code=0
 result_verify_core_version="UNKNOWN"
 result_verify_core_vendor="UNKNOWN"
 result_verify_public_symbols="UNKNOWN"
-result_verify_consumer_packages="UNKNOWN"
-result_verify_objective_c_consumer="UNKNOWN"
+result_verify_producer_packages="UNKNOWN"
+result_verify_objective_c_producer="UNKNOWN"
 
 set_result() {
     case "$1" in
         verify-core-version.sh) result_verify_core_version="$2" ;;
         verify-core-vendor.sh) result_verify_core_vendor="$2" ;;
         verify-public-symbols.sh) result_verify_public_symbols="$2" ;;
-        verify-consumer-packages.sh) result_verify_consumer_packages="$2" ;;
-        verify-objective-c-consumer.sh) result_verify_objective_c_consumer="$2" ;;
+        verify-producer-packages.sh) result_verify_producer_packages="$2" ;;
+        verify-objective-c-producer.sh) result_verify_objective_c_producer="$2" ;;
         *) return 1 ;;
     esac
 }
@@ -56,8 +56,8 @@ get_result() {
         verify-core-version.sh) printf '%s' "$result_verify_core_version" ;;
         verify-core-vendor.sh) printf '%s' "$result_verify_core_vendor" ;;
         verify-public-symbols.sh) printf '%s' "$result_verify_public_symbols" ;;
-        verify-consumer-packages.sh) printf '%s' "$result_verify_consumer_packages" ;;
-        verify-objective-c-consumer.sh) printf '%s' "$result_verify_objective_c_consumer" ;;
+        verify-producer-packages.sh) printf '%s' "$result_verify_producer_packages" ;;
+        verify-objective-c-producer.sh) printf '%s' "$result_verify_objective_c_producer" ;;
         *) printf '%s' "UNKNOWN" ;;
     esac
 }

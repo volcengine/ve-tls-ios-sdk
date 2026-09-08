@@ -2,7 +2,13 @@
 
 VolcengineTLSProducer 的重要用户可见变更记录在此文件中。
 
-## 2.0.0 — Unreleased
+## 2.0.1
+
+- 修复 CocoaPods 接入时 module map 文件缺失导致的编译失败。
+- 修复 SDK 路径包含空格时的 CocoaPods 编译失败。
+- 请求 `User-Agent` 更新为 `volc-tls-ios/producer/v2.0.1`。
+
+## 2.0.0 — 2026-09-07
 
 ### Added
 

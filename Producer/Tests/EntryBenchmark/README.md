@@ -94,7 +94,7 @@ successful terminal raw/compressed bytes, URLProtocol request count, UTF-8
 accepted-payload throughput, add-latency P50/P99, and RSS/CPU samples.
 
 The existing iOS artifact is removed at the beginning of a run and the final
-JSON is written atomically. Consumers must validate `run_id` and the requested
+JSON is written atomically. Readers must validate `run_id` and the requested
 parameters/timestamps; file existence alone is not evidence that a new case
 completed. Buffered persistence's close/drain result is reported explicitly;
 the SDK does not promise that every admitted buffered item has a terminal

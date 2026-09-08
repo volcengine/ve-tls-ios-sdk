@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Exercise Objective-C consumer verifier tool discovery without platform builds.
+# Exercise Objective-C producer verifier tool discovery without platform builds.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERIFIER="${SCRIPT_DIR}/../verify-objective-c-consumer.sh"
+VERIFIER="${SCRIPT_DIR}/../verify-objective-c-producer.sh"
 BASH_BIN="$(command -v bash)"
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-objc-tools.XXXXXX")"
 trap 'rm -rf "${test_root}"' EXIT
@@ -105,7 +105,7 @@ run_verifier() {
 
 path_log="${test_root}/path.log"
 path_rc="$(run_verifier "${path_log}" "${path_tools}:${utility_dir}" path)"
-if [[ "${path_rc}" -ne 0 ]] || ! grep -Fq 'SKIP: no Objective-C consumer checks ran.' "${path_log}" ||
+if [[ "${path_rc}" -ne 0 ]] || ! grep -Fq 'SKIP: no Objective-C producer checks ran.' "${path_log}" ||
    grep -Fq 'BLOCKED:' "${path_log}" || grep -Fq '/opt/homebrew' "${path_log}" ||
    [[ ! -f "${path_ruby_marker}" ]]; then
     echo "FAIL: PATH discovery case did not complete cleanly"
@@ -116,7 +116,7 @@ echo "OK: PATH discovery selected pod/ruby/xcodebuild without machine-specific f
 
 override_log="${test_root}/override.log"
 override_rc="$(run_verifier "${override_log}" "${wrong_tools}:${utility_dir}" override)"
-if [[ "${override_rc}" -ne 0 ]] || ! grep -Fq 'SKIP: no Objective-C consumer checks ran.' "${override_log}" ||
+if [[ "${override_rc}" -ne 0 ]] || ! grep -Fq 'SKIP: no Objective-C producer checks ran.' "${override_log}" ||
    grep -Fq 'BLOCKED:' "${override_log}" || grep -Fq '/opt/homebrew' "${override_log}" ||
    [[ ! -f "${override_ruby_marker}" ]]; then
     echo "FAIL: explicit override case did not complete cleanly"
@@ -131,7 +131,7 @@ if [[ "${missing_rc}" -ne 1 ]] ||
    ! grep -Fq 'CocoaPods executable was not found in PATH; set POD_BIN to an executable path' "${missing_log}" ||
    ! grep -Fq 'Ruby executable was not found in PATH; set RUBY_BIN to an executable path' "${missing_log}" ||
    ! grep -Fq 'xcodebuild was not found in PATH; set XCODEBUILD_BIN to an executable path' "${missing_log}" ||
-   grep -Fq 'Objective-C consumer verification completed' "${missing_log}" ||
+   grep -Fq 'Objective-C producer verification completed' "${missing_log}" ||
    grep -Fq '/opt/homebrew' "${missing_log}"; then
     echo "FAIL: missing-tool case did not report a blocking failure"
     sed -n '1,100p' "${missing_log}"
@@ -139,4 +139,4 @@ if [[ "${missing_rc}" -ne 1 ]] ||
 fi
 echo "OK: missing tools are reported as BLOCKED and cannot produce a success summary."
 
-echo "OK: Objective-C consumer verifier tool-discovery tests passed."
+echo "OK: Objective-C producer verifier tool-discovery tests passed."

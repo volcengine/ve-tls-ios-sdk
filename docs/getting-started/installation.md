@@ -15,7 +15,7 @@
 
 1. 选择 **File > Add Package Dependencies**。
 2. 输入 `https://github.com/volcengine/ve-tls-ios-sdk.git`。
-3. 选择 `2.0.0` 或更高的 `2.x` 版本。
+3. 选择 `2.0.1` 或更高的兼容版本。
 4. 将 `VolcengineTLSProducer` product 添加到需要写日志的 target。
 
 ### Package.swift
@@ -24,7 +24,7 @@
 dependencies: [
     .package(
         url: "https://github.com/volcengine/ve-tls-ios-sdk.git",
-        from: "2.0.0"
+        from: "2.0.1"
     )
 ],
 targets: [
@@ -47,13 +47,13 @@ targets: [
 ```ruby
 # iOS
 platform :ios, '13.0'
-pod 'VolcengineTLSProducer', '~> 2.0'
+pod 'VolcengineTLSProducer', '~> 2.0.1'
 ```
 
 ```ruby
 # macOS
 platform :osx, '10.15'
-pod 'VolcengineTLSProducer', '~> 2.0'
+pod 'VolcengineTLSProducer', '~> 2.0.1'
 ```
 
 执行：
@@ -63,6 +63,14 @@ pod install
 ```
 
 之后使用生成的 `.xcworkspace` 打开工程。
+
+也可通过 Git tag 安装：
+
+```ruby
+pod 'VolcengineTLSProducer',
+    :git => 'https://github.com/volcengine/ve-tls-ios-sdk.git',
+    :tag => 'v2.0.1'
+```
 
 ## 验证安装
 
@@ -87,7 +95,17 @@ Objective-C 项目的导入方式和完整使用步骤见 [Objective-C 接入](o
 
 ## 版本选择与升级
 
-- 新接入 Producer 使用 `v2.0.x`。
-- 只修复兼容问题时使用 `~> 2.0` 或 SwiftPM 的 `2.x` 版本范围。
+- 新接入 Producer 使用 `v2.0.1`。
+- CocoaPods 的 `~> 2.0.1` 允许 `2.0.x` 补丁升级；SwiftPM 的 `from: "2.0.1"` 允许
+  `< 3.0.0` 的兼容升级，需要固定补丁版本时在 Xcode 中选择 Exact Version。
 - 升级前阅读 [CHANGELOG](../../CHANGELOG.md)，并在测试环境验证回调、持久化恢复和关闭流程。
 - v1.x 与 v2.0.x 的关系见[迁移说明](../migration/v1-to-v2.md)。
+
+CocoaPods 更新 `Podfile` 中的版本后执行：
+
+```bash
+pod update VolcengineTLSProducer
+```
+
+SwiftPM 更新版本约束后，在 Xcode 中选择 **File > Packages > Update to Latest Package Versions**。
+更新后检查 `Podfile.lock` 或 `Package.resolved` 中的版本，并重新编译 App。
