@@ -2,22 +2,11 @@
 
 VolcengineTLSProducer 的重要用户可见变更记录在此文件中。
 
-## 2.0.1 — Unreleased
+## 2.0.1
 
-### Fixed
-
-- 保留 CocoaPods 下载源码后清理阶段所需的 `TLSProducerBridge.modulemap`，修复
-  `module map file ... not found` 和桥接模块导入失败。
-- 为 Swift 编译器的 module map 参数补充引号，支持 SDK 源码路径包含空格的 CocoaPods 接入。
-- Apple HTTP bridge 显式传递 SDK 的 `User-Agent`，请求携带
-  `volc-tls-ios/producer/v2.0.1`，便于服务端识别 SDK 及版本。
-
-### Documentation and validation
-
-- 安装示例升级到 `2.0.1`，补充从 `2.0.0` 升级、module map 报错排查和请求版本标识说明。
-- CocoaPods 外部 Objective-C consumer 默认从临时 Git 快照安装，覆盖下载清理过程；
-  同时保留 `:path` 验证，覆盖 SDK 和 consumer 路径包含空格的场景。
-- 保持现有公共 API、最低系统版本、持久化格式和服务端 API 协议版本不变。
+- 修复 CocoaPods 接入时 module map 文件缺失导致的编译失败。
+- 修复 SDK 路径包含空格时的 CocoaPods 编译失败。
+- 请求 `User-Agent` 更新为 `volc-tls-ios/producer/v2.0.1`。
 
 ## 2.0.0 — 2026-09-07
 

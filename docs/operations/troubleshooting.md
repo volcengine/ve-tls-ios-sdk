@@ -17,13 +17,9 @@
 
 ### CocoaPods 编译提示 `module map file ... not found`
 
-如果路径指向 `Producer/scripts/TLSProducerBridge.modulemap`，先检查 `Podfile.lock` 是否仍为
-`VolcengineTLSProducer 2.0.0`。该版本的 podspec 未保留此文件，CocoaPods 下载后清理源码时
-会删除它；`2.0.1` 已修复，同时支持 SDK 源码路径中的空格。
-
-按[升级步骤](../getting-started/installation.md#从-200-升级到-201)更新到 `2.0.1` 或后续兼容版本，
-确认锁文件已经更新，并从 `.xcworkspace` 重新编译。如果使用 `:path`，确认该路径下的源码和
-podspec 也包含修复。清理 DerivedData 无法修复安装产物中实际缺失的 module map。
+如果缺失的是 `TLSProducerBridge.modulemap`，按[升级步骤](../getting-started/installation.md#版本选择与升级)
+更新到 `2.0.1` 或后续兼容版本，确认 `Podfile.lock` 已更新，并从 `.xcworkspace` 重新编译。
+使用 `:path` 时，同时更新所引用的本地 SDK 源码。
 
 ### `open` 抛出 `configuration`
 
