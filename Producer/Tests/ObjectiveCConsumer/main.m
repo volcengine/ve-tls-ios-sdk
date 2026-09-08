@@ -15,6 +15,10 @@
 #include <stdint.h>
 @import VolcengineTLSProducer;
 
+static NSString *const TLSExpectedProducerUserAgent =
+    @"volc-tls-ios/producer/v2.0.1";
+static NSString *const TLSExpectedAPIVersion = @"0.3.0";
+
 static void TLSRequire(BOOL condition, NSString *message) {
     if (!condition) {
         fprintf(stderr, "FAIL: %s\n", message.UTF8String ?: "assertion failed");
@@ -123,6 +127,7 @@ typedef NS_ENUM(NSInteger, TLSFixtureScenario) {
 + (void)resetForScenario:(TLSFixtureScenario)scenario;
 + (NSUInteger)requestCount;
 + (NSData *)bodyAtIndex:(NSUInteger)index;
++ (NSString *)headerValue:(NSString *)field atIndex:(NSUInteger)index;
 @end
 
 @implementation TLSObjectiveCConsumerURLProtocol
@@ -145,6 +150,15 @@ static NSMutableArray<NSData *> *TLSURLProtocolBodies(void) {
     return bodies;
 }
 
+static NSMutableArray<NSDictionary<NSString *, NSString *> *> *TLSURLProtocolHeaders(void) {
+    static NSMutableArray<NSDictionary<NSString *, NSString *> *> *headers;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        headers = [[NSMutableArray alloc] init];
+    });
+    return headers;
+}
+
 static TLSFixtureScenario *TLSURLProtocolScenarioStorage(void) {
     static TLSFixtureScenario scenario;
     static dispatch_once_t onceToken;
@@ -165,6 +179,7 @@ static void TLSURLProtocolSetScenario(TLSFixtureScenario scenario) {
 + (void)resetForScenario:(TLSFixtureScenario)scenario {
     [TLSURLProtocolLock() lock];
     [TLSURLProtocolBodies() removeAllObjects];
+    [TLSURLProtocolHeaders() removeAllObjects];
     TLSURLProtocolSetScenario(scenario);
     [TLSURLProtocolLock() unlock];
 }
@@ -183,6 +198,22 @@ static void TLSURLProtocolSetScenario(TLSFixtureScenario scenario) {
         : nil;
     [TLSURLProtocolLock() unlock];
     return body;
+}
+
++ (NSString *)headerValue:(NSString *)field atIndex:(NSUInteger)index {
+    [TLSURLProtocolLock() lock];
+    NSDictionary<NSString *, NSString *> *headers = index < TLSURLProtocolHeaders().count
+        ? TLSURLProtocolHeaders()[index]
+        : nil;
+    NSString *value = nil;
+    for (NSString *key in headers) {
+        if ([key caseInsensitiveCompare:field] == NSOrderedSame) {
+            value = [headers[key] copy];
+            break;
+        }
+    }
+    [TLSURLProtocolLock() unlock];
+    return value;
 }
 
 + (BOOL)canInitWithRequest:(NSURLRequest *)request {
@@ -220,6 +251,7 @@ static void TLSURLProtocolSetScenario(TLSFixtureScenario scenario) {
     }
     [TLSURLProtocolLock() lock];
     [TLSURLProtocolBodies() addObject:body];
+    [TLSURLProtocolHeaders() addObject:self.request.allHTTPHeaderFields ?: @{}];
     NSUInteger requestNumber = TLSURLProtocolBodies().count;
     TLSFixtureScenario scenario = TLSURLProtocolScenario();
     [TLSURLProtocolLock() unlock];
@@ -507,6 +539,30 @@ static BOOL TLSValidateRequestBody(NSData *body,
     return sawLog && outer.offset == outer.length;
 }
 
+static void TLSRequireProducerHeadersForAllRequests(NSString *caseName) {
+    NSUInteger requestCount = [TLSObjectiveCConsumerURLProtocol requestCount];
+    for (NSUInteger index = 0; index < requestCount; index++) {
+        NSString *userAgent = [TLSObjectiveCConsumerURLProtocol
+            headerValue:@"User-Agent" atIndex:index];
+        TLSRequire([userAgent isEqualToString:TLSExpectedProducerUserAgent],
+                   [NSString stringWithFormat:
+                       @"%@ request %lu User-Agent mismatch: expected %@, got %@",
+                       caseName,
+                       (unsigned long)(index + 1),
+                       TLSExpectedProducerUserAgent,
+                       userAgent]);
+        NSString *apiVersion = [TLSObjectiveCConsumerURLProtocol
+            headerValue:@"x-tls-apiversion" atIndex:index];
+        TLSRequire([apiVersion isEqualToString:TLSExpectedAPIVersion],
+                   [NSString stringWithFormat:
+                       @"%@ request %lu x-tls-apiversion mismatch: expected %@, got %@",
+                       caseName,
+                       (unsigned long)(index + 1),
+                       TLSExpectedAPIVersion,
+                       apiVersion]);
+    }
+}
+
 static TLSProducerConfiguration *TLSMakeConfiguration(void) {
     TLSProducerConfiguration *configuration = [[TLSProducerConfiguration alloc] init];
     TLSDestination *destination = [[TLSDestination alloc]
@@ -762,6 +818,7 @@ static NSDictionary *TLSRunWireAndLifecycleCase(void) {
                                       expectedTimestampMilliseconds,
                                       expectedNanosecondsRemainder),
                @"wire body lost UTF-8, empty value, or nanosecond timestamp");
+    TLSRequireProducerHeadersForAllRequests(caseName);
 
     NSError *updateError = nil;
     TLSCredentials *updatedCredentials = [[TLSCredentials alloc]
@@ -893,6 +950,7 @@ static NSDictionary *TLSRunUnauthorizedDropCase(void) {
     TLSPumpRunLoop(0.2);
     TLSRequire([TLSObjectiveCConsumerURLProtocol requestCount] == 1,
                @"401 drop left a retained retry request");
+    TLSRequireProducerHeadersForAllRequests(caseName);
 
     NSError *closeError = TLSCloseProducer(producer, 5.0);
     TLSRequire(closeError == nil, @"401 drop close returned an NSError");
@@ -931,6 +989,7 @@ static NSDictionary *TLSRunServerRetryCase(void) {
                    [result.requestID isEqualToString:
                        @"objc-consumer-request-500-then-200"],
                @"500 then 200 did not map to one terminal success");
+    TLSRequireProducerHeadersForAllRequests(caseName);
     NSError *closeError = TLSCloseProducer(producer, 5.0);
     TLSRequire(closeError == nil, @"500 retry close returned an NSError");
     NSUInteger requests = [TLSObjectiveCConsumerURLProtocol requestCount];
@@ -967,6 +1026,7 @@ static NSDictionary *TLSRunTransportRetryCase(TLSFixtureScenario scenario,
     TLSSendResult *result = recorder.lastResult;
     TLSRequire(result.status == TLSSendResultStatusSuccess && result.error == nil,
                [NSString stringWithFormat:@"%@ fault did not recover to success", caseName]);
+    TLSRequireProducerHeadersForAllRequests(caseName);
     NSError *closeError = TLSCloseProducer(producer, 5.0);
     TLSRequire(closeError == nil,
                [NSString stringWithFormat:@"%@ close returned an NSError", caseName]);
@@ -1000,6 +1060,7 @@ static NSDictionary *TLSRunPersistentRecoveryCase(void) {
         return [TLSObjectiveCConsumerURLProtocol requestCount] >= 1;
     }, 10.0), @"buffered recovery fault request did not arrive");
     NSUInteger firstRequestCount = [TLSObjectiveCConsumerURLProtocol requestCount];
+    TLSRequireProducerHeadersForAllRequests(caseName);
 
     // A retryable 500 may remain durable through local close. Public close
     // success only proves local shutdown; it does not promise delivery.
@@ -1040,6 +1101,7 @@ static NSDictionary *TLSRunPersistentRecoveryCase(void) {
                @"buffered recovery second close returned an NSError");
 
     NSUInteger recoveryRequestCount = [TLSObjectiveCConsumerURLProtocol requestCount];
+    TLSRequireProducerHeadersForAllRequests(caseName);
     NSUInteger callbacks = [firstRecorder callbackCount] +
         [secondRecorder callbackCount];
     NSUInteger requests = firstRequestCount + recoveryRequestCount;

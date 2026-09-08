@@ -40,6 +40,7 @@ static const NSInteger kTLSMaxBufferBytes = 256 * 1024 * 1024;
 static const NSInteger kTLSMaxSendConcurrency = 8;
 static NSString *const kTLSProcessLockFileName = @".ios-producer.lock";
 static NSString *const kTLSCoreLeaseFileName = @"lease";
+static const char *const kTLSProducerUserAgent = "volc-tls-ios/producer/v2.0.1";
 
 /// The callback context is deliberately independent from the adapter object.
 /// C Core stores a raw user pointer; keeping this object alive through Core
@@ -346,6 +347,12 @@ static int tls_http_do_request_inner(ve_tls_http_client *client,
                     }
                 }
             }
+        }
+    }
+    if (req->user_agent && req->user_agent[0] != '\0') {
+        NSString *userAgent = [NSString stringWithUTF8String:req->user_agent];
+        if (userAgent.length > 0) {
+            headerFields[@"User-Agent"] = userAgent;
         }
     }
 
@@ -876,6 +883,7 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         }
         return nil;
     }
+    cConfig.user_agent = kTLSProducerUserAgent;
 
     // Platform (pthread). The C ABI has no platform user-data slot; the
     // default pthread callbacks are stateless, so replacing only file_open

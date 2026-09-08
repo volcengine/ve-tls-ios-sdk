@@ -17,7 +17,7 @@ Swift Package Manager：
 ```swift
 .package(
     url: "https://github.com/volcengine/ve-tls-ios-sdk.git",
-    from: "2.0.0"
+    from: "2.0.1"
 )
 ```
 
@@ -26,10 +26,13 @@ Swift Package Manager：
 CocoaPods：
 
 ```ruby
-pod 'VolcengineTLSProducer', '~> 2.0'
+pod 'VolcengineTLSProducer', '~> 2.0.1'
 ```
 
 完整步骤见[安装](docs/getting-started/installation.md)。
+
+`v2.0.1` 修复了 CocoaPods 下载源码时丢失私有 module map、以及 SDK 路径含空格时的编译问题。
+从 `v2.0.0` 升级的步骤见[版本选择与升级](docs/getting-started/installation.md#版本选择与升级)。
 
 ## 快速开始
 

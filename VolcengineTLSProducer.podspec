@@ -2,7 +2,7 @@
 
 Pod::Spec.new do |s|
   s.name             = 'VolcengineTLSProducer'
-  s.version          = '2.0.0'
+  s.version          = '2.0.1'
   s.summary          = 'Volcengine TLS Producer SDK for iOS and macOS.'
   s.description      = <<-DESC
 Volcengine TLS Producer SDK for iOS and macOS.

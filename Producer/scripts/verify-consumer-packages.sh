@@ -33,7 +33,7 @@ cd "${REPO_ROOT}"
 SCHEME="${1:-VolcengineTLSProducer}"
 MINIMUM_IOS_TARGET="13.0"
 MINIMUM_MACOS_TARGET="10.15"
-PRODUCER_RELEASE_VERSION="2.0.0"
+PRODUCER_RELEASE_VERSION="2.0.1"
 PRODUCER_RELEASE_TAG="v${PRODUCER_RELEASE_VERSION}"
 overall=0
 ran=0
@@ -94,6 +94,13 @@ check_release_version_contract() {
         echo "OK: CocoaPods source tag is configured as ${PRODUCER_RELEASE_TAG}; remote tag existence is not checked."
     else
         mark_fail "VolcengineTLSProducer.podspec does not derive the v-prefixed source tag from s.version."
+    fi
+
+    if grep -Fq "\"volc-tls-ios/producer/v${PRODUCER_RELEASE_VERSION}\"" \
+        "${REPO_ROOT}/Producer/Sources/TLSProducerBridge/Core/TLSRealCoreAdapter.m"; then
+        echo "OK: Producer User-Agent matches release ${PRODUCER_RELEASE_VERSION}; request tests verify transmission."
+    else
+        mark_fail "Producer User-Agent does not match release ${PRODUCER_RELEASE_VERSION}."
     fi
 }
 

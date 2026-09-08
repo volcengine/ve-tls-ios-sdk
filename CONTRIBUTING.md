@@ -52,5 +52,18 @@ Producer/scripts/verify-all.sh
 - 保留第三方版权与许可证说明；
 - 提交前运行 `git diff --check`，确认没有误带生成文件。
 
+## 发布版本
+
+准备 Producer 补丁版本时，同步更新 `VolcengineTLSProducer.podspec` 的 `s.version`、
+`TLSRealCoreAdapter.m` 的 `kTLSProducerUserAgent`、`verify-consumer-packages.sh` 的
+`PRODUCER_RELEASE_VERSION`、请求头回归测试、README 和安装文档。
+`CHANGELOG.md` 在准备阶段保留 `Unreleased`，正式发布时填写实际发布日期。
+不要把 SDK 发布号写入 `x-tls-apiversion`，也不要为发版改写 vendored C Core 的版本或校验清单。
+
+发布前执行上述测试与包验证，并检查 Swift 和 Objective-C 实际请求的 `User-Agent` 与 podspec
+版本一致。合入目标分支后，将同一提交标记为 `v<s.version>`，再发布 GitHub Release；
+SwiftPM 和 CocoaPods Git 安装均依赖该 tag。若提供不带 `:git` 的 CocoaPods 安装方式，还需将
+同版本 podspec 发布到 CocoaPods Specs；创建 GitHub Release 不会自动完成该步骤。
+
 性能方法见[性能参考](docs/operations/performance.md)。真实网络、设备生命周期与离线恢复的
 测试不能由模拟 HTTP 响应替代。

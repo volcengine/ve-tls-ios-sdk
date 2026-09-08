@@ -118,6 +118,8 @@ final class ConsumerIntegrationTests: XCTestCase {
 
     // MARK: - Fixtures (consumer-visible construction only)
 
+    private static let producerUserAgent = "volc-tls-ios/producer/v2.0.1"
+    private static let apiVersion = "0.3.0"
     private static let endpoint = "https://consumer.stub.local"
     private static let region = "cn-beijing"
     private static let projectID = "consumer-it-project"
@@ -216,6 +218,14 @@ final class ConsumerIntegrationTests: XCTestCase {
                 .queryItems?.first(where: { $0.name == "TopicId" })?.value,
             Self.topicID)
         XCTAssertNotNil(request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "User-Agent"),
+            Self.producerUserAgent,
+            "Producer request must carry the fixed iOS producer User-Agent")
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "x-tls-apiversion"),
+            Self.apiVersion,
+            "Producer request must preserve the C Core API version")
         XCTAssertFalse((request.httpBody ?? Data()).isEmpty)
 
         try await producer.close(timeout: 5)
