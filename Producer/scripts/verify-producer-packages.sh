@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
 #
-# verify-consumer-packages.sh — verify the actual iOS and macOS package
-# consumption paths.
+# verify-producer-packages.sh — verify the actual iOS and macOS package
+# integration paths.
 #
 # On macOS, runs:
 #   1. minimum-platform declarations and privacy/resource inspection
 #   2. strict Swift 6 library builds for iOS 13 Simulator and generic device
-#   3. external temporary SwiftPM consumer builds for Simulator and generic
-#      iPhoneOS; the final iPhoneOS Mach-O must retain a minimum OS of 13.0
+#   3. external temporary SwiftPM Producer application integration builds for
+#      Simulator and generic iPhoneOS; the final iPhoneOS Mach-O must retain a
+#      minimum OS of 13.0
 #   4. strict Swift 6 macOS arm64/x86_64 library builds, native tests, and
-#      external executable consumers whose Mach-O minima match each
+#      external Producer test-program binaries whose Mach-O minima match each
 #      architecture's platform floor
 #   5. xcodebuild test on an available iOS Simulator destination
 #   6. CocoaPods manifest/resource inspection and pod lib lint (when `pod`
 #      exists)
 #
-# Usage: verify-consumer-packages.sh [xcode-scheme]
+# Usage: verify-producer-packages.sh [xcode-scheme]
 # Environment:
 #   IOS_SIMULATOR_DESTINATION  explicit xcodebuild destination override
 #   IOS_SIMULATOR_ARCH         default arm64
@@ -284,28 +285,28 @@ verify_macho_minimum_ios() {
     local build_info platform minos
 
     if ! command -v xcrun >/dev/null 2>&1 || ! xcrun --find vtool >/dev/null 2>&1; then
-        mark_blocked "vtool is unavailable; final consumer Mach-O minimum OS cannot be verified."
+        mark_blocked "vtool is unavailable; final producer Mach-O minimum OS cannot be verified."
         return 1
     fi
     if ! build_info="$(xcrun vtool -show-build "${binary}" 2>&1)"; then
         echo "${build_info}" >&2
-        mark_fail "vtool could not inspect the final external consumer binary."
+        mark_fail "vtool could not inspect the final external producer binary."
         return 1
     fi
     platform="$(printf '%s\n' "${build_info}" | awk '$1 == "platform" { print $2; exit }')"
     minos="$(printf '%s\n' "${build_info}" | awk '$1 == "minos" { print $2; exit }')"
     if [[ "${platform}" != "${expected_platform}" ]]; then
         echo "${build_info}" >&2
-        mark_fail "external consumer Mach-O platform is ${platform:-missing}, expected ${expected_platform}."
+        mark_fail "external producer Mach-O platform is ${platform:-missing}, expected ${expected_platform}."
         return 1
     fi
     case "${minos}" in
         "${expected_target}"|"${expected_target}.0")
-            echo "OK: external consumer Mach-O records platform ${platform} and minos ${minos}."
+            echo "OK: external producer Mach-O records platform ${platform} and minos ${minos}."
             ;;
         *)
             echo "${build_info}" >&2
-            mark_fail "external consumer Mach-O minos is ${minos:-missing}, expected ${expected_target}."
+            mark_fail "external producer Mach-O minos is ${minos:-missing}, expected ${expected_target}."
             return 1
             ;;
     esac
@@ -332,28 +333,28 @@ verify_macho_minimum_macos() {
     local build_info platform minos
 
     if ! command -v xcrun >/dev/null 2>&1 || ! xcrun --find vtool >/dev/null 2>&1; then
-        mark_blocked "vtool is unavailable; final macOS consumer minimum OS cannot be verified."
+        mark_blocked "vtool is unavailable; final macOS producer minimum OS cannot be verified."
         return 1
     fi
     if ! build_info="$(xcrun vtool -show-build "${binary}" 2>&1)"; then
         echo "${build_info}" >&2
-        mark_fail "vtool could not inspect the final macOS consumer binary."
+        mark_fail "vtool could not inspect the final macOS producer binary."
         return 1
     fi
     platform="$(printf '%s\n' "${build_info}" | awk '$1 == "platform" { print $2; exit }')"
     minos="$(printf '%s\n' "${build_info}" | awk '$1 == "minos" { print $2; exit }')"
     if [[ "${platform}" != "MACOS" ]]; then
         echo "${build_info}" >&2
-        mark_fail "external consumer Mach-O platform is ${platform:-missing}, expected MACOS."
+        mark_fail "external producer Mach-O platform is ${platform:-missing}, expected MACOS."
         return 1
     fi
     case "${minos}" in
         "${expected_target}"|"${expected_target}.0")
-            echo "OK: external consumer Mach-O records platform ${platform} and minos ${minos}."
+            echo "OK: external producer Mach-O records platform ${platform} and minos ${minos}."
             ;;
         *)
             echo "${build_info}" >&2
-            mark_fail "external macOS consumer Mach-O minos is ${minos:-missing}, expected ${expected_target}."
+            mark_fail "external macOS producer Mach-O minos is ${minos:-missing}, expected ${expected_target}."
             return 1
             ;;
     esac
@@ -417,47 +418,47 @@ run_macos_tests() {
     rm -rf "${build_root}" "${cache}"
 }
 
-run_external_macos_consumer() {
-    echo "== external macOS SwiftPM consumer =="
+run_external_macos_producer() {
+    echo "== external macOS SwiftPM producer =="
     if ! command -v swift >/dev/null 2>&1 || ! resolve_macos_sdk; then
-        echo "SKIP: Swift/macOS SDK not found; external macOS consumer requires Xcode."
+        echo "SKIP: Swift/macOS SDK not found; external macOS producer requires Xcode."
         return
     fi
 
-    local consumer_root package_identity native_arch arch build_root cache triple
+    local producer_root package_identity native_arch arch build_root cache triple
     local binary resource_copy expected_target
-    consumer_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-macos-consumer.XXXXXX")"
+    producer_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-macos-producer.XXXXXX")"
     package_identity="$(basename "${REPO_ROOT}")"
     native_arch="$(uname -m)"
     case "${native_arch}" in
         arm64|x86_64) ;;
         *)
             mark_blocked "unsupported macOS host architecture: ${native_arch}."
-            rm -rf "${consumer_root}"
+            rm -rf "${producer_root}"
             return
             ;;
     esac
 
-    mkdir -p "${consumer_root}/Sources/TLSMacConsumerSmoke"
+    mkdir -p "${producer_root}/Sources/TLSMacProducerSmoke"
     printf '%s\n' \
         '// swift-tools-version: 5.8' \
         'import PackageDescription' \
         '' \
         'let package = Package(' \
-        '    name: "TLSMacConsumerSmoke",' \
+        '    name: "TLSMacProducerSmoke",' \
         '    platforms: [.macOS(.v10_15)],' \
         '    dependencies: [' \
         "        .package(path: \"${REPO_ROOT}\")" \
         '    ],' \
         '    targets: [' \
         '        .executableTarget(' \
-        '            name: "TLSMacConsumerSmoke",' \
+        '            name: "TLSMacProducerSmoke",' \
         '            dependencies: [' \
         "                .product(name: \"VolcengineTLSProducer\", package: \"${package_identity}\")" \
         '            ]' \
         '        )' \
         '    ]' \
-        ')' > "${consumer_root}/Package.swift"
+        ')' > "${producer_root}/Package.swift"
     printf '%s\n' \
         'import VolcengineTLSProducer' \
         '' \
@@ -465,85 +466,85 @@ run_external_macos_consumer() {
         'precondition(metadata.source == "macOS")' \
         'let configuration = try ProducerConfiguration()' \
         'precondition(configuration.automaticLifecycleHandling == false)' \
-        'print("VolcengineTLSProducer macOS consumer PASS")' \
-        > "${consumer_root}/Sources/TLSMacConsumerSmoke/main.swift"
+        'print("VolcengineTLSProducer macOS producer PASS")' \
+        > "${producer_root}/Sources/TLSMacProducerSmoke/main.swift"
 
     ran=1
     for arch in arm64 x86_64; do
-        build_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-macos-consumer-${arch}-build.XXXXXX")"
-        cache="$(mktemp -d "${TMPDIR:-/tmp}/tls-macos-consumer-${arch}-cache.XXXXXX")"
+        build_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-macos-producer-${arch}-build.XXXXXX")"
+        cache="$(mktemp -d "${TMPDIR:-/tmp}/tls-macos-producer-${arch}-cache.XXXXXX")"
         triple="${arch}-apple-macosx${MINIMUM_MACOS_TARGET}"
         expected_target="$(macos_binary_minimum_for_arch "${arch}")"
         if CLANG_MODULE_CACHE_PATH="${cache}" swift build \
-            --package-path "${consumer_root}" \
+            --package-path "${producer_root}" \
             --scratch-path "${build_root}" \
-            --product TLSMacConsumerSmoke \
+            --product TLSMacProducerSmoke \
             --sdk "${MACOS_SDK}" \
             --triple "${triple}" \
             -Xswiftc -swift-version -Xswiftc 6; then
-            binary="$(find "${build_root}" -type f -name 'TLSMacConsumerSmoke' ! -path '*.dSYM/*' -print -quit 2>/dev/null || true)"
+            binary="$(find "${build_root}" -type f -name 'TLSMacProducerSmoke' ! -path '*.dSYM/*' -print -quit 2>/dev/null || true)"
             resource_copy="$(find "${build_root}" -type f -name 'PrivacyInfo.xcprivacy' -print -quit 2>/dev/null || true)"
             if [[ -z "${binary}" ]]; then
-                mark_fail "external macOS ${arch} consumer built but its executable was not found."
+                mark_fail "external macOS ${arch} producer built but its executable was not found."
             else
                 if [[ "${arch}" == "${native_arch}" ]]; then
                     if "${binary}"; then
-                        echo "OK: external strict Swift 6 macOS ${arch} consumer built and ran (${triple})."
+                        echo "OK: external strict Swift 6 macOS ${arch} producer built and ran (${triple})."
                     else
-                        mark_fail "external macOS ${arch} consumer executable failed at runtime."
+                        mark_fail "external macOS ${arch} producer executable failed at runtime."
                     fi
                 else
-                    echo "OK: external strict Swift 6 macOS ${arch} consumer linked (${triple}); runtime execution requires a ${arch} host."
+                    echo "OK: external strict Swift 6 macOS ${arch} producer linked (${triple}); runtime execution requires a ${arch} host."
                 fi
                 verify_macho_minimum_macos "${binary}" "${expected_target}" || true
                 if "${SCRIPT_DIR}/verify-public-symbols.sh" "${binary}"; then
-                    echo "OK: linked external macOS ${arch} consumer does not export private Core/LZ4 symbols."
+                    echo "OK: linked external macOS ${arch} producer does not export private Core/LZ4 symbols."
                 else
-                    mark_fail "linked external macOS ${arch} consumer exported private Core/LZ4 symbols."
+                    mark_fail "linked external macOS ${arch} producer exported private Core/LZ4 symbols."
                 fi
             fi
             if [[ -n "${resource_copy}" ]]; then
-                echo "OK: external macOS ${arch} consumer build contains PrivacyInfo.xcprivacy."
+                echo "OK: external macOS ${arch} producer build contains PrivacyInfo.xcprivacy."
             else
-                mark_fail "external macOS ${arch} consumer build did not contain PrivacyInfo.xcprivacy."
+                mark_fail "external macOS ${arch} producer build did not contain PrivacyInfo.xcprivacy."
             fi
         else
-            mark_fail "external macOS SwiftPM consumer build failed (${triple})."
+            mark_fail "external macOS SwiftPM producer build failed (${triple})."
         fi
         rm -rf "${build_root}" "${cache}"
     done
-    rm -rf "${consumer_root}"
+    rm -rf "${producer_root}"
 }
 
-run_external_swiftpm_consumer() {
-    echo "== external SwiftPM consumer build =="
+run_external_swiftpm_producer() {
+    echo "== external SwiftPM producer build =="
     if ! command -v xcodebuild >/dev/null 2>&1 || ! command -v xcrun >/dev/null 2>&1; then
-        echo "SKIP: xcodebuild/xcrun not found; external consumer build requires Xcode."
+        echo "SKIP: xcodebuild/xcrun not found; external producer build requires Xcode."
         return
     fi
     if ! resolve_ios_sdk; then
-        mark_blocked "iPhoneSimulator SDK could not be resolved for external consumer build."
+        mark_blocked "iPhoneSimulator SDK could not be resolved for external producer build."
         return
     fi
 
-    local consumer_root consumer_sim_build consumer_device_build consumer_cache
+    local producer_root producer_sim_build producer_device_build producer_cache
     local package_identity arch deployment_target sim_triple device_triple
-    consumer_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-consumer.XXXXXX")"
-    consumer_sim_build="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-consumer-sim-build.XXXXXX")"
-    consumer_device_build="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-consumer-device-build.XXXXXX")"
-    consumer_cache="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-consumer-cache.XXXXXX")"
+    producer_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-producer.XXXXXX")"
+    producer_sim_build="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-producer-sim-build.XXXXXX")"
+    producer_device_build="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-producer-device-build.XXXXXX")"
+    producer_cache="$(mktemp -d "${TMPDIR:-/tmp}/tls-swiftpm-producer-cache.XXXXXX")"
     package_identity="$(basename "${REPO_ROOT}")"
     arch="${IOS_SIMULATOR_ARCH:-arm64}"
     deployment_target="${IOS_DEPLOYMENT_TARGET:-${MINIMUM_IOS_TARGET}}"
     if [[ ! "${deployment_target}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
         mark_fail "invalid IOS_DEPLOYMENT_TARGET: ${deployment_target}."
-        rm -rf "${consumer_root}" "${consumer_sim_build}" "${consumer_device_build}" "${consumer_cache}"
+        rm -rf "${producer_root}" "${producer_sim_build}" "${producer_device_build}" "${producer_cache}"
         return
     fi
     sim_triple="${arch}-apple-ios${deployment_target}-simulator"
     device_triple="arm64-apple-ios${deployment_target}"
 
-    mkdir -p "${consumer_root}/Sources/TLSConsumerSmoke"
+    mkdir -p "${producer_root}/Sources/TLSProducerSmoke"
     # This fixture is generated under /tmp at verification time; it is not a
     # checked-in source file and is removed after the build.
     printf '%s\n' \
@@ -551,20 +552,20 @@ run_external_swiftpm_consumer() {
         'import PackageDescription' \
         '' \
         'let package = Package(' \
-        '    name: "TLSConsumerSmoke",' \
+        '    name: "TLSProducerSmoke",' \
         '    platforms: [.iOS(.v13)],' \
         '    dependencies: [' \
         "        .package(path: \"${REPO_ROOT}\")" \
         '    ],' \
         '    targets: [' \
         '        .executableTarget(' \
-        '            name: "TLSConsumerSmoke",' \
+        '            name: "TLSProducerSmoke",' \
         '            dependencies: [' \
         "                .product(name: \"VolcengineTLSProducer\", package: \"${package_identity}\")" \
         '            ]' \
         '        )' \
         '    ]' \
-        ')' > "${consumer_root}/Package.swift"
+        ')' > "${producer_root}/Package.swift"
     printf '%s\n' \
         'import VolcengineTLSProducer' \
         '' \
@@ -589,14 +590,14 @@ run_external_swiftpm_consumer() {
         '    }.value' \
         '    try await producer.close(timeout: 1)' \
         '}' \
-        > "${consumer_root}/Sources/TLSConsumerSmoke/main.swift"
+        > "${producer_root}/Sources/TLSProducerSmoke/main.swift"
 
     ran=1
-    if (cd "${consumer_root}" && CLANG_MODULE_CACHE_PATH="${consumer_cache}" xcodebuild \
-        -scheme TLSConsumerSmoke \
+    if (cd "${producer_root}" && CLANG_MODULE_CACHE_PATH="${producer_cache}" xcodebuild \
+        -scheme TLSProducerSmoke \
         -configuration Debug \
         -destination 'generic/platform=iOS Simulator' \
-        -derivedDataPath "${consumer_sim_build}" \
+        -derivedDataPath "${producer_sim_build}" \
         build \
         CODE_SIGNING_ALLOWED=NO \
         ARCHS="${arch}" \
@@ -604,32 +605,32 @@ run_external_swiftpm_consumer() {
         IPHONEOS_DEPLOYMENT_TARGET="${deployment_target}" \
         SWIFT_VERSION=6 \
         SWIFT_STRICT_CONCURRENCY=complete); then
-        local consumer_binary resource_copy
-        resource_copy="$(find "${consumer_sim_build}" -type f -name 'PrivacyInfo.xcprivacy' -print -quit 2>/dev/null || true)"
+        local producer_binary resource_copy
+        resource_copy="$(find "${producer_sim_build}" -type f -name 'PrivacyInfo.xcprivacy' -print -quit 2>/dev/null || true)"
         if [[ -n "${resource_copy}" ]]; then
-            echo "OK: external strict Swift 6 Simulator consumer built the public lifecycle (requested ${sim_triple}, SDK ${IOS_SDK_VERSION}); dependency settings were accepted and the privacy resource was copied. The Simulator Mach-O minimum is toolchain-controlled and is not used as iOS 13 device evidence."
+            echo "OK: external strict Swift 6 Simulator producer built the public lifecycle (requested ${sim_triple}, SDK ${IOS_SDK_VERSION}); dependency settings were accepted and the privacy resource was copied. The Simulator Mach-O minimum is toolchain-controlled and is not used as iOS 13 device evidence."
         else
             mark_fail "external SwiftPM build succeeded but PrivacyInfo.xcprivacy was not found in the built resource output."
         fi
-        consumer_binary="$(find "${consumer_sim_build}" -type f -name 'TLSConsumerSmoke' ! -path '*.dSYM/*' -print -quit 2>/dev/null || true)"
-        if [[ -n "${consumer_binary}" ]]; then
-            if "${SCRIPT_DIR}/verify-public-symbols.sh" "${consumer_binary}"; then
-                echo "OK: linked external SwiftPM Simulator consumer does not export private Core/LZ4 symbols."
+        producer_binary="$(find "${producer_sim_build}" -type f -name 'TLSProducerSmoke' ! -path '*.dSYM/*' -print -quit 2>/dev/null || true)"
+        if [[ -n "${producer_binary}" ]]; then
+            if "${SCRIPT_DIR}/verify-public-symbols.sh" "${producer_binary}"; then
+                echo "OK: linked external SwiftPM Simulator producer does not export private Core/LZ4 symbols."
             else
-                mark_fail "linked external SwiftPM Simulator consumer exported private Core/LZ4 symbols."
+                mark_fail "linked external SwiftPM Simulator producer exported private Core/LZ4 symbols."
             fi
         else
-            mark_fail "external SwiftPM Simulator build succeeded but its final linked consumer binary was not found."
+            mark_fail "external SwiftPM Simulator build succeeded but its final linked producer binary was not found."
         fi
     else
-        mark_fail "external SwiftPM Simulator consumer xcodebuild failed (${sim_triple}); this catches dependency unsafeFlags and public import regressions."
+        mark_fail "external SwiftPM Simulator producer xcodebuild failed (${sim_triple}); this catches dependency unsafeFlags and public import regressions."
     fi
 
-    if (cd "${consumer_root}" && CLANG_MODULE_CACHE_PATH="${consumer_cache}" xcodebuild \
-        -scheme TLSConsumerSmoke \
+    if (cd "${producer_root}" && CLANG_MODULE_CACHE_PATH="${producer_cache}" xcodebuild \
+        -scheme TLSProducerSmoke \
         -configuration Debug \
         -destination 'generic/platform=iOS' \
-        -derivedDataPath "${consumer_device_build}" \
+        -derivedDataPath "${producer_device_build}" \
         build \
         CODE_SIGNING_ALLOWED=NO \
         ARCHS=arm64 \
@@ -638,21 +639,21 @@ run_external_swiftpm_consumer() {
         SWIFT_VERSION=6 \
         SWIFT_STRICT_CONCURRENCY=complete); then
         local device_binary
-        device_binary="$(find "${consumer_device_build}" -type f -name 'TLSConsumerSmoke' ! -path '*.dSYM/*' -print -quit 2>/dev/null || true)"
+        device_binary="$(find "${producer_device_build}" -type f -name 'TLSProducerSmoke' ! -path '*.dSYM/*' -print -quit 2>/dev/null || true)"
         if [[ -n "${device_binary}" ]]; then
             if "${SCRIPT_DIR}/verify-public-symbols.sh" "${device_binary}"; then
-                echo "OK: linked external SwiftPM iPhoneOS consumer does not export private Core/LZ4 symbols."
+                echo "OK: linked external SwiftPM iPhoneOS producer does not export private Core/LZ4 symbols."
             else
-                mark_fail "linked external SwiftPM iPhoneOS consumer exported private Core/LZ4 symbols."
+                mark_fail "linked external SwiftPM iPhoneOS producer exported private Core/LZ4 symbols."
             fi
             verify_macho_minimum_ios "${device_binary}" "IOS" "${MINIMUM_IOS_TARGET}" || true
         else
-            mark_fail "external SwiftPM iPhoneOS build succeeded but its final linked consumer binary was not found."
+            mark_fail "external SwiftPM iPhoneOS build succeeded but its final linked producer binary was not found."
         fi
     else
-        mark_fail "external SwiftPM iPhoneOS consumer xcodebuild failed (${device_triple}); the final iOS ${MINIMUM_IOS_TARGET} artifact contract is unverified."
+        mark_fail "external SwiftPM iPhoneOS producer xcodebuild failed (${device_triple}); the final iOS ${MINIMUM_IOS_TARGET} artifact contract is unverified."
     fi
-    rm -rf "${consumer_root}" "${consumer_sim_build}" "${consumer_device_build}" "${consumer_cache}"
+    rm -rf "${producer_root}" "${producer_sim_build}" "${producer_device_build}" "${producer_cache}"
 }
 
 find_simulator_destination() {
@@ -737,10 +738,10 @@ check_release_version_contract
 check_privacy_manifest
 run_swiftpm_ios_build
 run_swiftpm_ios_device_build
-run_external_swiftpm_consumer
+run_external_swiftpm_producer
 run_swiftpm_macos_builds
 run_macos_tests
-run_external_macos_consumer
+run_external_macos_producer
 run_xcodebuild_tests
 run_pod_lint
 
@@ -748,8 +749,8 @@ echo ""
 if [[ "${overall}" -eq 0 && "${ran}" -eq 0 && "${blocked}" -eq 0 ]]; then
     echo "SKIP: no package tools available on this host (needs macOS + Xcode + CocoaPods)."
 elif [[ "${overall}" -eq 0 ]]; then
-    echo "OK: consumer package verification completed; every executed check succeeded."
+    echo "OK: producer package verification completed; every executed check succeeded."
 else
-    echo "FAIL: consumer package verification is incomplete or one or more checks failed."
+    echo "FAIL: producer package verification is incomplete or one or more checks failed."
 fi
 exit "${overall}"

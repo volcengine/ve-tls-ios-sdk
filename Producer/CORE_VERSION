@@ -10,5 +10,5 @@ vendor_additions: include/CTLSProducerCore.h,core/ve_tls_iosp_version.c
 license: Apache-2.0
 
 The vendored source matches the synchronized Core commit except for the listed
-Apple packaging overlays and wrapper files. Consumers should use the public
+Apple packaging overlays and wrapper files. Applications should use the public
 VolcengineTLSProducer Swift or Objective-C API instead of the C symbols.

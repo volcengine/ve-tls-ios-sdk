@@ -1,6 +1,6 @@
 //
 //  RealHTTPSRedirectIntegrationTests.swift
-//  ConsumerIntegrationTests
+//  ProducerIntegrationTests
 //
 //  Opt-in, real-network redirect evidence for the public Producer facade.
 //  Start Producer/scripts/test-support/local-https-redirect-server.py with a

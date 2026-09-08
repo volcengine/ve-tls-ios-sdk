@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Generate a pure Objective-C external consumer project for the public
+# Generate a pure Objective-C external Producer test project for the public
 # VolcengineTLSProducer SwiftPM product.  The generated project intentionally
 # keeps both the fixture source and the package reference relative to the
 # project directory so a source snapshot can be moved as one unit.
@@ -17,11 +17,11 @@ rescue LoadError => error
   exit 1
 end
 
-PROJECT_NAME = "TLSObjCConsumer"
-MACOS_TARGET_NAME = "TLSObjCConsumerMacOS"
-IOS_TARGET_NAME = "TLSObjCConsumerIOS"
+PROJECT_NAME = "TLSObjCProducer"
+MACOS_TARGET_NAME = "TLSObjCProducerMacOS"
+IOS_TARGET_NAME = "TLSObjCProducerIOS"
 PACKAGE_PRODUCT_NAME = "VolcengineTLSProducer"
-FIXTURE_RELATIVE_PATH = File.join("Producer", "Tests", "ObjectiveCConsumer", "main.m")
+FIXTURE_RELATIVE_PATH = File.join("Producer", "Tests", "ObjectiveCProducer", "main.m")
 
 options = {}
 parser = OptionParser.new do |opts|
@@ -105,9 +105,9 @@ def set_common_build_settings(target, platform, deployment_target)
     settings = configuration.build_settings
     settings["PRODUCT_NAME"] = target.name
     settings["PRODUCT_BUNDLE_IDENTIFIER"] = if is_ios
-                                               "com.volcengine.tls.objc.consumer.ios"
+                                               "com.volcengine.tls.objc.producer.ios"
                                              else
-                                               "com.volcengine.tls.objc.consumer.macos"
+                                               "com.volcengine.tls.objc.producer.macos"
                                              end
     settings["CLANG_ENABLE_MODULES"] = "YES"
     settings["CLANG_ENABLE_OBJC_ARC"] = "YES"

@@ -1,5 +1,5 @@
 // RealCoreAdapterIntegrationTests.swift
-// ConsumerIntegrationTests
+// ProducerIntegrationTests
 //
 // Integration tests for the RealCoreAdapter (C Core v0.3.1).
 // Uses a local HTTP stub to verify end-to-end send behavior.

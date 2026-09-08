@@ -1,6 +1,6 @@
 //
-//  ConsumerIntegrationTests.swift
-//  ConsumerIntegrationTests
+//  ProducerIntegrationTests.swift
+//  ProducerIntegrationTests
 //
 //  These tests compile against the public API only: a plain
 //  `import VolcengineTLSProducer`, deliberately WITHOUT `@testable`. They
@@ -16,13 +16,13 @@
 import XCTest
 import VolcengineTLSProducer
 
-private final class ConsumerStubURLProtocol: URLProtocol, @unchecked Sendable {
+private final class ProducerStubURLProtocol: URLProtocol, @unchecked Sendable {
     private final class Registry: @unchecked Sendable {
         let lock = NSLock()
         var requests: [URLRequest] = []
         var statusCode = 200
         var headers: [String: String] = [
-            "x-tls-request-id": "consumer-stub-request"
+            "x-tls-request-id": "producer-stub-request"
         ]
         var body = Data()
         var hangs = false
@@ -34,7 +34,7 @@ private final class ConsumerStubURLProtocol: URLProtocol, @unchecked Sendable {
         registry.lock.withLock {
             registry.requests.removeAll()
             registry.statusCode = 200
-            registry.headers = ["x-tls-request-id": "consumer-stub-request"]
+            registry.headers = ["x-tls-request-id": "producer-stub-request"]
             registry.body = Data()
             registry.hangs = false
         }
@@ -114,27 +114,27 @@ private extension NSLock {
     }
 }
 
-final class ConsumerIntegrationTests: XCTestCase {
+final class ProducerIntegrationTests: XCTestCase {
 
-    // MARK: - Fixtures (consumer-visible construction only)
+    // MARK: - Fixtures (producer-visible construction only)
 
     private static let producerUserAgent = "volc-tls-ios/producer/v2.0.1"
     private static let apiVersion = "0.3.0"
-    private static let endpoint = "https://consumer.stub.local"
+    private static let endpoint = "https://producer.stub.local"
     private static let region = "cn-beijing"
-    private static let projectID = "consumer-it-project"
-    private static let topicID = "consumer-it-topic"
+    private static let projectID = "producer-it-project"
+    private static let topicID = "producer-it-topic"
 
     override func setUp() {
         super.setUp()
-        ConsumerStubURLProtocol.reset()
+        ProducerStubURLProtocol.reset()
     }
 
     private func makeConfiguration(
         requestTimeout: TimeInterval = 15
     ) throws -> ProducerConfiguration {
         let sessionConfiguration = URLSessionConfiguration.ephemeral
-        sessionConfiguration.protocolClasses = [ConsumerStubURLProtocol.self]
+        sessionConfiguration.protocolClasses = [ProducerStubURLProtocol.self]
         return try ProducerConfiguration(
             requestTimeout: requestTimeout,
             urlSessionConfiguration: sessionConfiguration,
@@ -146,9 +146,9 @@ final class ConsumerIntegrationTests: XCTestCase {
         includeSession: Bool = false
     ) -> Credentials {
         let values = [
-            "consumer-it-\(label)-ak",
-            "consumer-it-\(label)-sk",
-            "consumer-it-\(label)-session",
+            "producer-it-\(label)-ak",
+            "producer-it-\(label)-sk",
+            "producer-it-\(label)-session",
         ]
         return Credentials(
             accessKeyID: values[0],
@@ -173,19 +173,19 @@ final class ConsumerIntegrationTests: XCTestCase {
     private func makeEvent(_ tag: String = "v") -> LogEvent {
         LogEvent(contents: [
             "level": .string("info"),
-            "message": .string("consumer-integration-\(tag)"),
+            "message": .string("producer-integration-\(tag)"),
         ])
     }
 
     // MARK: - Smoke
 
-    /// Consumer lifecycle smoke test:
+    /// Producer lifecycle smoke test:
     /// `open` → `add(.normal)` → `add(.immediate)` → `close(timeout:)`.
     ///
     /// Asserts that at least one `SendResult` with `status == .success` is
     /// delivered to the `onSendResult` handler registered at `open`.
     ///
-    func testConsumerSmoke() async throws {
+    func testProducerSmoke() async throws {
         let collector = SendResultCollector()
 
         let producer = try await Producer.open(
@@ -208,11 +208,11 @@ final class ConsumerIntegrationTests: XCTestCase {
             collector.results.contains { $0.status == .success },
             "expected at least one successful SendResult, got \(collector.results)")
 
-        let requests = ConsumerStubURLProtocol.recordedRequests()
+        let requests = ProducerStubURLProtocol.recordedRequests()
         XCTAssertFalse(requests.isEmpty, "public Producer.open must reach the configured transport")
         let request = try XCTUnwrap(requests.first)
         XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.host, "consumer.stub.local")
+        XCTAssertEqual(request.url?.host, "producer.stub.local")
         XCTAssertEqual(
             URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "TopicId" })?.value,
@@ -233,9 +233,9 @@ final class ConsumerIntegrationTests: XCTestCase {
 
     // MARK: - Defaults
 
-    /// Asserts the documented consumer-visible defaults of
+    /// Asserts the documented producer-visible defaults of
     /// `ProducerConfiguration`.
-    func testConsumerDefaults() throws {
+    func testProducerDefaults() throws {
         let config = try ProducerConfiguration()
 
         // Batching
@@ -278,7 +278,7 @@ final class ConsumerIntegrationTests: XCTestCase {
 
     /// `updateCredentials` / `updateDestination` must not throw while the
     /// producer is open, and must throw `ProducerError.closed` after close.
-    func testConsumerUpdateCredentialsAndDestination() async throws {
+    func testProducerUpdateCredentialsAndDestination() async throws {
         let producer = try await Producer.open(
             configuration: try makeConfiguration(),
             credentials: makeCredentials())
@@ -289,20 +289,20 @@ final class ConsumerIntegrationTests: XCTestCase {
 
         // Destination replacement while open (current-target semantics).
         let rotatedDestination = Destination(
-            endpoint: "https://rotated.consumer.stub.local",
+            endpoint: "https://rotated.producer.stub.local",
             region: "cn-shanghai",
             projectID: "rotated-project",
             topicID: "rotated-topic")
         XCTAssertNoThrow(try producer.updateDestination(rotatedDestination))
         try producer.add(makeEvent("rotated-destination"), mode: .immediate)
         try await waitUntil {
-            ConsumerStubURLProtocol.recordedRequests().contains {
-                $0.url?.host == "rotated.consumer.stub.local"
+            ProducerStubURLProtocol.recordedRequests().contains {
+                $0.url?.host == "rotated.producer.stub.local"
             }
         }
         let rotatedRequest = try XCTUnwrap(
-            ConsumerStubURLProtocol.recordedRequests().first {
-                $0.url?.host == "rotated.consumer.stub.local"
+            ProducerStubURLProtocol.recordedRequests().first {
+                $0.url?.host == "rotated.producer.stub.local"
             })
         XCTAssertEqual(
             URLComponents(url: try XCTUnwrap(rotatedRequest.url), resolvingAgainstBaseURL: false)?
@@ -322,7 +322,7 @@ final class ConsumerIntegrationTests: XCTestCase {
 
     // MARK: - Public failure mapping
 
-    func testConsumerHTTPStatusesMapToPublicProducerErrors() async throws {
+    func testProducerHTTPStatusesMapToPublicProducerErrors() async throws {
         enum Expected {
             case auth
             case quota
@@ -340,10 +340,10 @@ final class ConsumerIntegrationTests: XCTestCase {
         ]
 
         for item in cases {
-            ConsumerStubURLProtocol.reset()
-            ConsumerStubURLProtocol.setResponse(
+            ProducerStubURLProtocol.reset()
+            ProducerStubURLProtocol.setResponse(
                 statusCode: item.status,
-                headers: ["x-tls-request-id": "consumer-status-\(item.name)"],
+                headers: ["x-tls-request-id": "producer-status-\(item.name)"],
                 body: try makeServiceErrorBody(
                     code: item.errorCode,
                     message: untrustedMessage))
@@ -360,7 +360,7 @@ final class ConsumerIntegrationTests: XCTestCase {
             XCTAssertEqual(results.count, 1,
                            "one accepted batch must have one terminal result")
             XCTAssertEqual(
-                ConsumerStubURLProtocol.recordedRequests().count,
+                ProducerStubURLProtocol.recordedRequests().count,
                 item.requestCount,
                 "HTTP \(item.status) retry count must match the Core contract")
             let error = try XCTUnwrap(results.first?.error)
@@ -376,14 +376,14 @@ final class ConsumerIntegrationTests: XCTestCase {
                 }
                 XCTAssertEqual(code, status)
                 XCTAssertEqual(message, item.errorCode)
-                XCTAssertEqual(requestID, "consumer-status-\(item.name)")
+                XCTAssertEqual(requestID, "producer-status-\(item.name)")
                 XCTAssertFalse(message.contains(untrustedMessage))
             }
         }
     }
 
-    func testConsumerTimeoutMapsToOnePublicTerminalResult() async throws {
-        ConsumerStubURLProtocol.setHanging()
+    func testProducerTimeoutMapsToOnePublicTerminalResult() async throws {
+        ProducerStubURLProtocol.setHanging()
         let collector = SendResultCollector()
         let producer = try await Producer.open(
             configuration: try makeConfiguration(requestTimeout: 0.1),
@@ -400,22 +400,22 @@ final class ConsumerIntegrationTests: XCTestCase {
                        "one accepted batch must have one terminal timeout result")
         XCTAssertEqual(results.first?.error, .timeout)
         XCTAssertLessThan(elapsed, 5, "public timeout path must remain bounded")
-        XCTAssertEqual(ConsumerStubURLProtocol.recordedRequests().count, 3,
+        XCTAssertEqual(ProducerStubURLProtocol.recordedRequests().count, 3,
                        "retryable timeout should honor the Core max-attempt contract")
     }
 
-    func testConsumerPersistentAuthRetainResumesWithOneTerminalResult() async throws {
+    func testProducerPersistentAuthRetainResumesWithOneTerminalResult() async throws {
         let expiredCode = ["Expired", "To", "ken"].joined()
-        ConsumerStubURLProtocol.setResponse(
+        ProducerStubURLProtocol.setResponse(
             statusCode: 400,
-            headers: ["x-tls-request-id": "consumer-auth-retain-first"],
+            headers: ["x-tls-request-id": "producer-auth-retain-first"],
             body: try makeServiceErrorBody(
                 code: expiredCode,
                 message: "authorization expired"))
         let collector = SendResultCollector()
         var configuration = try makeConfiguration(requestTimeout: 0.2)
         configuration.persistence = .buffered
-        configuration.producerID = "consumer-auth-\(UUID().uuidString.prefix(12))"
+        configuration.producerID = "producer-auth-\(UUID().uuidString.prefix(12))"
         configuration.unauthorizedPolicy = .retain
 
         let producer = try await Producer.open(
@@ -423,7 +423,7 @@ final class ConsumerIntegrationTests: XCTestCase {
             credentials: makeCredentials()) { collector.append($0) }
         try producer.add(makeEvent("auth-retain"), mode: .immediate)
         try await waitUntil(timeout: 3) {
-            !ConsumerStubURLProtocol.recordedRequests().isEmpty
+            !ProducerStubURLProtocol.recordedRequests().isEmpty
         }
 
         // A retained authentication failure is a suspended attempt, not a
@@ -431,9 +431,9 @@ final class ConsumerIntegrationTests: XCTestCase {
         try await Task.sleep(nanoseconds: 500_000_000)
         XCTAssertTrue(collector.results.isEmpty)
 
-        ConsumerStubURLProtocol.setResponse(
+        ProducerStubURLProtocol.setResponse(
             statusCode: 200,
-            headers: ["x-tls-request-id": "consumer-auth-retain-success"],
+            headers: ["x-tls-request-id": "producer-auth-retain-success"],
             body: Data())
         try producer.updateCredentials(makeCredentials("updated"))
         try await waitUntil(timeout: 8) { collector.results.count == 1 }
@@ -441,7 +441,7 @@ final class ConsumerIntegrationTests: XCTestCase {
         let result = try XCTUnwrap(collector.results.first)
         XCTAssertEqual(result.status, .success)
         XCTAssertNil(result.error)
-        XCTAssertEqual(result.requestID, "consumer-auth-retain-success")
+        XCTAssertEqual(result.requestID, "producer-auth-retain-success")
         try await Task.sleep(nanoseconds: 250_000_000)
         XCTAssertEqual(collector.results.count, 1)
         try await producer.close(timeout: 5)
@@ -449,9 +449,9 @@ final class ConsumerIntegrationTests: XCTestCase {
 
     // MARK: - Invalid log rejection
 
-    func testConsumerPersistentAdmissionErrorCanReplayAfterReopen() async throws {
+    func testProducerPersistentAdmissionErrorCanReplayAfterReopen() async throws {
         for persistence in [Persistence.buffered, .sync] {
-            ConsumerStubURLProtocol.reset()
+            ProducerStubURLProtocol.reset()
             let marker = "admission-replay-\(UUID().uuidString)"
             let payload = "recovered-payload-" + String(repeating: "x", count: 512)
             let event = LogEvent(contents: [
@@ -481,7 +481,7 @@ final class ConsumerIntegrationTests: XCTestCase {
             }
             try await first.close(timeout: 5)
             XCTAssertTrue(firstResults.results.isEmpty)
-            XCTAssertTrue(ConsumerStubURLProtocol.recordedRequests().isEmpty)
+            XCTAssertTrue(ProducerStubURLProtocol.recordedRequests().isEmpty)
 
             // Do not add the event again: reopening alone must recover it.
             configuration.buffer = BufferConfiguration()
@@ -492,7 +492,7 @@ final class ConsumerIntegrationTests: XCTestCase {
             try await waitUntil(timeout: 10) { recoveredResults.results.count == 1 }
             try await recovered.close(timeout: 5)
             XCTAssertEqual(recoveredResults.results.map(\.status), [.success])
-            let requests = ConsumerStubURLProtocol.recordedRequests()
+            let requests = ProducerStubURLProtocol.recordedRequests()
             XCTAssertEqual(requests.count, 1)
             let request = try XCTUnwrap(requests.first)
             XCTAssertEqual(request.value(forHTTPHeaderField: "x-tls-compresstype"), "none")
@@ -506,14 +506,14 @@ final class ConsumerIntegrationTests: XCTestCase {
             let empty = try await Producer.open(
                 configuration: configuration, credentials: makeCredentials())
             try await empty.close(timeout: 5)
-            XCTAssertEqual(ConsumerStubURLProtocol.recordedRequests().count, 1)
+            XCTAssertEqual(ProducerStubURLProtocol.recordedRequests().count, 1)
         }
     }
 
     /// A log containing a NaN double must be rejected at admission with
     /// `ProducerError.invalidLog`; the whole event is rejected (no partial
     /// admission).
-    func testConsumerInvalidLogRejected() async throws {
+    func testProducerInvalidLogRejected() async throws {
         let producer = try await Producer.open(
             configuration: try makeConfiguration(),
             credentials: makeCredentials())
@@ -540,7 +540,7 @@ final class ConsumerIntegrationTests: XCTestCase {
     // MARK: - Closed producer
 
     /// `add` on a closed producer must throw `ProducerError.closed`.
-    func testConsumerAddAfterCloseRejected() async throws {
+    func testProducerAddAfterCloseRejected() async throws {
         let producer = try await Producer.open(
             configuration: try makeConfiguration(),
             credentials: makeCredentials())
@@ -574,7 +574,7 @@ private final class SendResultCollector: @unchecked Sendable {
     }
 }
 
-/// Polls until `condition` is true or the deadline passes. Consumer tests
+/// Polls until `condition` is true or the deadline passes. Producer tests
 /// are self-contained: BridgeTests support helpers are intentionally not
 /// linked (this target sees the public API only).
 private func waitUntil(

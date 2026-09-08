@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 #
-# Verify a real external pure Objective-C consumer of the Producer facade.
+# Verify a real external pure Objective-C Producer application integration
+# test against the Producer facade.
 #
-# The script creates all Xcode/CocoaPods consumer files below a private
+# The script creates all Xcode/CocoaPods test-project files below a private
 # mktemp directory. It exercises both CocoaPods' default static-library
 # integration and `use_frameworks! :linkage => :static`, builds the same
 # Objective-C source for macOS and iOS Simulator, and runs the macOS command
-# line consumer against its URLProtocol stub. No real credentials or business
+# line test program against its URLProtocol stub. No real credentials or business
 # network are used.
 #
 # SwiftPM is probed as a real external Objective-C target through the package's
@@ -33,7 +34,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-FIXTURE_DIR="${REPO_ROOT}/Producer/Tests/ObjectiveCConsumer"
+FIXTURE_DIR="${REPO_ROOT}/Producer/Tests/ObjectiveCProducer"
 POD_SOURCE_MODE="${POD_SOURCE_MODE:-git}"
 
 if [[ -n "${POD_BIN:-}" ]]; then
@@ -89,17 +90,17 @@ cleanup() {
         rm -rf "${task_root}"
         return
     fi
-    echo "INFO: preserving temporary consumer projects at ${task_root}"
+    echo "INFO: preserving temporary producer projects at ${task_root}"
 }
 trap cleanup EXIT
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-    echo "SKIP: Objective-C CocoaPods consumer verification requires macOS/Xcode."
+    echo "SKIP: Objective-C CocoaPods producer verification requires macOS/Xcode."
     exit 0
 fi
 
 preflight() {
-    echo "== Objective-C consumer preflight =="
+    echo "== Objective-C producer preflight =="
     case "${POD_SOURCE_MODE}" in
         git|path)
             echo "OK: CocoaPods source mode is ${POD_SOURCE_MODE}."
@@ -109,11 +110,11 @@ preflight() {
             ;;
     esac
     if [[ ! -f "${FIXTURE_DIR}/main.m" ]]; then
-        mark_fail "pure Objective-C fixture is missing: Producer/Tests/ObjectiveCConsumer/main.m"
+        mark_fail "pure Objective-C fixture is missing: Producer/Tests/ObjectiveCProducer/main.m"
         return
     fi
     if rg --files "${FIXTURE_DIR}" | rg -q '\.swift$'; then
-        mark_fail "Objective-C consumer fixture contains Swift source"
+        mark_fail "Objective-C producer fixture contains Swift source"
     else
         echo "OK: fixture contains no Swift source."
     fi
@@ -191,9 +192,9 @@ prepare_pod_source_snapshot() {
             Producer/scripts/TLSProducerBridge.modulemap &&
         "${GIT_BIN}" -c core.hooksPath=/dev/null \
             -c commit.gpgSign=false \
-            -c user.name='Objective-C consumer verifier' \
-            -c user.email='objective-c-consumer-verifier@invalid' \
-            commit --quiet --no-verify -m 'Objective-C consumer verifier snapshot' &&
+            -c user.name='Objective-C producer verifier' \
+            -c user.email='objective-c-producer-verifier@invalid' \
+            commit --quiet --no-verify -m 'Objective-C producer verifier snapshot' &&
         "${GIT_BIN}" rev-parse --verify HEAD
     )"; then
         mark_fail "could not commit temporary CocoaPods Git source snapshot"
@@ -330,13 +331,13 @@ show_failure_log() {
     echo "--- end diagnostics ---"
 }
 
-run_cocoapods_consumer() {
+run_cocoapods_producer() {
     local platform="$1"
     local linkage="$2"
     local run_binary="$3"
     local label="${platform}-${linkage}"
-    local root="${task_root}/${label}/consumer with spaces"
-    local target="TLSObjCConsumer${platform}${linkage//-/}"
+    local root="${task_root}/${label}/producer with spaces"
+    local target="TLSObjCProducer${platform}${linkage//-/}"
     local pod_log="${root}/pod-install.log"
     local build_log="${root}/xcodebuild.log"
     local runtime_log="${root}/runtime.log"
@@ -349,7 +350,7 @@ run_cocoapods_consumer() {
     write_podfile "${root}" "${target}" "${platform}" "${linkage}"
     generate_project "${root}" "${target}" "${platform}"
     ran=$((ran + 1))
-    echo "== CocoaPods ${label} external Objective-C consumer =="
+    echo "== CocoaPods ${label} external Objective-C producer =="
 
     if ! mkdir -p "${cp_cache_dir}"; then
         mark_fail "could not create isolated CocoaPods cache directory for ${label}"
@@ -385,7 +386,7 @@ run_cocoapods_consumer() {
         mark_fail "xcodebuild failed for ${label}"
         return
     fi
-    echo "OK: xcodebuild built pure Objective-C CocoaPods consumer for ${label}."
+    echo "OK: xcodebuild built pure Objective-C CocoaPods producer for ${label}."
 
     if [[ "${platform}" == "macos" && "${run_binary}" == "1" ]]; then
         binary="$(find "${build_root}/Build/Products/Release" -type f -name "${target}" \
@@ -396,15 +397,15 @@ run_cocoapods_consumer() {
         fi
         if ! "${binary}" >"${runtime_log}" 2>&1; then
             show_failure_log "runtime ${label}" "${runtime_log}"
-            mark_fail "macOS ${label} Objective-C consumer failed at runtime"
+            mark_fail "macOS ${label} Objective-C producer failed at runtime"
             return
         fi
-        if ! grep -Fq 'Objective-C consumer PASS' "${runtime_log}"; then
+        if ! grep -Fq 'Objective-C producer PASS' "${runtime_log}"; then
             show_failure_log "runtime ${label}" "${runtime_log}"
-            mark_fail "macOS ${label} did not report the consumer PASS marker"
+            mark_fail "macOS ${label} did not report the producer PASS marker"
             return
         fi
-        echo "OK: macOS ${label} Objective-C consumer ran offline and validated the wire body."
+        echo "OK: macOS ${label} Objective-C producer ran offline and validated the wire body."
     fi
 
     if [[ "${platform}" == "ios" && "${RUN_IOS_SIMULATOR:-0}" == "1" ]]; then
@@ -450,7 +451,7 @@ run_cocoapods_consumer() {
                 # once its final marker is flushed, then terminate our app.
                 local attempt
                 for ((attempt=0; attempt<240; attempt++)); do
-                    if grep -Fq 'Objective-C consumer PASS' "${runtime_log}"; then
+                    if grep -Fq 'Objective-C producer PASS' "${runtime_log}"; then
                         marker_seen=1
                         break
                     fi
@@ -467,7 +468,7 @@ run_cocoapods_consumer() {
                 launch_rc="${launch_rc:-0}"
                 if [[ "${marker_seen}" -ne 1 ]]; then
                     show_failure_log "simctl launch ${label}" "${runtime_log}"
-                    mark_fail "iOS Simulator did not report Objective-C consumer PASS before deadline"
+                    mark_fail "iOS Simulator did not report Objective-C producer PASS before deadline"
                     return
                 fi
                 if grep -q 'is implemented in both' "${runtime_log}"; then
@@ -476,7 +477,7 @@ run_cocoapods_consumer() {
                 fi
                 if [[ "${launch_rc}" -ne 0 && "${launch_rc}" -ne 143 ]]; then
                     show_failure_log "simctl launch ${label}" "${runtime_log}"
-                    mark_fail "iOS Simulator consumer exited with status ${launch_rc}"
+                    mark_fail "iOS Simulator producer exited with status ${launch_rc}"
                     return
                 fi
                 echo "OK: iOS Simulator built and ran ${label} with the PASS marker."
@@ -492,7 +493,7 @@ probe_swiftpm() {
         return
     fi
     if ! command -v swift >/dev/null 2>&1; then
-        mark_blocked "swift unavailable; SwiftPM Objective-C consumer cannot be verified."
+        mark_blocked "swift unavailable; SwiftPM Objective-C producer cannot be verified."
         return
     fi
 
@@ -536,20 +537,20 @@ probe_swiftpm() {
             mark_fail "SwiftPM pure Objective-C probe linked but failed at runtime"
             return
         fi
-        if ! grep -Fq 'Objective-C consumer PASS' "${probe_log}"; then
-            mark_fail "SwiftPM Objective-C consumer did not report its completion marker"
+        if ! grep -Fq 'Objective-C producer PASS' "${probe_log}"; then
+            mark_fail "SwiftPM Objective-C producer did not report its completion marker"
             return
         fi
         echo "OK: SwiftPM pure Objective-C target imported the generated header, linked, and ran."
         return
     fi
-    mark_fail "SwiftPM pure Objective-C consumer failed"
+    mark_fail "SwiftPM pure Objective-C producer failed"
     show_failure_log "SwiftPM pure Objective-C probe" "${probe_log}"
 }
 
 preflight
 if [[ "${overall}" -eq 0 ]]; then
-    task_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-objc-consumer.XXXXXX")"
+    task_root="$(mktemp -d "${TMPDIR:-/tmp}/tls-objc-producer.XXXXXX")"
     if [[ "${KEEP_SUCCESS:-0}" == "1" ]]; then
         keep_temp=1
     fi
@@ -562,14 +563,14 @@ if [[ "${overall}" -eq 0 ]]; then
     probe_swiftpm
     if [[ "${pod_source_ready}" -eq 1 ]]; then
         if [[ "${SKIP_MACOS:-0}" != "1" ]]; then
-            run_cocoapods_consumer macos static-library 1
-            run_cocoapods_consumer macos static-framework 1
+            run_cocoapods_producer macos static-library 1
+            run_cocoapods_producer macos static-framework 1
         else
             echo "SKIP: macOS checks disabled by SKIP_MACOS=1."
         fi
         if [[ "${SKIP_IOS:-0}" != "1" ]]; then
-            run_cocoapods_consumer ios static-library 0
-            run_cocoapods_consumer ios static-framework 0
+            run_cocoapods_producer ios static-library 0
+            run_cocoapods_producer ios static-framework 0
         else
             echo "SKIP: iOS Simulator checks disabled by SKIP_IOS=1."
         fi
@@ -580,10 +581,10 @@ fi
 
 echo ""
 if [[ "${overall}" -eq 0 && "${ran}" -eq 0 && "${blocked}" -eq 0 ]]; then
-    echo "SKIP: no Objective-C consumer checks ran."
+    echo "SKIP: no Objective-C producer checks ran."
 elif [[ "${overall}" -eq 0 ]]; then
-    echo "OK: Objective-C consumer verification completed (${ran} CocoaPods builds; optional skips listed above)."
+    echo "OK: Objective-C producer verification completed (${ran} CocoaPods builds; optional skips listed above)."
 else
-    echo "FAIL: Objective-C consumer verification is incomplete or one or more checks failed."
+    echo "FAIL: Objective-C producer verification is incomplete or one or more checks failed."
 fi
 exit "${overall}"

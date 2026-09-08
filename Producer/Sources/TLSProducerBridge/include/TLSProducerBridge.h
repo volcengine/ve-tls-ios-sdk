@@ -6,8 +6,8 @@
 //
 //  SCOPE: TLSProducerBridge is a package-INTERNAL target, not a public
 //  product, and VolcengineTLSProducer does not re-export it. SwiftPM does not
-//  enforce access control for transitive target modules, so a source-package
-//  consumer may still spell `import TLSProducerBridge`; that unsupported
+//  enforce access control for transitive target modules, so an application
+//  may still spell `import TLSProducerBridge`; that unsupported
 //  implementation surface has no source/ABI compatibility promise. The
 //  headers below exist for the Swift wrapper and package tests. CocoaPods
 //  keeps them in PrivateHeaders and out of the public module.

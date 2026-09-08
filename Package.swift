@@ -66,9 +66,9 @@ let package = Package(
             path: "Producer/Tests/PersistenceTests"
         ),
         .testTarget(
-            name: "ConsumerIntegrationTests",
+            name: "ProducerIntegrationTests",
             dependencies: ["VolcengineTLSProducer", "TLSProducerBridge"],
-            path: "Producer/Tests/ConsumerIntegrationTests"
+            path: "Producer/Tests/ProducerIntegrationTests"
         ),
     ]
 )

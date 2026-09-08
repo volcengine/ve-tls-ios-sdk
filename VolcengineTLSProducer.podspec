@@ -61,8 +61,8 @@ delivery for Apple applications.
     test_spec.source_files = 'Producer/Tests/ContractTests/**/*.swift'
   end
 
-  s.test_spec 'ConsumerIntegrationTests' do |test_spec|
-    test_spec.source_files = 'Producer/Tests/ConsumerIntegrationTests/ConsumerIntegrationTests.swift',
-                             'Producer/Tests/ConsumerIntegrationTests/RealHTTPSRedirectIntegrationTests.swift'
+  s.test_spec 'ProducerIntegrationTests' do |test_spec|
+    test_spec.source_files = 'Producer/Tests/ProducerIntegrationTests/ProducerIntegrationTests.swift',
+                             'Producer/Tests/ProducerIntegrationTests/RealHTTPSRedirectIntegrationTests.swift'
   end
 end

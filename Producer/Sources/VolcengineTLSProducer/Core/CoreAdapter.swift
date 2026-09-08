@@ -9,7 +9,7 @@ import Foundation
 
 /// `CoreAdapter` is the boundary between the Swift `Producer` facade and the
 /// underlying Core engine. It is package-internal; tests access it through
-/// `@testable import` and it is not part of the consumer API or ABI.
+/// `@testable import` and it is not part of the public API or ABI.
 ///
 /// Conformance rules:
 /// - All methods must be safe to call from any thread; conformers serialize

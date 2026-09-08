@@ -38,7 +38,7 @@ Producer/scripts/verify-all.sh
 ```
 
 指定现有模拟器时，设置 `IOS_SIMULATOR_DESTINATION`；纯 Objective-C 集成测试的运行选项见
-[测试说明](Producer/Tests/ObjectiveCConsumer/README.md)。各脚本开头列出了可用环境变量。
+[测试说明](Producer/Tests/ObjectiveCProducer/README.md)。各脚本开头列出了可用环境变量。
 需要显式 opt-in 的 HTTPS 测试默认跳过；`SKIP` 不是执行成功，发布验证时应分别记录。
 
 测试仅使用模拟凭据和响应。不要将真实凭据、请求正文、性能采样、构建目录或测试结果归档提交到
