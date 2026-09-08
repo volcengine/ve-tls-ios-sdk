@@ -24,6 +24,9 @@ delivery for Apple applications.
   # SwiftPM and CocoaPods compile the same source tree.
   s.source_files = 'Producer/Sources/**/*.{h,m,c,swift}'
 
+  # Keep the private module map when CocoaPods cleans downloaded sources.
+  s.preserve_paths = 'Producer/scripts/TLSProducerBridge.modulemap'
+
   # Tests and test doubles are not shipped.
   s.exclude_files = 'Producer/Tests/**',
                     'Producer/Sources/**/Fake*',
@@ -49,8 +52,8 @@ delivery for Apple applications.
     'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) VE_TLS_HAVE_LZ4=1 VE_TLS_NO_CURL=1 VE_TLS_PACKAGE_INTERNAL=1',
     'OTHER_CFLAGS'         => '$(inherited) -fvisibility=hidden',
     'OTHER_CPLUSPLUSFLAGS' => '$(inherited) -fvisibility=hidden',
-    # Make the private bridge module visible to the Swift implementation.
-    'OTHER_SWIFT_FLAGS'    => '$(inherited) -Xcc -fmodule-map-file=$(PODS_TARGET_SRCROOT)/Producer/scripts/TLSProducerBridge.modulemap',
+    # Keep the Clang argument intact when the checkout or Pods path has spaces.
+    'OTHER_SWIFT_FLAGS'    => '$(inherited) -Xcc "-fmodule-map-file=$(PODS_TARGET_SRCROOT)/Producer/scripts/TLSProducerBridge.modulemap"',
     'HEADER_SEARCH_PATHS'  => '"$(PODS_TARGET_SRCROOT)/Producer/Sources/CTLSProducerCore/include" "$(PODS_TARGET_SRCROOT)/Producer/Sources/TLSProducerBridge"',
   }
 

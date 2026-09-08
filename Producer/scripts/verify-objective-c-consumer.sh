@@ -22,6 +22,9 @@
 #   SKIP_IOS=1           skip iOS Simulator builds.
 #   SKIP_MACOS=1         skip macOS build/run checks.
 #   SKIP_SWIFTPM=1       skip the SwiftPM module probe.
+#   POD_SOURCE_MODE=git   install CocoaPods from a temporary Git snapshot
+#                        (default; exercises CocoaPods' clean checkout path).
+#   POD_SOURCE_MODE=path  install CocoaPods from the same temporary path snapshot.
 #   KEEP_SUCCESS=1       keep successful temp projects for inspection.
 #   POD_BIN/RUBY_BIN/XCODEBUILD_BIN/XCRUN_BIN override tool paths; otherwise
 #   pod/ruby/xcodebuild/xcrun are discovered through PATH.
@@ -31,6 +34,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 FIXTURE_DIR="${REPO_ROOT}/Producer/Tests/ObjectiveCConsumer"
+POD_SOURCE_MODE="${POD_SOURCE_MODE:-git}"
 
 if [[ -n "${POD_BIN:-}" ]]; then
     POD_BIN="${POD_BIN}"
@@ -52,12 +56,15 @@ if [[ -n "${XCRUN_BIN:-}" ]]; then
 else
     XCRUN_BIN="$(command -v xcrun || true)"
 fi
+GIT_BIN="$(command -v git 2>/dev/null || true)"
 
 overall=0
 ran=0
 blocked=0
 task_root=""
 keep_temp=0
+pod_source_root=""
+pod_source_commit=""
 
 mark_fail() {
     echo "FAIL: $1"
@@ -93,6 +100,14 @@ fi
 
 preflight() {
     echo "== Objective-C consumer preflight =="
+    case "${POD_SOURCE_MODE}" in
+        git|path)
+            echo "OK: CocoaPods source mode is ${POD_SOURCE_MODE}."
+            ;;
+        *)
+            mark_fail "POD_SOURCE_MODE must be git or path (got: ${POD_SOURCE_MODE})"
+            ;;
+    esac
     if [[ ! -f "${FIXTURE_DIR}/main.m" ]]; then
         mark_fail "pure Objective-C fixture is missing: Producer/Tests/ObjectiveCConsumer/main.m"
         return
@@ -132,6 +147,72 @@ preflight() {
     fi
 }
 
+prepare_pod_source_snapshot() {
+    local snapshot_root="${task_root}/pod source with spaces"
+    if ! mkdir -p "${snapshot_root}/Producer/scripts"; then
+        mark_fail "could not create temporary CocoaPods source snapshot"
+        return 1
+    fi
+    if [[ ! -f "${REPO_ROOT}/VolcengineTLSProducer.podspec" ||
+        ! -f "${REPO_ROOT}/LICENSE" ||
+        ! -d "${REPO_ROOT}/Producer/Sources" ||
+        ! -f "${REPO_ROOT}/Producer/scripts/TLSProducerBridge.modulemap" ]]; then
+        mark_fail "CocoaPods source snapshot inputs are incomplete"
+        return 1
+    fi
+    if ! cp "${REPO_ROOT}/VolcengineTLSProducer.podspec" "${snapshot_root}/VolcengineTLSProducer.podspec" ||
+       ! cp "${REPO_ROOT}/LICENSE" "${snapshot_root}/LICENSE" ||
+       ! cp -R "${REPO_ROOT}/Producer/Sources" "${snapshot_root}/Producer/" ||
+       ! cp "${REPO_ROOT}/Producer/scripts/TLSProducerBridge.modulemap" \
+           "${snapshot_root}/Producer/scripts/TLSProducerBridge.modulemap"; then
+        mark_fail "could not copy CocoaPods source snapshot inputs"
+        return 1
+    fi
+
+    pod_source_root="${snapshot_root}"
+    if [[ "${POD_SOURCE_MODE}" == "path" ]]; then
+        echo "OK: prepared temporary CocoaPods path source snapshot at ${pod_source_root}."
+        return 0
+    fi
+    if [[ -z "${GIT_BIN}" ]]; then
+        mark_blocked "git executable was not found in PATH; CocoaPods Git source mode requires git"
+        return 1
+    elif [[ ! -x "${GIT_BIN}" ]]; then
+        mark_blocked "git executable is unavailable: ${GIT_BIN}"
+        return 1
+    fi
+
+    local commit
+    if ! commit="$(
+        cd "${snapshot_root}" &&
+        export GIT_CONFIG_NOSYSTEM=1 &&
+        "${GIT_BIN}" init --quiet &&
+        "${GIT_BIN}" add -- VolcengineTLSProducer.podspec LICENSE Producer/Sources \
+            Producer/scripts/TLSProducerBridge.modulemap &&
+        "${GIT_BIN}" -c core.hooksPath=/dev/null \
+            -c commit.gpgSign=false \
+            -c user.name='Objective-C consumer verifier' \
+            -c user.email='objective-c-consumer-verifier@invalid' \
+            commit --quiet --no-verify -m 'Objective-C consumer verifier snapshot' &&
+        "${GIT_BIN}" rev-parse --verify HEAD
+    )"; then
+        mark_fail "could not commit temporary CocoaPods Git source snapshot"
+        return 1
+    fi
+    pod_source_commit="${commit}"
+    echo "OK: prepared temporary CocoaPods Git source snapshot at ${pod_source_root} (${pod_source_commit})."
+}
+
+ruby_literal() {
+    "${RUBY_BIN}" -e 'print ARGV.fetch(0).dump' -- "$1"
+}
+
+git_file_url() {
+    "${RUBY_BIN}" -e \
+        'require "uri"; print "file://"; print URI::DEFAULT_PARSER.escape(File.expand_path(ARGV.fetch(0)))' \
+        -- "$1"
+}
+
 write_podfile() {
     local root="$1"
     local target="$2"
@@ -143,6 +224,18 @@ write_podfile() {
     else
         platform_line="platform :osx, '10.15'"
     fi
+    local source_line
+    if [[ "${POD_SOURCE_MODE}" == "git" ]]; then
+        local source_url source_literal commit_literal
+        source_url="$(git_file_url "${pod_source_root}")"
+        source_literal="$(ruby_literal "${source_url}")"
+        commit_literal="$(ruby_literal "${pod_source_commit}")"
+        source_line="  pod 'VolcengineTLSProducer', :git => ${source_literal}, :commit => ${commit_literal}"
+    else
+        local path_literal
+        path_literal="$(ruby_literal "${pod_source_root}")"
+        source_line="  pod 'VolcengineTLSProducer', :path => ${path_literal}"
+    fi
     {
         printf '%s\n' "${platform_line}"
         printf '%s\n' "install! 'cocoapods', :disable_input_output_paths => true"
@@ -150,7 +243,7 @@ write_podfile() {
         if [[ "${linkage}" == "static-framework" ]]; then
             printf '%s\n' "  use_frameworks! :linkage => :static"
         fi
-        printf '%s\n' "  pod 'VolcengineTLSProducer', :path => '${REPO_ROOT}'"
+        printf '%s\n' "${source_line}"
         printf '%s\n' 'end'
     } > "${root}/Podfile"
 }
@@ -242,7 +335,7 @@ run_cocoapods_consumer() {
     local linkage="$2"
     local run_binary="$3"
     local label="${platform}-${linkage}"
-    local root="${task_root}/${label}"
+    local root="${task_root}/${label}/consumer with spaces"
     local target="TLSObjCConsumer${platform}${linkage//-/}"
     local pod_log="${root}/pod-install.log"
     local build_log="${root}/xcodebuild.log"
@@ -250,6 +343,7 @@ run_cocoapods_consumer() {
     local build_root="${root}/DerivedData"
     local workspace="${root}/${target}.xcworkspace"
     local binary=""
+    local cp_cache_dir="${task_root}/CP_CACHE_DIR/${label}"
 
     mkdir -p "${root}"
     write_podfile "${root}" "${target}" "${platform}" "${linkage}"
@@ -257,11 +351,24 @@ run_cocoapods_consumer() {
     ran=$((ran + 1))
     echo "== CocoaPods ${label} external Objective-C consumer =="
 
-    if ! COCOAPODS_DISABLE_STATS=1 "${POD_BIN}" install --no-repo-update \
-        "--project-directory=${root}" >"${pod_log}" 2>&1; then
+    if ! mkdir -p "${cp_cache_dir}"; then
+        mark_fail "could not create isolated CocoaPods cache directory for ${label}"
+        return
+    fi
+    if ! CP_CACHE_DIR="${cp_cache_dir}" COCOAPODS_DISABLE_STATS=1 \
+        "${POD_BIN}" install --no-repo-update "--project-directory=${root}" \
+        >"${pod_log}" 2>&1; then
         show_failure_log "CocoaPods ${label}" "${pod_log}"
         mark_fail "CocoaPods install failed for ${label}"
         return
+    fi
+    if [[ "${POD_SOURCE_MODE}" == "git" ]]; then
+        local installed_modulemap="${root}/Pods/VolcengineTLSProducer/Producer/scripts/TLSProducerBridge.modulemap"
+        if [[ ! -f "${installed_modulemap}" ]]; then
+            mark_fail "CocoaPods Git install did not preserve ${installed_modulemap}"
+            return
+        fi
+        echo "OK: CocoaPods Git install preserved the modulemap after checkout cleanup."
     fi
     if [[ ! -d "${workspace}" ]]; then
         mark_fail "CocoaPods did not create ${workspace}"
@@ -446,18 +553,28 @@ if [[ "${overall}" -eq 0 ]]; then
     if [[ "${KEEP_SUCCESS:-0}" == "1" ]]; then
         keep_temp=1
     fi
-    probe_swiftpm
-    if [[ "${SKIP_MACOS:-0}" != "1" ]]; then
-        run_cocoapods_consumer macos static-library 1
-        run_cocoapods_consumer macos static-framework 1
-    else
-        echo "SKIP: macOS checks disabled by SKIP_MACOS=1."
+    pod_source_ready=1
+    if [[ "${SKIP_MACOS:-0}" != "1" || "${SKIP_IOS:-0}" != "1" ]]; then
+        if ! prepare_pod_source_snapshot; then
+            pod_source_ready=0
+        fi
     fi
-    if [[ "${SKIP_IOS:-0}" != "1" ]]; then
-        run_cocoapods_consumer ios static-library 0
-        run_cocoapods_consumer ios static-framework 0
+    probe_swiftpm
+    if [[ "${pod_source_ready}" -eq 1 ]]; then
+        if [[ "${SKIP_MACOS:-0}" != "1" ]]; then
+            run_cocoapods_consumer macos static-library 1
+            run_cocoapods_consumer macos static-framework 1
+        else
+            echo "SKIP: macOS checks disabled by SKIP_MACOS=1."
+        fi
+        if [[ "${SKIP_IOS:-0}" != "1" ]]; then
+            run_cocoapods_consumer ios static-library 0
+            run_cocoapods_consumer ios static-framework 0
+        else
+            echo "SKIP: iOS Simulator checks disabled by SKIP_IOS=1."
+        fi
     else
-        echo "SKIP: iOS Simulator checks disabled by SKIP_IOS=1."
+        echo "SKIP: CocoaPods checks were not started because the source snapshot failed."
     fi
 fi
 
