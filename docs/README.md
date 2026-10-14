@@ -32,7 +32,6 @@ Objective-C 项目请参阅 [Objective-C 接入](getting-started/objective-c.md)
 
 - [故障排查](operations/troubleshooting.md)
 - [性能测试](operations/performance.md)
-- [内部先合入与 GitHub 同步](operations/repository-sync.md)
 - [v1.x 到 v2.0.x](migration/v1-to-v2.md)
 
 Producer v2 只负责日志上传，不提供查询、消费或管理接口。旧版 v1.x Objective-C 客户端的

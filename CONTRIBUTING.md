@@ -50,7 +50,6 @@ Producer/scripts/verify-all.sh --integration
 
 ## 提交变更
 
-- 内部 `master` 是主仓：先验证并合入内部 MR，再提交 GitHub 同步 PR；保留原始内部提交，并校验共享祖先及完整 Git tree 一致。同步步骤和发布标签要求见[仓库同步](docs/operations/repository-sync.md)。
 - 公开接口发生变化时，同步更新用户文档与 `CHANGELOG.md`；
 - 修改发送、持久化、关闭或并发行为时，添加对应的回归测试；
 - 修改包结构时，验证 SwiftPM、CocoaPods 和公共模块的外部消费；
