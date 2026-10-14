@@ -90,6 +90,7 @@ static NSString *const kTLSBackgroundTaskName =
 - (void)tls_registerObservers;
 - (void)tls_endOutstandingBackgroundTask;
 - (void)tls_endBackgroundTaskIfCurrent:(NSUInteger)taskIdentifier;
+- (void)tls_emitObserverForState:(NSString *)state reason:(nullable NSString *)reason;
 
 @end
 
@@ -98,11 +99,13 @@ static NSString *const kTLSBackgroundTaskName =
 - (instancetype)initWithFlushHandler:(void (^)(void))flushHandler
                          wakeHandler:(void (^)(void))wakeHandler
                                 host:(id<TLSLifecycleHost>)host
-                      extensionCheck:(TLSExtensionCheckBlock)extensionCheck {
+                      extensionCheck:(TLSExtensionCheckBlock)extensionCheck
+                           observer:(TLSLifecycleObserverBlock)observer {
     self = [super init];
     if (self) {
         _flushHandler = [flushHandler copy];
         _wakeHandler = [wakeHandler copy];
+        _diagnosticObserver = [observer copy];
         _host = host;
         _backgroundTaskIdentifier = TLSLifecycleInvalidBackgroundTaskIdentifier;
 
@@ -124,11 +127,23 @@ static NSString *const kTLSBackgroundTaskName =
 }
 
 - (instancetype)initWithFlushHandler:(void (^)(void))flushHandler
+                         wakeHandler:(void (^)(void))wakeHandler
+                                host:(id<TLSLifecycleHost>)host
+                      extensionCheck:(TLSExtensionCheckBlock)extensionCheck {
+    return [self initWithFlushHandler:flushHandler
+                          wakeHandler:wakeHandler
+                                 host:host
+                       extensionCheck:extensionCheck
+                            observer:nil];
+}
+
+- (instancetype)initWithFlushHandler:(void (^)(void))flushHandler
                          wakeHandler:(void (^)(void))wakeHandler {
     return [self initWithFlushHandler:flushHandler
                           wakeHandler:wakeHandler
                                  host:[[TLSDefaultLifecycleHost alloc] init]
-                       extensionCheck:nil];
+                       extensionCheck:nil
+                            observer:nil];
 }
 
 - (void)dealloc {
@@ -192,6 +207,10 @@ static NSString *const kTLSBackgroundTaskName =
             } else {
                 dispatch_async(dispatch_get_main_queue(), endExpiredTask);
             }
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (strongSelf != nil) {
+                [strongSelf tls_emitObserverForState:@"background" reason:@"expiration"];
+            }
         }];
         self.backgroundTaskIdentifier = taskIdentifier;
     }
@@ -204,6 +223,7 @@ static NSString *const kTLSBackgroundTaskName =
     if (flush != nil) {
         flush();
     }
+    [self tls_emitObserverForState:@"background" reason:nil];
 }
 
 - (void)tls_handleWillEnterForeground:(NSNotification *)notification {
@@ -221,6 +241,7 @@ static NSString *const kTLSBackgroundTaskName =
 
     // The task was only needed for background wrap-up; release it now.
     [self tls_endOutstandingBackgroundTask];
+    [self tls_emitObserverForState:@"foreground" reason:nil];
 }
 
 #pragma mark - Private
@@ -238,6 +259,21 @@ static NSString *const kTLSBackgroundTaskName =
     }
     self.backgroundTaskIdentifier = TLSLifecycleInvalidBackgroundTaskIdentifier;
     [self.host endBackgroundTask:taskIdentifier];
+}
+
+- (void)tls_emitObserverForState:(NSString *)state reason:(NSString *)reason {
+    TLSLifecycleObserverBlock observer = self.diagnosticObserver;
+    if (observer == nil || self.extensionProcess || state.length == 0) {
+        return;
+    }
+    NSMutableDictionary<NSString *, id> *fields = [NSMutableDictionary dictionaryWithDictionary:@{
+        @"event": @"lifecycle",
+        @"source": @"lifecycle",
+        @"app_state": [state copy],
+        @"automatic_lifecycle_handling": @YES,
+    }];
+    fields[@"reason"] = reason.length > 0 ? [reason copy] : [NSNull null];
+    observer([fields copy]);
 }
 
 @end

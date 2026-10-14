@@ -40,7 +40,7 @@ static const NSInteger kTLSMaxBufferBytes = 256 * 1024 * 1024;
 static const NSInteger kTLSMaxSendConcurrency = 8;
 static NSString *const kTLSProcessLockFileName = @".ios-producer.lock";
 static NSString *const kTLSCoreLeaseFileName = @"lease";
-static const char *const kTLSProducerUserAgent = "volc-tls-ios/producer/v2.0.1";
+static const char *const kTLSProducerUserAgent = "volc-tls-ios/producer/v2.0.2";
 
 /// The callback context is deliberately independent from the adapter object.
 /// C Core stores a raw user pointer; keeping this object alive through Core
@@ -49,6 +49,7 @@ static const char *const kTLSProducerUserAgent = "volc-tls-ios/producer/v2.0.1";
 @interface TLSCoreCallbackContext : NSObject
 @property (nonatomic, strong) dispatch_queue_t callbackQueue;
 @property (nonatomic, copy, nullable) TLSRealCoreAdapterSendResultHandler handler;
+@property (nonatomic, copy, nullable) TLSRealCoreAdapterDiagnosticHandler diagnosticHandler;
 @end
 
 @implementation TLSCoreCallbackContext
@@ -56,10 +57,34 @@ static const char *const kTLSProducerUserAgent = "volc-tls-ios/producer/v2.0.1";
 
 @interface TLSHTTPClientContext : NSObject
 @property (nonatomic, strong) TLSTransport *transport;
+@property (nonatomic, assign) NSTimeInterval requestIdleTimeout;
+@property (nonatomic, strong) TLSCoreCallbackContext *callbacks;
 @end
 
 @implementation TLSHTTPClientContext
 @end
+
+// Synchronous Core ATTEMPT_STARTED -> next HTTP bridge call on this sender
+// thread. Only copied scalars cross into TLSHTTPRequest, never a task pointer.
+typedef struct {
+    void *owner;
+    uint64_t attemptID;
+    int64_t startID, endID;
+    int32_t attempts, cycleAttempts, logCount;
+} TLSCurrentDiagnosticAttempt;
+static _Thread_local TLSCurrentDiagnosticAttempt tlsCurrentDiagnosticAttempt;
+
+static NSDictionary<NSString *, id> *TLSConsumeDiagnosticAttempt(void *owner) {
+    TLSCurrentDiagnosticAttempt value = tlsCurrentDiagnosticAttempt;
+    memset(&tlsCurrentDiagnosticAttempt, 0, sizeof(tlsCurrentDiagnosticAttempt));
+    if (value.owner != owner || value.attemptID == 0) return nil;
+    return @{@"attempt_id": [NSString stringWithFormat:@"%llu", (unsigned long long)value.attemptID],
+             @"batch_start_id": @(value.startID), @"batch_end_id": @(value.endID),
+             @"counters": @{@"attempt_count": @(value.attempts),
+                             @"cycle_attempt_count": @(value.cycleAttempts),
+                             @"log_count": @(value.logCount)}};
+}
+
 
 /// The platform ABI has no user-data slot for file callbacks. The default
 /// pthread implementation is stateless, so retaining its function pointer
@@ -307,6 +332,7 @@ static int tls_http_do_request_inner(ve_tls_http_client *client,
         return -1;
     }
 
+    NSDictionary *diagnosticContext = TLSConsumeDiagnosticAttempt((__bridge void *)context.callbacks);
     NSString *urlString = [NSString stringWithUTF8String:req->url];
     if (!urlString) {
         return -1;
@@ -371,7 +397,9 @@ static int tls_http_do_request_inner(ve_tls_http_client *client,
                                                                   headers:headerFields.count > 0 ? headerFields : nil
                                                                      body:body
                                                            connectTimeout:connectTimeout
-                                                           requestTimeout:requestTimeout];
+                                                              idleTimeout:context.requestIdleTimeout
+                                                           requestTimeout:requestTimeout
+                                                       diagnosticContext:diagnosticContext];
 
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __block NSHTTPURLResponse *httpResponse = nil;
@@ -426,8 +454,11 @@ static int tls_http_do_request_inner(ve_tls_http_client *client,
 
     if (requestError) {
         resp->transport_kind = VE_TLS_TRANSPORT_GENERIC;
-        resp->transport_code = (int32_t)requestError.code;
-        resp->transport_retryable = 1;
+        NSNumber *nativeCode = requestError.userInfo[TLSTransportErrorUnderlyingCodeKey];
+        resp->transport_code = [nativeCode isKindOfClass:[NSNumber class]]
+            ? nativeCode.intValue : (int32_t)requestError.code;
+        NSNumber *retryable = requestError.userInfo[TLSTransportErrorRetryableKey];
+        resp->transport_retryable = [retryable isKindOfClass:[NSNumber class]] && retryable.boolValue;
         if ([requestError.domain isEqualToString:TLSTransportErrorDomain] &&
             requestError.code == TLSTransportErrorCodeRequestTimeout) {
             resp->error_message = strdup("HTTP request timed out");
@@ -555,6 +586,63 @@ static NSString *TLSCoreSafeRequestID(const char *value) {
     return TLSCoreSanitizedString(value, 256, nil);
 }
 
+static NSString *TLSDiagnosticIdentifier(const char *value, size_t limit) {
+    if (!value) return nil;
+    size_t length = strnlen(value, limit + 1);
+    if (length == 0 || length > limit) return nil;
+    for (size_t i = 0; i < length; ++i) {
+        unsigned char c = value[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '.' || c == '_' || c == ':' || c == '-')) return nil;
+    }
+    return [[NSString alloc] initWithBytes:value length:length encoding:NSUTF8StringEncoding];
+}
+
+static void tls_delivery_diagnostic(const ve_tls_delivery_diagnostic *event,
+                                    void *user_param) {
+    @autoreleasepool {
+        TLSCoreCallbackContext *context = (__bridge TLSCoreCallbackContext *)user_param;
+        TLSRealCoreAdapterDiagnosticHandler sink = context.diagnosticHandler;
+        if (!event || !sink) return;
+        BOOL extended = event->metadata_version == 1 && event->metadata_size >= sizeof(*event);
+        if (extended && event->event == VE_TLS_DELIVERY_DIAGNOSTIC_ATTEMPT_STARTED) {
+            tlsCurrentDiagnosticAttempt = (TLSCurrentDiagnosticAttempt){
+                user_param, event->attempt_id, event->start_id, event->end_id,
+                event->attempt_count, event->cycle_attempt_count, event->log_count};
+        }
+        NSString *requestID = TLSDiagnosticIdentifier(event->request_id, 256);
+        NSString *errorCode = TLSDiagnosticIdentifier(event->error_code, 128);
+        NSMutableDictionary *fields = [@{
+            @"source": @"core", @"core_event": @(event->event), @"core_reason": @(event->reason),
+            @"batch_start_id": @(event->start_id), @"batch_end_id": @(event->end_id),
+            @"attempt_count": @(event->attempt_count), @"cycle_attempt_count": @(event->cycle_attempt_count),
+            @"delivery_elapsed_ms": @(event->elapsed_ms), @"retry_delay_ms": @(event->delay_ms),
+            @"log_count": @(event->log_count), @"raw_bytes": @(event->raw_bytes),
+            @"compressed_bytes": @(event->compressed_bytes),
+            @"http_code": @(MAX(0, event->http_code)), @"transport_code": @(event->transport_code),
+            @"retryable": @(event->retryable != 0),
+            @"request_id": requestID ?: (id)[NSNull null], @"error_code": errorCode ?: (id)[NSNull null],
+            @"fields_omitted": @((event->request_id && !requestID) || (event->error_code && !errorCode))
+        } mutableCopy];
+        if (event->elapsed_ms < 0) fields[@"delivery_elapsed_ms"] = [NSNull null];
+        if (event->delay_ms < 0) fields[@"retry_delay_ms"] = [NSNull null];
+        if (event->event == VE_TLS_DELIVERY_DIAGNOSTIC_BATCH_SEALED && event->compressed_bytes == 0)
+            fields[@"compressed_bytes"] = [NSNull null];
+        if (extended) {
+            fields[@"attempt_id"] = event->attempt_id > 0
+                ? [NSString stringWithFormat:@"%llu", (unsigned long long)event->attempt_id] : (id)[NSNull null];
+            fields[@"attempt_elapsed_ms"] = event->attempt_elapsed_ms >= 0 ? @(event->attempt_elapsed_ms) : (id)[NSNull null];
+            fields[@"queue_wait_ms"] = event->queue_wait_ms >= 0 ? @(event->queue_wait_ms) : (id)[NSNull null];
+            NSArray *dispositions = @[@"unknown", @"success", @"discard", @"retained_memory", @"retained_wal"];
+            fields[@"disposition"] = event->disposition >= 0 && event->disposition < dispositions.count
+                ? dispositions[event->disposition] : @"unknown";
+        }
+        // This sink only offers copied white-listed values to the bounded
+        // emitter. It does not call customer code or dispatch an event block.
+        sink([fields copy]);
+    }
+}
+
 static void tls_send_done_v2_inner(ve_tls_result result,
                                    size_t log_bytes,
                                    size_t compressed_bytes,
@@ -585,7 +673,8 @@ static void tls_send_done_v2_inner(ve_tls_result result,
             // the structured transport code. Classify from either signal so
             // the stable message agrees with the public Swift error mapping.
             errorMessage = (result == VE_TLS_TIMEOUT ||
-                            error->transport_code == TLSTransportErrorCodeRequestTimeout)
+                            (error->transport_code == TLSTransportErrorCodeRequestTimeout ||
+                             error->transport_code == NSURLErrorTimedOut))
                 ? @"HTTP request timed out"
                 : @"HTTP transport failed";
         } else {
@@ -733,6 +822,11 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
 
 @implementation TLSRealCoreAdapter
 
++ (NSString *)sdkVersion {
+    const char *suffix = strstr(kTLSProducerUserAgent, "/v");
+    return suffix ? [NSString stringWithUTF8String:suffix + 2] : @"unknown";
+}
+
 + (NSString *)coreVersion {
     const char *version = ve_tls_iosp_core_version();
     if (!version) {
@@ -747,6 +841,14 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
 
 - (TLSRealCoreAdapterSendResultHandler)onSendResult {
     return self.callbackContext.handler;
+}
+
+- (void)setOnDiagnostic:(TLSRealCoreAdapterDiagnosticHandler)onDiagnostic {
+    self.callbackContext.diagnosticHandler = [onDiagnostic copy];
+}
+
+- (TLSRealCoreAdapterDiagnosticHandler)onDiagnostic {
+    return self.callbackContext.diagnosticHandler;
 }
 
 - (BOOL)isClosed {
@@ -772,6 +874,13 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
                             maxBufferBytes:(NSInteger)maxBufferBytes
                             connectTimeout:(NSTimeInterval)connectTimeout
                             requestTimeout:(NSTimeInterval)requestTimeout
+                        requestIdleTimeout:(NSTimeInterval)requestIdleTimeout
+                          retryMaxAttempts:(NSInteger)retryMaxAttempts
+                         retryTotalTimeout:(NSTimeInterval)retryTotalTimeout
+                      retryInitialInterval:(NSTimeInterval)retryInitialInterval
+                          retryMaxInterval:(NSTimeInterval)retryMaxInterval
+                      memoryRetryRetention:(NSTimeInterval)memoryRetryRetention
+               retryTransientHTTPResponses:(BOOL)retryTransientHTTPResponses
                                 lz4Enabled:(BOOL)lz4Enabled
                    sessionConfiguration:(nullable NSURLSessionConfiguration *)sessionConfiguration
                       bufferFullPolicy:(NSInteger)bufferFullPolicy
@@ -782,6 +891,7 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
                            maxLogAgeSeconds:(NSInteger)maxLogAgeSeconds
                           expiredLogPolicy:(NSInteger)expiredLogPolicy
                          authFailurePolicy:(NSInteger)authFailurePolicy
+                             diagnosticSink:(nullable TLSRealCoreAdapterDiagnosticHandler)diagnosticSink
                              callbackQueue:(dispatch_queue_t)callbackQueue
                                       error:(NSError * _Nullable * _Nullable)error {
     self = [super init];
@@ -791,6 +901,7 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
     _callbackQueue = callbackQueue ?: dispatch_get_global_queue(QOS_CLASS_UTILITY, 0);
     _callbackContext = [[TLSCoreCallbackContext alloc] init];
     _callbackContext.callbackQueue = _callbackQueue;
+    _callbackContext.diagnosticHandler = [diagnosticSink copy];
     _projectID = [projectID copy];
     _closed = NO;
     _closing = NO;
@@ -801,6 +912,12 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
     int32_t cMaxBufferBytes = 0;
     int32_t cConnectTimeout = 0;
     int32_t cRequestTimeout = 0;
+    int32_t cIdleTimeout = 0;
+    int32_t cRetryAttempts = 0;
+    int32_t cRetryTotal = 0;
+    int32_t cRetryInitial = 0;
+    int32_t cRetryMax = 0;
+    int32_t cRetention = 0;
     int32_t cLinger = 0;
     int32_t cSendConcurrency = 0;
     int32_t cBlockTimeout = 0;
@@ -818,6 +935,14 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         !TLSCheckedMilliseconds(linger, NO, &cLinger) ||
         !TLSCheckedMilliseconds(connectTimeout, YES, &cConnectTimeout) ||
         !TLSCheckedMilliseconds(requestTimeout, YES, &cRequestTimeout) ||
+        !TLSCheckedMilliseconds(requestIdleTimeout, YES, &cIdleTimeout) ||
+        !TLSCheckedInt32(retryMaxAttempts, NO, &cRetryAttempts) || retryMaxAttempts > 50 ||
+        !TLSCheckedMilliseconds(retryTotalTimeout, YES, &cRetryTotal) ||
+        !TLSCheckedMilliseconds(retryInitialInterval, YES, &cRetryInitial) ||
+        cRetryInitial < 100 || cRetryInitial > 30000 ||
+        !TLSCheckedMilliseconds(retryMaxInterval, YES, &cRetryMax) ||
+        cRetryMax < 1000 || cRetryMax > 60000 || cRetryMax < cRetryInitial ||
+        !TLSCheckedMilliseconds(memoryRetryRetention, NO, &cRetention) ||
         (bufferFullPolicy != VE_TLS_BUFFER_FULL_DROP &&
          bufferFullPolicy != VE_TLS_BUFFER_FULL_BLOCK) ||
         !TLSCheckedMilliseconds(bufferFullBlockTimeout,
@@ -861,6 +986,8 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
 
     NSError *transportError = nil;
     _httpContext = [[TLSHTTPClientContext alloc] init];
+    _httpContext.requestIdleTimeout = requestIdleTimeout;
+    _httpContext.callbacks = _callbackContext;
     _httpContext.transport = [[TLSTransport alloc] initWithConfiguration:sessionConfiguration
                                                                       error:&transportError];
     if (!_httpContext.transport) {
@@ -871,6 +998,8 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         }
         return nil;
     }
+
+    _httpContext.transport.diagnosticSink = diagnosticSink;
 
     // Initialize C Core config
     ve_tls_config cConfig;
@@ -994,8 +1123,16 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
     // The Core sender reads retry_policy.max_attempts. Keep the legacy mirror
     // populated as well for ABI/forward compatibility, but do not mistake it
     // for the effective policy field in this Core version.
-    cConfig.retry_max_attempts = 3;
-    cConfig.retry_policy.max_attempts = 3;
+    cConfig.retry_max_attempts = cRetryAttempts;
+    cConfig.retry_policy.max_attempts = cRetryAttempts;
+    cConfig.retry_policy.total_timeout_ms = cRetryTotal;
+    cConfig.retry_policy.initial_interval_ms = cRetryInitial;
+    cConfig.retry_policy.max_interval_ms = cRetryMax;
+    cConfig.memory_retry_retention_ms = cRetention;
+    cConfig.retry_transient_http_errors = retryTransientHTTPResponses ? 1 : 0;
+    cConfig.bound_request_timeout_to_retry_budget = 1;
+    cConfig.delivery_diagnostic = diagnosticSink ? tls_delivery_diagnostic : NULL;
+    cConfig.delivery_diagnostic_param = (__bridge void *)_callbackContext;
 
     // TLS
     cConfig.tls_verify_peer = 1;
@@ -1536,6 +1673,33 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
         (void)ve_tls_producer_flush(_producer);
     }
     [self.stateLock unlock];
+}
+
+- (void)notifyNetworkRecovered {
+    [self.stateLock lock];
+    if (!_closed && !_closing) {
+        ve_tls_producer_notify_network_recovered(_producer);
+    }
+    [self.stateLock unlock];
+}
+
+- (nullable NSDictionary<NSString *, id> *)diagnosticSnapshot {
+    if (![self.stateLock tryLock]) return nil;
+    if (_closed || _closing || !_producer) { [self.stateLock unlock]; return nil; }
+    ve_tls_metrics metrics;
+    memset(&metrics, 0, sizeof(metrics));
+    ve_tls_producer_get_metrics(_producer, &metrics);
+    size_t buffered = ve_tls_producer_get_buffered_bytes(_producer);
+    [self.stateLock unlock];
+    // Counters and buffer watermark are separate reads, not an atomic snapshot.
+    return @{@"core_logs_enqueued_total": @(metrics.logs_enqueued_total),
+             @"core_logs_dropped_total": @(metrics.logs_dropped_total),
+             @"core_batches_built_total": @(metrics.batches_built_total),
+             @"core_requests_total": @(metrics.requests_total),
+             @"core_requests_failed_total": @(metrics.requests_failed_total),
+             @"core_retries_total": @(metrics.retries_total),
+             @"core_bytes_sent_total": @(metrics.bytes_sent_total),
+             @"buffer_used_bytes": @(buffered)};
 }
 
 @end

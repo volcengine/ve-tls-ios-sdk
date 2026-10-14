@@ -295,6 +295,13 @@ static int ve_tls_config_is_valid_for_create(const ve_tls_config * cfg) {
         if (cfg->persistent_auth_failure_policy != VE_TLS_PAUTH_RETAIN &&
             cfg->persistent_auth_failure_policy != VE_TLS_PAUTH_DROP) return 0;
     }
+    if (cfg->memory_retry_retention_ms < 0 ||
+        (cfg->bound_request_timeout_to_retry_budget != 0 &&
+         cfg->bound_request_timeout_to_retry_budget != 1) ||
+        (cfg->retry_transient_http_errors != 0 &&
+         cfg->retry_transient_http_errors != 1)) {
+        return 0;
+    }
     if (cfg->buffer_full_policy == VE_TLS_BUFFER_FULL_BLOCK) {
         if (cfg->max_buffer_bytes <= 0) return 0;
         if (cfg->buffer_full_block_timeout_ms <= 0) return 0;
@@ -1657,7 +1664,11 @@ ve_tls_result ve_tls_config_init_versioned(
     }
     expected_size = config_version == VE_TLS_CONFIG_VERSION_1
         ? VE_TLS_CONFIG_VERSION_1_SIZE
-        : (config_version == VE_TLS_CONFIG_VERSION_2 ? sizeof(ve_tls_config) : 0);
+        : (config_version == VE_TLS_CONFIG_VERSION_2
+            ? VE_TLS_CONFIG_VERSION_2_SIZE
+            : (config_version == VE_TLS_CONFIG_VERSION_3
+                ? VE_TLS_CONFIG_VERSION_3_SIZE
+                : 0));
     if (expected_size == 0 || config_size != expected_size) {
         return VE_TLS_INVALID;
     }
@@ -1681,7 +1692,10 @@ static ve_tls_producer * ve_tls_producer_create_current(const ve_tls_config * co
     if (!producer) {
         return NULL;
     }
+    atomic_init(&producer->diagnostic_attempt_counter, 0);
     producer->config = *config;
+    producer->delivery_diagnostic = config->delivery_diagnostic;
+    producer->delivery_diagnostic_param = config->delivery_diagnostic_param;
     producer->cfg_endpoint = ve_tls_strdup(config->endpoint);
     producer->cfg_region = ve_tls_strdup(config->region);
     producer->cfg_project_id = ve_tls_dup_cstr(config->project_id);
@@ -1813,6 +1827,7 @@ static ve_tls_producer * ve_tls_producer_create_current(const ve_tls_config * co
     producer->fast_send = 0;
     if (!producer->use_global_env &&
         !producer->persistent &&
+        producer->config.memory_retry_retention_ms <= 0 &&
         producer->config.ordered_send == 0 &&
         producer->config.rate_limit_rps <= 0 &&
         producer->config.rate_limit_bps <= 0 &&
@@ -1911,11 +1926,15 @@ ve_tls_producer * ve_tls_producer_create_versioned(
     ve_tls_config current;
     size_t expected_size = config_version == VE_TLS_CONFIG_VERSION_1
         ? VE_TLS_CONFIG_VERSION_1_SIZE
-        : (config_version == VE_TLS_CONFIG_VERSION_2 ? sizeof(ve_tls_config) : 0);
+        : (config_version == VE_TLS_CONFIG_VERSION_2
+            ? VE_TLS_CONFIG_VERSION_2_SIZE
+            : (config_version == VE_TLS_CONFIG_VERSION_3
+                ? VE_TLS_CONFIG_VERSION_3_SIZE
+                : 0));
     if (!config || expected_size == 0 || config_size != expected_size) {
         return NULL;
     }
-    if (config_version == VE_TLS_CONFIG_VERSION_2) {
+    if (config_version == VE_TLS_CONFIG_VERSION_3) {
         return ve_tls_producer_create_current(config);
     }
     ve_tls_producer_config_init(&current);
@@ -3378,6 +3397,61 @@ ve_tls_result ve_tls_producer_flush(ve_tls_producer * producer) {
         }
     }
     return ve_tls_map_persistent_flush_error(producer, flush_rc);
+}
+
+ve_tls_result ve_tls_producer_notify_network_recovered(ve_tls_producer * producer) {
+    if (!producer) {
+        return VE_TLS_INVALID;
+    }
+    producer->config.platform.mutex_lock(producer->mutex);
+    if (producer->closing || producer->stop) {
+        producer->config.platform.mutex_unlock(producer->mutex);
+        return VE_TLS_CLOSED;
+    }
+    if (producer->config.memory_retry_retention_ms <= 0 && !producer->persistent) {
+        producer->config.platform.mutex_unlock(producer->mutex);
+        return VE_TLS_OK;
+    }
+    int64_t now_ms = producer->config.platform.time_ms
+        ? producer->config.platform.time_ms()
+        : 0;
+    /* Detach the complete original chain before reordering any member. If a
+     * queue is inserted into the live delayed list while its old successor is
+     * still linked, add_sorted can make that successor point back to the
+     * current queue and the walk never terminates. The detached dnext chain is
+     * stable because no detached node is visible to add_sorted yet. */
+    ve_tls_key_queue * q = producer->delayed_head;
+    producer->delayed_head = NULL;
+    producer->delayed_tail = NULL;
+    int woke = 0;
+    while (q) {
+        ve_tls_key_queue * next = q->dnext;
+        int eligible = 0;
+        int64_t original_next_ready_ms = q->next_ready_ms;
+        if (q->count > 0 && q->auth_wait_cred_version <= 0) {
+            ve_tls_send_task * task = &q->q[q->head];
+            eligible = task->memory_retry_retained || task->persistent_retry_cycle > 0;
+        }
+        q->delayed = 0;
+        q->dprev = NULL;
+        q->dnext = NULL;
+        q->next_ready_ms = 0;
+        if (eligible) {
+            ve_tls_delayed_add_sorted(producer, q, now_ms);
+            woke = 1;
+        } else {
+            ve_tls_delayed_add_sorted(producer, q, original_next_ready_ms);
+        }
+        q = next;
+    }
+    if (woke && producer->send_cond) {
+        producer->config.platform.cond_broadcast(producer->send_cond);
+    }
+    producer->config.platform.mutex_unlock(producer->mutex);
+    if (woke && producer->use_global_env) {
+        ve_tls_env_notify(producer);
+    }
+    return VE_TLS_OK;
 }
 
 ve_tls_result ve_tls_producer_recover(ve_tls_producer * producer) {

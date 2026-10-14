@@ -31,11 +31,15 @@ swift test -Xswiftc -swift-version -Xswiftc 6
 ```
 
 完整包验证需要 Xcode、CocoaPods、Ruby 的 `xcodeproj` gem、Python 3、ripgrep，以及一个
-已安装的 iOS Simulator。将工具加入 `PATH` 后执行：
+已安装的 iOS Simulator。将工具加入 `PATH` 后，未发布 Core 集成候选的开发验证执行：
 
 ```bash
-Producer/scripts/verify-all.sh
+Producer/scripts/verify-all.sh --integration
 ```
+
+`--integration` 校验集成补丁及 vendor 完整性，不表示该 Core 快照已发布。
+发布验证执行 `Producer/scripts/verify-all.sh --release`（也是不带参数时的默认模式）；
+`UNRELEASED_INTEGRATION` 会明确阻止发布验证，不能通过改写状态跳过发布门禁。
 
 指定现有模拟器时，设置 `IOS_SIMULATOR_DESTINATION`；纯 Objective-C 集成测试的运行选项见
 [测试说明](Producer/Tests/ObjectiveCProducer/README.md)。各脚本开头列出了可用环境变量。
@@ -46,6 +50,7 @@ Producer/scripts/verify-all.sh
 
 ## 提交变更
 
+- 内部 `master` 是主仓：先验证并合入内部 MR，再提交 GitHub 同步 PR；保留原始内部提交，并校验共享祖先及完整 Git tree 一致。同步步骤和发布标签要求见[仓库同步](docs/operations/repository-sync.md)。
 - 公开接口发生变化时，同步更新用户文档与 `CHANGELOG.md`；
 - 修改发送、持久化、关闭或并发行为时，添加对应的回归测试；
 - 修改包结构时，验证 SwiftPM、CocoaPods 和公共模块的外部消费；

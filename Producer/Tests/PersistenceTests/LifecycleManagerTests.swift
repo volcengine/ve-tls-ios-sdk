@@ -273,6 +273,57 @@ final class LifecycleManagerTests: XCTestCase {
         _ = manager
     }
 
+    func testObserverSeesExistingLifecycleBranchesWithoutExtraFlushOrWake() {
+        let host = RecordingLifecycleHost()
+        var flushCount = 0
+        var wakeCount = 0
+        var events: [[String: Any]] = []
+        let manager = TLSLifecycleManager(
+            flushHandler: { flushCount += 1 },
+            wakeHandler: { wakeCount += 1 },
+            host: host,
+            extensionCheck: { false },
+            observer: { fields in events.append(fields) })
+
+        let center = NotificationCenter.default
+        center.post(name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName,
+                    object: nil)
+        host.beginCalls[0].expirationHandler?()
+        center.post(name: NSNotification.Name.TLSLifecycleWillEnterForegroundNotificationName,
+                    object: nil)
+
+        XCTAssertEqual(flushCount, 1)
+        XCTAssertEqual(wakeCount, 1)
+        XCTAssertEqual(events.count, 3)
+        XCTAssertEqual(events.map { $0["event"] as? String },
+                       ["lifecycle", "lifecycle", "lifecycle"])
+        XCTAssertEqual(events.map { $0["app_state"] as? String },
+                       ["background", "background", "foreground"])
+        XCTAssertEqual(events[1]["reason"] as? String, "expiration")
+        XCTAssertEqual(events[0]["source"] as? String, "lifecycle")
+        XCTAssertEqual(events[0]["automatic_lifecycle_handling"] as? Bool, true)
+        _ = manager
+    }
+
+    func testExtensionLifecycleObserverRemainsSilent() {
+        var events: [[String: Any]] = []
+        let host = RecordingLifecycleHost()
+        let manager = TLSLifecycleManager(
+            flushHandler: {},
+            wakeHandler: {},
+            host: host,
+            extensionCheck: { true },
+            observer: { fields in events.append(fields) })
+
+        NotificationCenter.default.post(
+            name: NSNotification.Name.TLSLifecycleDidEnterBackgroundNotificationName, object: nil)
+        NotificationCenter.default.post(
+            name: NSNotification.Name.TLSLifecycleWillEnterForegroundNotificationName, object: nil)
+
+        XCTAssertTrue(events.isEmpty)
+        _ = manager
+    }
+
     // MARK: - Host absence
 
     func testNilHostDisablesBackgroundTasksButKeepsObservers() {

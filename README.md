@@ -1,7 +1,7 @@
 # Volcengine TLS Producer SDK
 
-本仓库提供面向 Apple 平台的 Volcengine TLS 异步日志上传 Producer，当前版本为
-`v2.0.1`，提供 Swift 和 Objective-C 接口。支持 iOS、iPadOS 和原生 macOS，提供批处理、压缩、重试、背压和可选
+本仓库提供面向 Apple 平台的 Volcengine TLS 异步日志上传 Producer，当前源码版本为
+`v2.0.2`（待发布），提供 Swift 和 Objective-C 接口。支持 iOS、iPadOS 和原生 macOS，提供批处理、压缩、重试、背压和可选
 WAL。
 
 旧版 `v1.x` Objective-C 客户端的使用入口和迁移边界见
@@ -11,6 +11,8 @@ Producer v2 最低支持 iOS 13、Intel Mac 的 macOS 10.15 和 Apple Silicon Ma
 macOS 11，要求 Swift 5.8+。
 
 ## 安装 Producer v2
+
+下面版本安装示例使用已发布的 `2.0.1`。本分支新增的重试配置和诊断回调属于待发布的 `2.0.2`，验证时需要使用本分支源码；尚不能通过 `v2.0.2` tag 或 Pods 版本安装。
 
 Swift Package Manager：
 

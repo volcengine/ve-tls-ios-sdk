@@ -24,8 +24,8 @@ fi
 
 task_temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/verify-core-vendor.XXXXXX")"
 cleanup() {
-    rm -f "${task_temp_dir}/actual-files" "${task_temp_dir}/manifest-files"
-    rmdir "${task_temp_dir}" 2>/dev/null || true
+    # This is exclusively the directory allocated by mktemp above.
+    rm -rf -- "${task_temp_dir}"
 }
 trap cleanup EXIT
 
@@ -55,6 +55,26 @@ actual_sha="$(git -C "${core_source_root}" rev-parse HEAD)"
 if [[ "${actual_sha}" != "${registered_sha}" ]]; then
     echo "FAIL: source checkout SHA ${actual_sha} does not match ${registered_sha}"
     exit 1
+fi
+
+# Reconstruct the integrated source from Git objects, not a potentially dirty
+# checkout. The registered patch is verified before applying it in our own
+# temporary directory. It does not mutate VE_TLS_CORE_SOURCE_ROOT.
+patch_rel="$(sed -n 's/^integration_patch:[[:space:]]*//p' "${REGISTRY}")"
+if [[ -n "${patch_rel}" ]]; then
+    patch_sha="$(sed -n 's/^integration_patch_sha256:[[:space:]]*//p' "${REGISTRY}")"
+    actual_patch_sha="$(shasum -a 256 "${REPO_ROOT}/${patch_rel}" | awk '{print $1}')"
+    if [[ -z "${patch_sha}" || "${patch_sha}" != "${actual_patch_sha}" ]]; then
+        echo "FAIL: integration patch checksum does not match registry"
+        exit 1
+    fi
+    expected_source_root="${task_temp_dir}/expected-core"
+    mkdir "${expected_source_root}"
+    git -C "${core_source_root}" archive "${registered_sha}" core adapters tests third_party \
+        | tar -xf - -C "${expected_source_root}"
+    git -C "${expected_source_root}" apply --check "${REPO_ROOT}/${patch_rel}"
+    git -C "${expected_source_root}" apply "${REPO_ROOT}/${patch_rel}"
+    core_source_root="${expected_source_root}"
 fi
 
 while IFS='|' read -r source_path vendor_path; do
@@ -117,4 +137,4 @@ third_party/lz4/lz4.h|third_party/lz4/lz4.h
 third_party/lz4/lz4_namespace.h|third_party/lz4/lz4_namespace.h
 EOF
 
-echo "OK: committed vendor and exact C Core checkout match outside registered overlays."
+echo "OK: vendor matches the registered Core base, integration patch and packaging overlays."

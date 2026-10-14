@@ -3,7 +3,7 @@
 # verify-all.sh — run all Producer verification scripts and summarize.
 #
 # Runs in order:
-#   verify-core-version.sh   (the Core release gate)
+#   verify-core-version.sh   (release gate by default; --integration validates candidates)
 #   verify-core-vendor.sh    (vendored source integrity and optional source comparison)
 #   verify-public-symbols.sh (SKIPs without macOS/built product)
 #   verify-producer-packages.sh (SKIPs without macOS toolchain)
@@ -16,10 +16,30 @@
 #
 # Environment: any (individual scripts SKIP on unsupported platforms).
 # Evidence level: aggregation only; see each script's header for its limits.
+# Usage: verify-all.sh [--release|--integration]
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+core_version_mode="--release"
+case "$#" in
+    0) ;;
+    1)
+        case "$1" in
+            --release) core_version_mode="--release" ;;
+            --integration) core_version_mode="--integration" ;;
+            *)
+                echo "usage: $0 [--release|--integration]" >&2
+                exit 2
+                ;;
+        esac
+        ;;
+    *)
+        echo "usage: $0 [--release|--integration]" >&2
+        exit 2
+        ;;
+esac
 
 scripts=(
     "verify-core-version.sh"
@@ -76,7 +96,13 @@ for script in "${scripts[@]}"; do
         continue
     fi
     output=""
-    if output="$("${path}" 2>&1)"; then
+    if [[ "${script}" == "verify-core-version.sh" ]]; then
+        if output="$("${path}" "${core_version_mode}" 2>&1)"; then
+            rc=0
+        else
+            rc=$?
+        fi
+    elif output="$("${path}" 2>&1)"; then
         rc=0
     else
         rc=$?
@@ -86,7 +112,7 @@ for script in "${scripts[@]}"; do
         # Keep unavailable Core dependencies labeled BLOCKED while failing
         # the suite, rather than conflating them with other check failures.
         if [[ "${script}" == "verify-core-version.sh" ]] && \
-           grep -q '^CORE_VERSION status: BLOCKED' <<< "${output}"; then
+           grep -Eq '(^CORE_VERSION status: BLOCKED|^BLOCKED([[:space:]:]|$))' <<< "${output}"; then
             set_result "${script}" "BLOCKED"
             exit_code=1
         else

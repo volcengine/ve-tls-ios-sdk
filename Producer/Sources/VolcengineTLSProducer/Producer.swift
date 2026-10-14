@@ -45,6 +45,7 @@ public final class Producer: @unchecked Sendable {
     private var openCredentials: Credentials?
     private let userOnSendResult: (@Sendable (SendResult) -> Void)?
     private let requireDestinationOnOpen: Bool
+    private let diagnosticEmitter: DiagnosticEmitter
 
     private enum CloseAction {
         case completed(Result<Void, Error>)
@@ -104,7 +105,11 @@ public final class Producer: @unchecked Sendable {
                   onSendResult: (@Sendable (SendResult) -> Void)?,
                   requireDestination: Bool = false) {
         self.adapter = adapter
-        self.configuration = configuration
+        var boundConfiguration = configuration
+        let emitter = configuration.diagnosticEmitter ?? Self.makeDiagnosticEmitter(configuration)
+        boundConfiguration.diagnosticEmitter = emitter
+        self.diagnosticEmitter = emitter
+        self.configuration = boundConfiguration
         self.snapshot = ConfigurationSnapshot(configuration)
         self.openCredentials = credentials
         self.userOnSendResult = onSendResult
@@ -130,21 +135,26 @@ public final class Producer: @unchecked Sendable {
         credentials: Credentials,
         onSendResult: (@Sendable (SendResult) -> Void)? = nil
     ) async throws -> Producer {
-        let validatedConfiguration = try configuration.validatedForOpen(
-            requireDestination: true)
-        try credentials.validate()
-
-        let adapter = try await makeRealCoreAdapter(
-            configuration: validatedConfiguration,
-            credentials: credentials)
-        let producer = Producer(
-            adapter: adapter,
-            configuration: validatedConfiguration,
-            credentials: credentials,
-            onSendResult: onSendResult,
-            requireDestination: true)
-        try await producer.performOpen()
-        return producer
+        var boundConfiguration = configuration
+        let emitter = configuration.diagnosticEmitter ?? makeDiagnosticEmitter(configuration)
+        boundConfiguration.diagnosticEmitter = emitter
+        if configuration.diagnosticEmitter == nil, emitter.isEnabled {
+            emitter.offer(ProducerDiagnostic(kind: .openStarted,
+                context: diagnosticConfigurationDetails(configuration)))
+        }
+        do {
+            let validatedConfiguration = try boundConfiguration.validatedForOpen(requireDestination: true)
+            try credentials.validate()
+            let adapter = try await makeRealCoreAdapter(configuration: validatedConfiguration, credentials: credentials)
+            let producer = Producer(adapter: adapter, configuration: validatedConfiguration,
+                credentials: credentials, onSendResult: onSendResult, requireDestination: true)
+            try await producer.performOpen()
+            return producer
+        } catch {
+            emitDiagnosticFailure(emitter, kind: .openFailed, error: error)
+            emitter.finish()
+            throw error
+        }
     }
 
     /// Internal injection variant of `open` for tests.
@@ -154,17 +164,89 @@ public final class Producer: @unchecked Sendable {
         credentials: Credentials,
         onSendResult: (@Sendable (SendResult) -> Void)? = nil
     ) async throws -> Producer {
-        let validatedConfiguration = try configuration.validatedForOpen(
-            requireDestination: false)
-        try credentials.validate()
-        let producer = Producer(
-            adapter: adapter,
-            configuration: validatedConfiguration,
-            credentials: credentials,
-            onSendResult: onSendResult,
-            requireDestination: false)
-        try await producer.performOpen()
-        return producer
+        var boundConfiguration = configuration
+        let emitter = configuration.diagnosticEmitter ?? makeDiagnosticEmitter(configuration)
+        boundConfiguration.diagnosticEmitter = emitter
+        if configuration.diagnosticEmitter == nil, emitter.isEnabled {
+            emitter.offer(ProducerDiagnostic(kind: .openStarted,
+                context: diagnosticConfigurationDetails(configuration)))
+        }
+        do {
+            let validatedConfiguration = try boundConfiguration.validatedForOpen(requireDestination: false)
+            try credentials.validate()
+            let producer = Producer(adapter: adapter, configuration: validatedConfiguration,
+                credentials: credentials, onSendResult: onSendResult, requireDestination: false)
+            try await producer.performOpen()
+            return producer
+        } catch {
+            emitDiagnosticFailure(emitter, kind: .openFailed, error: error)
+            emitter.finish()
+            throw error
+        }
+    }
+
+    internal static func makeDiagnosticEmitter(_ configuration: ProducerConfiguration) -> DiagnosticEmitter {
+        DiagnosticEmitter(structuredHandler: configuration.onDiagnostic,
+            textHandler: configuration.diagnosticHandler, level: configuration.diagnosticLogLevel,
+            producerID: configuration.producerID, topicID: configuration.destination?.topicID,
+            endpoint: configuration.destination?.endpoint, sdkVersion: RealCoreAdapter.sdkVersion)
+    }
+
+    internal static func diagnosticConfigurationDetails(_ configuration: ProducerConfiguration) -> ProducerDiagnosticDetails {
+        var value = ProducerDiagnosticDetails()
+        func ms(_ input: TimeInterval) -> Int64? {
+            guard input.isFinite, input >= 0, input * 1000 < Double(Int64.max) else { return nil }
+            return Int64((input * 1000).rounded())
+        }
+        value.source = "producer"
+        value.appState = "unknown"
+        value.batchCount = configuration.batch.maxLogCount
+        value.batchRawBytes = Int64(configuration.batch.maxRawBytes)
+        value.lingerMs = ms(configuration.batch.linger)
+        value.sendConcurrency = configuration.sendConcurrency
+        value.compression = configuration.compression == .lz4 ? "lz4" : "disabled"
+        switch configuration.persistence {
+        case .disabled: value.persistenceMode = "disabled"
+        case .memory: value.persistenceMode = "memory"
+        case .buffered: value.persistenceMode = "buffered"
+        case .sync: value.persistenceMode = "sync"
+        }
+        value.connectTimeoutMs = ms(configuration.connectTimeout)
+        value.requestTimeoutMs = ms(configuration.requestTimeout)
+        value.requestIdleTimeoutMs = ms(configuration.requestIdleTimeout)
+        value.retryMaxAttempts = configuration.retry.maxAttempts
+        value.retryTotalTimeoutMs = ms(configuration.retry.totalTimeout)
+        value.retryInitialIntervalMs = ms(configuration.retry.initialInterval)
+        value.retryMaxIntervalMs = ms(configuration.retry.maxInterval)
+        value.memoryRetryRetentionMs = ms(configuration.memoryRetryRetention)
+        value.automaticLifecycleHandling = configuration.automaticLifecycleHandling
+        return value
+    }
+
+    internal static func emitDiagnosticFailure(_ emitter: DiagnosticEmitter,
+        kind: ProducerDiagnostic.Kind, error: Error, stage: String? = nil, source: String = "producer",
+        closeTimeout: TimeInterval? = nil) {
+        guard emitter.isEnabled else { return }
+        let nsError = TLSProducer.makeNSError(error)
+        let name = (error as? ProducerError)?.errorCode ?? "unknown"
+        var details = ProducerDiagnosticDetails()
+        details.source = source
+        details.producerErrorDomain = nsError.domain
+        details.producerErrorCode = nsError.code
+        details.producerErrorName = name
+        details.admissionStage = stage
+        if let timeout = closeTimeout, timeout.isFinite, timeout >= 0,
+            timeout * 1000 < Double(Int64.max) {
+            details.closeTimeoutMs = Int64((timeout * 1000).rounded())
+        }
+        emitter.offer(ProducerDiagnostic(kind: kind, reason: .nonRetryable,
+            errorCode: name, context: details))
+    }
+
+    internal func recordFacadeRejection(_ error: Error, stage: String) {
+        diagnosticEmitter.recordAdmission(accepted: false, errorName: (error as? ProducerError)?.errorCode)
+        Self.emitDiagnosticFailure(diagnosticEmitter, kind: .admissionRejected,
+            error: error, stage: stage, source: "facade")
     }
 
     private final class AdapterConstructionInput: @unchecked Sendable {
@@ -259,6 +341,9 @@ public final class Producer: @unchecked Sendable {
             openCredentials = nil
             state = .ready
         }
+        if diagnosticEmitter.isEnabled {
+            diagnosticEmitter.offer(ProducerDiagnostic(kind: .opened, context: Self.diagnosticConfigurationDetails(configuration)))
+        }
     }
 
     private final class AdapterOpenInput: @unchecked Sendable {
@@ -301,19 +386,32 @@ public final class Producer: @unchecked Sendable {
     ///   whole event is rejected), `.singleLogTooLarge`, `.queueFull`,
     ///   `.bufferFull`, `.timeout`, `.persistence`, `.invalidState`, or `.closed`.
     public func add(_ log: LogEvent, mode: AddMode = .normal) throws {
-        let state = withStateLock { self.state }
-        try requireReadyState(state)
-
-        // Validate and encode exactly once before touching the adapter: an
-        // invalid event must never reach the Core after the lifecycle state
-        // has been checked.
-        let prepared = try log.prepareForAdmission()
-        if prepared.rawBytes > snapshot.batch.maxRawBytes ||
-            prepared.rawBytes > ProducerConfiguration.maxBatchRawBytes {
-            throw ProducerError.singleLogTooLarge
+        var stage = "state"
+        do {
+            let state = withStateLock { self.state }
+            try requireReadyState(state)
+            stage = "log_validation"
+            let prepared = try log.prepareForAdmission()
+            stage = "size_validation"
+            if prepared.rawBytes > snapshot.batch.maxRawBytes ||
+                prepared.rawBytes > ProducerConfiguration.maxBatchRawBytes {
+                throw ProducerError.singleLogTooLarge
+            }
+            stage = "core_add"
+            try adapter.add(prepared, mode: mode)
+            diagnosticEmitter.recordAdmission(accepted: true)
+        } catch {
+            diagnosticEmitter.recordAdmission(accepted: false, errorName: (error as? ProducerError)?.errorCode)
+            Self.emitDiagnosticFailure(diagnosticEmitter, kind: .admissionRejected, error: error, stage: stage)
+            throw error
         }
+    }
 
-        try adapter.add(prepared, mode: mode)
+    /// Hint that connectivity has recovered. Advances retained transient
+    /// failures without cancelling requests or reviving discarded batches.
+    public func notifyNetworkRecovered() throws {
+        try requireReadyState(withStateLock { self.state })
+        adapter.notifyNetworkRecovered()
     }
 
     /// Atomically replaces the whole credentials group.
@@ -331,6 +429,7 @@ public final class Producer: @unchecked Sendable {
         try requireReadyState(state)
         try destination.validate()
         try adapter.updateDestination(destination)
+        diagnosticEmitter.updateDestinationContext(topicID: destination.topicID, endpoint: destination.endpoint)
     }
 
     private func requireReadyState(_ state: State) throws {
@@ -355,10 +454,19 @@ public final class Producer: @unchecked Sendable {
     /// A crash, forced termination, or direct process termination may prevent
     /// it from running; use persistent mode when later recovery is required.
     public func close(timeout: TimeInterval) async throws {
-        try ProducerConfiguration.validateMilliseconds(
-            timeout,
-            name: "close.timeout",
-            allowZero: true)
+        if diagnosticEmitter.isEnabled {
+            var details = ProducerDiagnosticDetails()
+            if timeout.isFinite, timeout >= 0, timeout * 1000 < Double(Int64.max) {
+                details.closeTimeoutMs = Int64((timeout * 1000).rounded())
+            }
+            diagnosticEmitter.offer(ProducerDiagnostic(kind: .closeStarted, context: details))
+        }
+        do {
+            try ProducerConfiguration.validateMilliseconds(timeout, name: "close.timeout", allowZero: true)
+        } catch {
+            Self.emitDiagnosticFailure(diagnosticEmitter, kind: .closeFailed, error: error, closeTimeout: timeout)
+            throw error
+        }
 
         let action = withStateLock { () -> CloseAction in
             switch state {
@@ -389,14 +497,19 @@ public final class Producer: @unchecked Sendable {
         case .wait(let attempt):
             try await attempt.wait()
         case .start(let attempt):
+            diagnosticEmitter.admissionSummary(nativeFields: adapter.readDiagnosticSnapshot())
             do {
                 try await adapter.close(timeout: timeout)
                 finishClose(result: .success(()), attempt: attempt)
+                diagnosticEmitter.offer(ProducerDiagnostic(kind: .closed, reason: .closed))
+                diagnosticEmitter.finish()
             } catch {
                 finishClose(result: .failure(error), attempt: attempt)
+                Self.emitDiagnosticFailure(diagnosticEmitter, kind: .closeFailed, error: error, closeTimeout: timeout)
                 throw error
             }
         case .invalidState:
+            Self.emitDiagnosticFailure(diagnosticEmitter, kind: .closeFailed, error: ProducerError.invalidState, closeTimeout: timeout)
             throw ProducerError.invalidState
         }
     }

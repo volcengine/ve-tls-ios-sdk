@@ -30,10 +30,12 @@
 // Timeout mapping:
 // - `requestTimeout` is the outer hard deadline, enforced by the transport
 //   itself (timer fires -> cancel task -> stable timeout error).
-// - `connectTimeout` is best-effort only; NSURLSession has no fully
-//   independent, portable connect-phase timer, so it is mapped to
-//   timeoutIntervalForRequest / NSMutableURLRequest.timeoutInterval.
-//   The verifiable hard upper bound is requestTimeout.
+// - `idleTimeout` is applied to NSMutableURLRequest.timeoutInterval and has
+//   precedence over the copied session configuration when it is positive.
+//   URLSession has no fully independent, portable DNS/TCP/TLS connect-phase
+//   timer, so this is not a true connect-phase deadline. No first-byte
+//   watchdog is added. The compatibility `connectTimeout` field is retained
+//   for old callers but is not used as a TCP timer.
 //
 // Pure Objective-C; iOS 13.0+ safe APIs only.
 //
@@ -80,9 +82,19 @@ FOUNDATION_EXPORT NSString *const TLSTransportErrorRequestIDKey;
 /// userInfo key: underlying NSURLError code (NSNumber) when mapped.
 FOUNDATION_EXPORT NSString *const TLSTransportErrorUnderlyingCodeKey;
 
+/// userInfo key: whether Core may retry this transport failure (NSNumber BOOL).
+FOUNDATION_EXPORT NSString *const TLSTransportErrorRetryableKey;
+
 /// Completion handler. Invoked exactly once, on the transport's internal
 /// serial (non-main) queue. The handler must not block the queue.
 typedef void (^TLSTransportCompletionHandler)(TLSHTTPResponse *response);
+
+/// Internal diagnostic sink. The dictionary contains only bounded scalar
+/// copies and the stable `event`/`source` keys. The sink is called
+/// synchronously on the transport queue so the owner can perform a bounded
+/// offer before any client code is dispatched. A nil sink disables detailed
+/// upload-progress and metrics collection.
+typedef void (^TLSTransportDiagnosticSink)(NSDictionary<NSString *, id> *safeScalars);
 
 /// NSURLSession-backed transport.
 ///
@@ -90,6 +102,11 @@ typedef void (^TLSTransportCompletionHandler)(TLSHTTPResponse *response);
 /// pool. Isolation across producers is preferred over
 /// cross-producer connection reuse.
 @interface TLSTransport : NSObject <NSURLSessionDataDelegate>
+
+/// Package-internal diagnostic sink. This property is intentionally exposed
+/// on the bridge type so the Core owner can bind its emitter without routing
+/// through customer callbacks. It is nullable and copied atomically.
+@property (atomic, copy, nullable) TLSTransportDiagnosticSink diagnosticSink;
 
 /// Builds a transport with a copied session configuration.
 ///

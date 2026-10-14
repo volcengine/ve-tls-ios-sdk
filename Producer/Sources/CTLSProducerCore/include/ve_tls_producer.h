@@ -12,7 +12,8 @@
 
 #define VE_TLS_CONFIG_VERSION_1 1u
 #define VE_TLS_CONFIG_VERSION_2 2u
-#define VE_TLS_CONFIG_VERSION_CURRENT VE_TLS_CONFIG_VERSION_2
+#define VE_TLS_CONFIG_VERSION_3 3u
+#define VE_TLS_CONFIG_VERSION_CURRENT VE_TLS_CONFIG_VERSION_3
 
 VE_TLS_BEGIN_DECLS
 
@@ -80,6 +81,67 @@ typedef struct {
     void (*emit)(const char * name, int64_t v1, int64_t v2, void * user_param);
     void * user_param;
 } ve_tls_metrics_sink;
+
+typedef enum {
+    VE_TLS_DELIVERY_DIAGNOSTIC_ATTEMPT_FINISHED = 0,
+    VE_TLS_DELIVERY_DIAGNOSTIC_RETRY_SCHEDULED = 1,
+    VE_TLS_DELIVERY_DIAGNOSTIC_BATCH_RETAINED = 2,
+    VE_TLS_DELIVERY_DIAGNOSTIC_BATCH_TERMINAL = 3,
+    /* Keep the original 0..3 values stable for existing bridge consumers. */
+    VE_TLS_DELIVERY_DIAGNOSTIC_BATCH_SEALED = 4,
+    VE_TLS_DELIVERY_DIAGNOSTIC_ATTEMPT_STARTED = 5
+} ve_tls_delivery_diagnostic_event_type;
+
+typedef enum {
+    VE_TLS_DELIVERY_DIAGNOSTIC_REASON_NONE = 0,
+    VE_TLS_DELIVERY_DIAGNOSTIC_REASON_SUCCESS = 1,
+    VE_TLS_DELIVERY_DIAGNOSTIC_REASON_NON_RETRYABLE = 2,
+    VE_TLS_DELIVERY_DIAGNOSTIC_REASON_MAX_ATTEMPTS = 3,
+    VE_TLS_DELIVERY_DIAGNOSTIC_REASON_RETRY_BUDGET = 4,
+    VE_TLS_DELIVERY_DIAGNOSTIC_REASON_RETENTION_EXPIRED = 5,
+    VE_TLS_DELIVERY_DIAGNOSTIC_REASON_CLOSED = 6
+} ve_tls_delivery_diagnostic_reason;
+
+typedef enum {
+    VE_TLS_DELIVERY_DIAGNOSTIC_DISPOSITION_UNKNOWN = 0,
+    VE_TLS_DELIVERY_DIAGNOSTIC_DISPOSITION_SUCCESS = 1,
+    VE_TLS_DELIVERY_DIAGNOSTIC_DISPOSITION_DISCARD = 2,
+    VE_TLS_DELIVERY_DIAGNOSTIC_DISPOSITION_RETAINED_MEMORY = 3,
+    VE_TLS_DELIVERY_DIAGNOSTIC_DISPOSITION_RETAINED_WAL = 4
+} ve_tls_delivery_diagnostic_disposition;
+
+#define VE_TLS_DELIVERY_DIAGNOSTIC_METADATA_VERSION_1 1u
+
+typedef struct {
+    ve_tls_delivery_diagnostic_event_type event;
+    ve_tls_delivery_diagnostic_reason reason;
+    int64_t start_id;
+    int64_t end_id;
+    int32_t attempt_count;
+    int32_t cycle_attempt_count;
+    int64_t elapsed_ms;
+    int64_t delay_ms;
+    int32_t log_count;
+    size_t raw_bytes;
+    size_t compressed_bytes;
+    int32_t http_code;
+    int32_t transport_code;
+    int32_t retryable;
+    const char * request_id;
+    const char * error_code;
+    /* Tail fields preserve the original 0..3 struct offsets. */
+    uint64_t attempt_id;
+    int64_t attempt_elapsed_ms;
+    int64_t queue_wait_ms;
+    ve_tls_delivery_diagnostic_disposition disposition;
+    uint32_t metadata_version;
+    uint32_t metadata_size;
+} ve_tls_delivery_diagnostic;
+
+typedef void (*ve_tls_delivery_diagnostic_fn)(
+    const ve_tls_delivery_diagnostic * event,
+    void * user_param
+);
 
 typedef struct {
     const char * access_key_id;
@@ -185,12 +247,24 @@ typedef struct {
     int64_t persistent_max_log_delay_ms;
     ve_tls_persistent_expired_log_policy persistent_expired_log_policy;
     ve_tls_persistent_auth_failure_policy persistent_auth_failure_policy;
+    /* Version 3 tail. Zero disables memory retry retention; negative is invalid. */
+    int64_t memory_retry_retention_ms;
+    /* Zero preserves the legacy per-attempt HTTP timeout behavior. */
+    int32_t bound_request_timeout_to_retry_budget;
+    ve_tls_delivery_diagnostic_fn delivery_diagnostic;
+    void * delivery_diagnostic_param;
+    /* When enabled, retry transient HTTP 408/499 and selected HTTP 400 codes. */
+    int32_t retry_transient_http_errors;
 } ve_tls_config;
 
 /* Size of the pre-versioned layout consumed by the legacy init/create APIs. */
 #define VE_TLS_CONFIG_LEGACY_SIZE offsetof(ve_tls_config, persistent_durability)
 /* Exact layout size used by version 1 callers. */
 #define VE_TLS_CONFIG_VERSION_1_SIZE offsetof(ve_tls_config, persistent_max_log_delay_ms)
+/* Exact layout size used by version 2 callers. */
+#define VE_TLS_CONFIG_VERSION_2_SIZE offsetof(ve_tls_config, memory_retry_retention_ms)
+/* Exact layout size used by version 3 callers. */
+#define VE_TLS_CONFIG_VERSION_3_SIZE sizeof(ve_tls_config)
 
 typedef void (*ve_tls_send_done_fn)(
     ve_tls_result result,
@@ -280,6 +354,8 @@ VE_TLS_API ve_tls_log_template * ve_tls_template_create(ve_tls_producer * produc
 VE_TLS_API ve_tls_result ve_tls_template_add_values(ve_tls_log_template * tpl, int64_t time_ms, int32_t has_time_ns, uint32_t time_ns, const char * const * values, const size_t * value_lens, size_t value_count, int flush);
 VE_TLS_API void ve_tls_template_destroy(ve_tls_log_template * tpl);
 VE_TLS_API ve_tls_result ve_tls_producer_flush(ve_tls_producer * producer);
+/* Wake delayed retry batches early after network recovery. */
+VE_TLS_API ve_tls_result ve_tls_producer_notify_network_recovered(ve_tls_producer * producer);
 VE_TLS_API ve_tls_result ve_tls_producer_recover(ve_tls_producer * producer);
 VE_TLS_API ve_tls_result ve_tls_producer_export_raw_buffer(ve_tls_producer * producer, unsigned char ** out_buf, size_t * out_size);
 VE_TLS_API ve_tls_result ve_tls_producer_import_raw_buffer(ve_tls_producer * producer, const unsigned char * buf, size_t size);
