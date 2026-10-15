@@ -135,6 +135,8 @@ public struct ProducerConfiguration: Sendable {
     /// Structured diagnostics on an SDK-owned, bounded serial diagnostic queue.
     public var onDiagnostic: (@Sendable (ProducerDiagnostic) -> Void)?
     public var diagnosticLogLevel: ProducerDiagnosticLogLevel
+    /// Best-effort text output with per-instance rate/byte limits and repeated-error coalescing.
+    /// App-owned loggers must also bound total file size; typed diagnostics are unaffected.
     public var diagnosticHandler: (@Sendable (ProducerDiagnosticLogLevel, String) -> Void)?
     internal var diagnosticEmitter: DiagnosticEmitter?
     public var metadata: ProducerMetadata

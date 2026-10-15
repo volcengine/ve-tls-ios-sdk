@@ -8,7 +8,8 @@ VolcengineTLSProducer 的重要用户可见变更记录在此文件中。
 - 为暂态 HTTP 408/499 及限定错误码的 HTTP 400 提供可配置的重试分类。
 - 新增独立的可选内存重试保留周期，默认关闭；进程退出后的恢复仍依赖持久化。
 - 新增 Swift / Objective-C `diagnosticHandler` 文本回调，复用结构化诊断事件，支持等级过滤、独立有界队列、脱敏和周期汇总；App 可将回调写入自己的文件 logger。
-- 补充交付策略、诊断 on/off 行为对照及外部包集成回归；最低系统和 iOS 实际运行的未完成验收见[验收记录](docs/ios-diagnostic-handler-validation.md)。
+- 精简诊断文本中的空值字段，增加每实例的重复故障合并和独立等级条数/字节限额；App 仍须配置文件轮转和总容量。
+- 补充交付策略、诊断 on/off 行为对照及外部包集成回归；最低系统及真实网络的未完成验收见[验收记录](docs/ios-diagnostic-handler-validation.md)。
 - 同步 CocoaPods 版本、请求 `User-Agent` 和诊断 `sdk_version` 为 `2.0.2`；尚未发布对应 tag 或 Pods 版本。
 
 ## 2.0.1

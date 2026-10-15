@@ -87,6 +87,345 @@ final class DiagnosticEmitterTests: XCTestCase {
         }
     }
 
+    func testTextLimiterMergesRepeatedFaultsAndKeepsQuotaClassesIndependent() {
+        let limiter = DiagnosticTextLimiter(
+            messageLimit: 1,
+            byteLimit: 100,
+            windowNanoseconds: 60)
+        var firstContext = ProducerDiagnosticDetails()
+        firstContext.attemptID = "attempt-a"
+        firstContext.timeMs = 1
+        firstContext.producerInstanceID = "instance-a"
+        firstContext.admissionStage = "state"
+        firstContext.disposition = "retained_wal"
+        let first = ProducerDiagnostic(
+            kind: .openFailed,
+            reason: .nonRetryable,
+            errorCode: "network",
+            context: firstContext)
+
+        var duplicateContext = firstContext
+        duplicateContext.attemptID = "attempt-b"
+        duplicateContext.timeMs = 2
+        duplicateContext.producerInstanceID = "instance-b"
+        let duplicate = ProducerDiagnostic(
+            kind: .openFailed,
+            reason: .nonRetryable,
+            errorCode: "network",
+            context: duplicateContext)
+        let different = ProducerDiagnostic(
+            kind: .openFailed,
+            reason: .nonRetryable,
+            errorCode: "other",
+            context: firstContext)
+
+        XCTAssertEqual(
+            limited(limiter, level: .error, diagnostic: first, now: 0, message: "first"),
+            "first")
+        XCTAssertNil(limited(
+            limiter, level: .error, diagnostic: duplicate, now: 1, message: "duplicate"))
+        XCTAssertNil(limited(
+            limiter, level: .error, diagnostic: different, now: 2, message: "quota"))
+
+        let info = ProducerDiagnostic(kind: .opened)
+        XCTAssertEqual(
+            limited(limiter, level: .info, diagnostic: info, now: 2, message: "info"),
+            "info|total=2|since=2")
+
+        XCTAssertEqual(
+            limited(limiter, level: .error, diagnostic: first, now: 60, message: "after"),
+            "after|total=2|since=0")
+        XCTAssertEqual(
+            limited(limiter, level: .error, diagnostic: different, now: 120, message: "next"),
+            "next|total=2|since=0")
+    }
+
+    func testTextLimiterDoesNotSlideDuplicateWindowOrRememberQuotaRejectedFaults() {
+        let rolling = DiagnosticTextLimiter(
+            messageLimit: 10,
+            byteLimit: 1_024,
+            windowNanoseconds: 60)
+        let repeated = ProducerDiagnostic(
+            kind: .openFailed,
+            reason: .nonRetryable,
+            errorCode: "repeated")
+
+        XCTAssertEqual(
+            limited(rolling, level: .error, diagnostic: repeated, now: 0, message: "first"),
+            "first")
+        XCTAssertNil(limited(
+            rolling, level: .error, diagnostic: repeated, now: 59, message: "duplicate"))
+        XCTAssertEqual(
+            limited(rolling, level: .error, diagnostic: repeated, now: 60, message: "after"),
+            "after|total=1|since=1")
+
+        let quota = DiagnosticTextLimiter(
+            messageLimit: 1,
+            byteLimit: 1_024,
+            windowNanoseconds: 60)
+        let first = ProducerDiagnostic(
+            kind: .openFailed,
+            reason: .nonRetryable,
+            errorCode: "first")
+        let rejectedByQuota = ProducerDiagnostic(
+            kind: .openFailed,
+            reason: .nonRetryable,
+            errorCode: "quota")
+
+        XCTAssertEqual(
+            limited(quota, level: .error, diagnostic: first, now: 0, message: "first"),
+            "first")
+        XCTAssertNil(limited(
+            quota,
+            level: .error,
+            diagnostic: rejectedByQuota,
+            now: 1,
+            message: "quota"))
+        XCTAssertEqual(
+            limited(
+                quota,
+                level: .error,
+                diagnostic: rejectedByQuota,
+                now: 60,
+                message: "quota-after-window"),
+            "quota-after-window|total=1|since=1")
+    }
+
+    func testTextLimiterReportsCounterRenderFailureAndRetainsPendingCounters() {
+        let limiter = DiagnosticTextLimiter(
+            messageLimit: 1,
+            byteLimit: 1_024,
+            windowNanoseconds: 60)
+        let diagnostic = ProducerDiagnostic(kind: .batchSealed)
+
+        XCTAssertEqual(
+            limited(limiter, level: .debug, diagnostic: diagnostic, now: 0, message: "first"),
+            "first")
+        XCTAssertNil(limited(
+            limiter, level: .debug, diagnostic: diagnostic, now: 1, message: "suppressed"))
+
+        let result = limiter.output(
+            level: .debug,
+            diagnostic: diagnostic,
+            now: 60
+        ) { _, _ in nil }
+        guard case .formatterFailed? = result else {
+            return XCTFail("counter render failure must be explicit")
+        }
+        XCTAssertEqual(
+            limited(limiter, level: .debug, diagnostic: diagnostic, now: 60, message: "recovered"),
+            "recovered|total=1|since=1")
+    }
+
+    func testTextLimiterEmitsRepeatedFaultOncePerWindowWithoutSliding() {
+        let limiter = DiagnosticTextLimiter(
+            messageLimit: 100,
+            byteLimit: 100 * 1_024,
+            windowNanoseconds: 60,
+            fingerprintLimit: 2)
+        let diagnostic = ProducerDiagnostic(
+            kind: .admissionRejected,
+            reason: .nonRetryable,
+            errorCode: "persistent")
+        var outputCount = 0
+
+        for window in 0..<1_440 {
+            let start = UInt64(window) * 60
+            XCTAssertNotNil(limited(
+                limiter,
+                level: .warning,
+                diagnostic: diagnostic,
+                now: start,
+                message: "window-\(window)"))
+            outputCount += 1
+            for duplicate in 1...5 {
+                XCTAssertNil(limited(
+                    limiter,
+                    level: .warning,
+                    diagnostic: diagnostic,
+                    now: start + UInt64(duplicate),
+                    message: "duplicate-\(window)-\(duplicate)"))
+            }
+        }
+
+        XCTAssertEqual(outputCount, 1_440)
+    }
+
+    func testTextLimiterUsesRollingCountAndUTF8BytesIncludingNewline() {
+        let bytes = DiagnosticTextLimiter(
+            messageLimit: 10,
+            byteLimit: 7,
+            windowNanoseconds: 60)
+        let diagnostic = ProducerDiagnostic(kind: .batchSealed)
+        XCTAssertEqual(
+            limited(bytes, level: .debug, diagnostic: diagnostic, now: 0, message: "中文"),
+            "中文")
+        XCTAssertNil(limited(
+            bytes, level: .debug, diagnostic: diagnostic, now: 1, message: "中文"))
+
+        let count = DiagnosticTextLimiter(
+            messageLimit: 2,
+            byteLimit: 1_024,
+            windowNanoseconds: 60)
+        XCTAssertNotNil(limited(count, level: .debug, diagnostic: diagnostic, now: 0, message: "a"))
+        XCTAssertNotNil(limited(count, level: .debug, diagnostic: diagnostic, now: 10, message: "b"))
+        XCTAssertNil(limited(count, level: .debug, diagnostic: diagnostic, now: 10, message: "c"))
+        XCTAssertEqual(
+            limited(count, level: .debug, diagnostic: diagnostic, now: 60, message: "d"),
+            "d|total=1|since=1")
+    }
+
+    func testTextSuppressionCountersAttachToAdmissionSummaryWithoutRecursion() throws {
+        let structured = LockedValues<ProducerDiagnostic>()
+        let text = LockedValues<String>()
+        let monotonicLock = NSLock()
+        var monotonicCalls = 0
+        let emitter = DiagnosticEmitter(
+            structuredHandler: { structured.append($0) },
+            textHandler: { _, message in text.append(message) },
+            level: .debug,
+            clock: DiagnosticEmitterClock(
+                wallMilliseconds: { 10 },
+                monotonicNanoseconds: {
+                    monotonicLock.lock()
+                    defer { monotonicLock.unlock() }
+                    let value: UInt64 = monotonicCalls < 3 ? 0 : 60
+                    monotonicCalls += 1
+                    return value
+                }),
+            textLimiter: DiagnosticTextLimiter(
+                messageLimit: 1,
+                byteLimit: 32 * 1_024,
+                windowNanoseconds: 60))
+
+        for _ in 0..<3 {
+            XCTAssertTrue(emitter.offer(ProducerDiagnostic(kind: .batchSealed)))
+        }
+        emitter.recordAdmission(accepted: true)
+        emitter.admissionSummary()
+        eventually(timeout: 2) { structured.values.count == 4 }
+        eventually(timeout: 2) { text.values.count == 2 }
+        XCTAssertEqual(structured.values.count, 4)
+        XCTAssertEqual(text.values.count, 2)
+
+        let summary = try XCTUnwrap(text.values.compactMap(Self.jsonObject).first {
+            $0["event"] as? String == "admission_summary"
+        })
+        XCTAssertEqual(summary["text_suppressed_total"] as? Int, 2)
+        XCTAssertEqual(summary["text_suppressed_since_last_report"] as? Int, 2)
+        let structuredSummary = try XCTUnwrap(
+            structured.values.first(where: { $0.kind == .admissionSummary }))
+        XCTAssertEqual(structuredSummary.context?.addAttemptedTotal, 1)
+        XCTAssertNil(structuredSummary.context?.diagnosticDroppedTotal)
+        emitter.finish()
+    }
+
+    func testTextLimiterPreservesStructuredDeliveryUnderSlowConcurrentOffers() {
+        let handlerStarted = expectation(description: "structured handler started")
+        let release = DispatchSemaphore(value: 0)
+        let structured = LockedValues<ProducerDiagnostic>()
+        let text = LockedValues<String>()
+        let eventCount = 101
+        let emitter = DiagnosticEmitter(
+            structuredHandler: { value in
+                structured.append(value)
+                if value.context?.sequence == 1 {
+                    handlerStarted.fulfill()
+                    _ = release.wait(timeout: .now() + 2)
+                }
+            },
+            textHandler: { _, message in text.append(message) },
+            level: .debug,
+            capacity: 128,
+            clock: DiagnosticEmitterClock(
+                wallMilliseconds: { 10 },
+                monotonicNanoseconds: { 0 }),
+            textLimiter: DiagnosticTextLimiter(
+                messageLimit: 1,
+                byteLimit: 32 * 1_024,
+                windowNanoseconds: 60))
+
+        XCTAssertTrue(emitter.offer(ProducerDiagnostic(kind: .opened)))
+        wait(for: [handlerStarted], timeout: 2)
+        DispatchQueue.concurrentPerform(iterations: 100) { _ in
+            XCTAssertTrue(emitter.offer(ProducerDiagnostic(kind: .batchSealed)))
+        }
+        release.signal()
+        eventually(timeout: 5) { structured.values.count == eventCount }
+        eventually(timeout: 5) { text.values.count == 1 }
+        XCTAssertEqual(structured.values.count, eventCount)
+        XCTAssertEqual(text.values.count, 1)
+        XCTAssertEqual(
+            structured.values.compactMap { $0.context?.sequence },
+            Array(1...Int64(eventCount)))
+        emitter.finish()
+    }
+
+    func testTextOffDoesNotChargeLimiter() {
+        let limiter = DiagnosticTextLimiter(
+            messageLimit: 1,
+            byteLimit: 100,
+            windowNanoseconds: 60)
+        let diagnostic = ProducerDiagnostic(kind: .openFailed, reason: .nonRetryable)
+        XCTAssertNil(limited(limiter, level: .off, diagnostic: diagnostic, now: 0, message: "off"))
+        XCTAssertEqual(
+            limited(limiter, level: .error, diagnostic: diagnostic, now: 0, message: "error"),
+            "error")
+    }
+
+    func testTextFaultFingerprintTableEvictsOldestAndExpires() {
+        let limiter = DiagnosticTextLimiter(
+            messageLimit: 200,
+            byteLimit: 100 * 1_024,
+            windowNanoseconds: 1_000_000,
+            fingerprintLimit: 128)
+        for index in 0..<128 {
+            XCTAssertNotNil(limited(
+                limiter,
+                level: .warning,
+                diagnostic: ProducerDiagnostic(
+                    kind: .openFailed,
+                    reason: .nonRetryable,
+                    errorCode: "error_\(index)"),
+                now: UInt64(index),
+                message: "event-\(index)"))
+        }
+
+        let existing = ProducerDiagnostic(
+            kind: .openFailed,
+            reason: .nonRetryable,
+            errorCode: "error_127")
+        XCTAssertNil(limited(
+            limiter, level: .warning, diagnostic: existing, now: 129, message: "duplicate"))
+
+        let newFingerprint = ProducerDiagnostic(
+            kind: .openFailed,
+            reason: .nonRetryable,
+            errorCode: "error_128")
+        XCTAssertEqual(limited(
+            limiter,
+            level: .warning,
+            diagnostic: newFingerprint,
+            now: 129,
+            message: "new"), "new|total=1|since=1")
+
+        let evicted = ProducerDiagnostic(
+            kind: .openFailed,
+            reason: .nonRetryable,
+            errorCode: "error_0")
+        XCTAssertEqual(
+            limited(limiter, level: .warning, diagnostic: evicted, now: 129, message: "evicted"),
+            "evicted|total=1|since=0")
+        XCTAssertEqual(
+            limited(
+                limiter,
+                level: .warning,
+                diagnostic: existing,
+                now: 1_000_129,
+                message: "expired"),
+            "expired|total=1|since=0")
+    }
+
     func testWallClockRegressionPreservesOccurrenceTimeAndDiagnosticDurations() {
         let values = LockedValues<ProducerDiagnostic>()
         let clock = RegressingDiagnosticClock(wallMilliseconds: [200, 100])
@@ -418,6 +757,26 @@ final class DiagnosticEmitterTests: XCTestCase {
     private static func jsonObject(_ message: String) -> [String: Any]? {
         guard let data = message.data(using: .utf8) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    private func limited(
+        _ limiter: DiagnosticTextLimiter,
+        level: ProducerDiagnosticLogLevel,
+        diagnostic: ProducerDiagnostic,
+        now: UInt64,
+        message: String
+    ) -> String? {
+        limiter.output(
+            level: level,
+            diagnostic: diagnostic,
+            now: now
+        ) { total, sinceReport in
+            guard total != nil || sinceReport != nil else { return message }
+            return "\(message)|total=\(total ?? 0)|since=\(sinceReport ?? 0)"
+        }.flatMap { output in
+            guard case .emitted(let message) = output else { return nil }
+            return message
+            }
     }
 
     private func eventually(

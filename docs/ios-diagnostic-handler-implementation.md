@@ -96,10 +96,12 @@ config.diagnosticHandler = ^(NSInteger level, NSString *message) {
 message 使用单行 JSON，schema_version 固定为 1。统一 formatter 输出，字符串转义通过 JSONSerialization 完成，不手工拼接。下面是示意消息，不是现有 SDK 的真实输出：
 
 ```json
-{"schema_version":1,"event":"attempt_finished","level":2,"source":"core","time_ms":1791734400000,"sequence":12,"sdk_version":"<release-version>","producer_instance_id":"<uuid>","producer_id":"tls-terminal","topic_id":"<topic-id>","batch_start_id":100,"batch_end_id":120,"attempt_count":3,"cycle_attempt_count":3,"http_code":0,"transport_code":2103,"timeout_source":"sdk_request_deadline","request_id":null}
+{"schema_version":1,"event":"attempt_finished","level":2,"source":"core","time_ms":1791734400000,"sequence":12,"sdk_version":"<release-version>","producer_instance_id":"<uuid>","producer_id":"tls-terminal","topic_id":"<topic-id>","batch_start_id":100,"batch_end_id":120,"attempt_count":3,"cycle_attempt_count":3,"http_code":0,"transport_code":2103,"timeout_source":"sdk_request_deadline"}
 ```
 
-字段缺失使用省略或 null，整个 schema 统一选择 null 作为已定义但不可取得的值。不要用 0 代替未知耗时、未知上传字节或未知状态。http_code=0 是特例，明确表示没有可用 HTTP 响应，不是服务端 HTTP 0。
+文本 JSON 仅输出当前事件已知、适用的字段；缺失、不可取得或被脱敏规则拒绝的值直接省略，不输出 `null`、空字符串或空集合。`reason`、`disposition`、`app_state`、`timeout_source`、`cancel_source` 中无信息的 `none`/`unknown` 值省略；`fields_omitted` 仅在为 `true` 时输出，沿用原有字段裁剪标记。结构化 `onDiagnostic` 的字段、Optional 值和事件保持不变。
+
+不能统一删除数值 0 或布尔 false：`http_code=0` 表示未取得 HTTP 响应，`retryable=false` 表示不可重试，`connection_reused=false` 表示未复用连接；`retry_max_attempts=0`、`memory_retry_retention_ms=0`、已观测的零耗时/水位/统计以及实际关闭的配置也保留。不要用 0 代替未知值。
 
 | 字段 | 类型/单位 | 语义与来源 |
 | --- | --- | --- |
@@ -107,8 +109,8 @@ message 使用单行 JSON，schema_version 固定为 1。统一 formatter 输出
 | event / level / source | String / Int / String | 稳定事件名、等级、facade/producer/core/transport/lifecycle |
 | time_ms / sequence | Int64 / Int64 | 事件发生的 Unix 毫秒、实例内诊断准入顺序 |
 | sdk_version / producer_instance_id | String | 版本统一读取 SDK 版本来源；实例 ID 在 open 前生成 |
-| producer_id / topic_id / endpoint_host | String? | 逻辑 ID/Topic/规范化主机；缺失或不安全输入置 null，不改变原业务校验 |
-| batch_start_id / batch_end_id / log_count | Int64? / Int64? / Int? | Core 实际批次范围和条数；非批次事件置 null，不能把默认 0 当真实批次 |
+| producer_id / topic_id / endpoint_host | String? | 逻辑 ID/Topic/规范化主机；文本中省略缺失或不安全输入，不改变原业务校验 |
+| batch_start_id / batch_end_id / log_count | Int64? / Int64? / Int? | Core 实际批次范围和条数；非批次事件省略这些字段，不能把默认 0 当真实批次 |
 | attempt_count / cycle_attempt_count | Int? | 保留现有累计尝试与当前周期尝试语义，不将其重新计算为请求数 |
 | raw_bytes / compressed_bytes | Int?，bytes | 现有 Core 口径；不可把请求字节数当唯一业务丢失量 |
 | delivery_elapsed_ms / retry_delay_ms | Int?，ms | 现有 elapsed/retryDelay 转为毫秒，保留原语义 |
@@ -131,12 +133,12 @@ message 使用单行 JSON，schema_version 固定为 1。统一 formatter 输出
 | add_attempted_total / add_accepted_total / add_rejected_by_error | Facade/Producer 调用边界累计值，覆盖校验失败和未 ready；成功只表示入队边界成功 |
 | core_logs_enqueued_total / core_logs_dropped_total / core_batches_built_total | 复用 Core get_metrics，对外声明为 Core 口径，不与 Facade 拒绝重复求和 |
 | core_requests_total / core_requests_failed_total / core_retries_total / core_bytes_sent_total | Core 原始统计口径；bytes_sent_total 不改名为服务端写入字节 |
-| buffer_used_bytes / buffer_limit_bytes | 复用 Core 缓冲读取；native 不可读取时置 null |
+| buffer_used_bytes / buffer_limit_bytes | 复用 Core 缓冲读取；native 不可读取时省略 |
 | diagnostic_dropped_total / diagnostic_dropped_since_last_report | emitter 自身丢弃数量，与业务日志丢弃分开 |
 
 Core metrics 是分别读取的计数，缓冲读取在另一时刻完成，不能宣称它们是一份严格原子快照。入队失败在持久化模式下可能已写入 WAL，不能根据 NSError 或 add 返回失败就记录 disposition=discard。确切处置必须在实际确认、保留或释放分支采集。
 
-`get_buffered_bytes` 自行获取 producer mutex，不能在不清楚 Core 持锁状态的 C 诊断回调内直接调用。周期采集在 Bridge 已保护 native 生命周期、且不处于 Core 锁内的入口读取；事件中不能安全取得的水位先置 null，不能为补字段嵌套加锁或等待网络工作线程。
+`get_buffered_bytes` 自行获取 producer mutex，不能在不清楚 Core 持锁状态的 C 诊断回调内直接调用。周期采集在 Bridge 已保护 native 生命周期、且不处于 Core 锁内的入口读取；事件中不能安全取得的水位在文本中省略，不能为补字段嵌套加锁或等待网络工作线程。
 
 **6. 事件覆盖与等级**
 
@@ -170,9 +172,9 @@ raw value 合同：现有 Swift Kind 保持 unknown=-1、attemptFinished=0、ret
 
 在现有 URLSession delegate proxy 上转发 didSendBodyData 与 didFinishCollectingMetrics：
 
-- 上传进度只更新请求上下文，不逐个进度回调刷日志；完成/失败时输出 sent_body_bytes 和 expected_body_bytes。未取得指标时为 null，平台返回 unknown 时保持未知。
+- 上传进度只更新请求上下文，不逐个进度回调刷日志；完成/失败时输出 sent_body_bytes 和 expected_body_bytes。未取得指标时省略，平台返回 unknown 时保持未知。
 - metrics 立即提取标量，不把 NSURLRequest、原始 metrics 对象、NSError 或含凭证的对象排入诊断队列。
-- 可用字段：dns_ms、connection_setup_ms、tls_handshake_ms、request_send_ms、response_wait_ms、response_read_ms、network_protocol、connection_reused。每个 duration 仅在起止均存在且合理时计算，否则 null。
+- 可用字段：dns_ms、connection_setup_ms、tls_handshake_ms、request_send_ms、response_wait_ms、response_read_ms、network_protocol、connection_reused。每个 duration 仅在起止均存在且合理时计算，否则省略。
 - connection_setup_ms 与 tls_handshake_ms 可能存在包含关系，不相加为总耗时。复用连接可能没有 DNS/握手时间，不能推断为阶段未执行或阶段超时。
 - SDK request deadline 分支记录 timeout_source=sdk_request_deadline；NSURLErrorTimedOut 记录 urlsession_timeout，不声称一定是 idle/DNS/握手超时。Core retry budget 记录 reason=retry_budget，不伪装为网络超时。
 - 取消来源只能从实际取消分支得出。NSURLErrorCancelled 无明确来源时写 unknown，不统一归因于后台。
@@ -188,6 +190,18 @@ Apple 参考：[上传进度/字节口径](https://developer.apple.com/documenta
 RequestID 使用已规范化的完整值，方便服务端关联；不要用指纹替代。输入超出约定或非法时省略并标记，不静默截取成另一个看似合法的 ID。
 
 文本消息上限 4 KiB UTF-8。入队前限制可复制字符串长度和 metrics 数量，避免 1024 个事件仍携带无界对象。超长消息优先省略可选详情，并设置 fields_omitted；仍过长则计入丢弃。不能直接截断 JSON 或 UTF-8，破坏可解析性。App 需要更大日志策略时由 App 自己处理文件，不扩大 SDK 默认队列。
+
+文本回调另有输出保护，与 FIFO 容量独立：每实例按单调时钟滚动 60 秒，Debug/Info 总计
+30 条/32 KiB，Warning/Error 独立 30 条/32 KiB，SDK 消息字节包含一字节换行，不含 App logger 的额外前缀。Warning/Error 相同稳定指纹
+（kind/reason/errorCode/httpCode/transportCode/admissionStage/disposition）在 60 秒内最多输出一条；
+不以 ID、时间、尝试次数或自由文本区分重复故障，指纹状态最多 128 项。被抑制文本用独立累计值
+`text_suppressed_total` / `text_suppressed_since_last_report` 在下一条实际输出消息中汇总；没有新事件时
+不额外建 timer，现有 summary 可承载汇总且遵循原级别过滤。不改变 typed `onDiagnostic` 事件，
+不把文本限频算成业务丢弃或 FIFO 丢弃。文本 sequence 可有间隔。
+
+限频是每实例默认保护，不是文件容量承诺；多个实例输出量相加，反复初始化会重新计额。
+App 必须限制文件总量，例如 2 MiB × 3 个文件，写入前轮转覆盖旧文件，写入失败停止文件写入；
+App 自行将 typed `onDiagnostic` 落盘时也必须自行限制频率。SDK 不接管客户文件，不新增文件日志通道。
 
 **9. 修改文件清单**
 
@@ -244,7 +258,7 @@ Core 变化须同步主 C 仓库或现有 core-patches 机制，再更新 `Produ
 | D05 | open 后替换 config block/等级；event/terminal 两个实例 | 原实例使用快照，不热更新、不串实例或 Topic |
 | D06 | 无 destination、非法配置、凭证校验失败、目录/Core 构建失败 | 初始化前有 instance_id；open_failed 每失败路径一次，原 NSError/throws/completion 保持 |
 | D07 | ObjC mode 无法映射、未 ready、invalidLog、singleLogTooLarge、queueFull/bufferFull/closed | admission_rejected 带正确阶段/错误，计数准确；不把拒绝或 WAL 已追加直接判为 discard |
-| D08 | 多线程 add，成功与拒绝混合；周期/受控关闭汇总 | 调用累计和分类计数正确，未知统计 null，Core/Facade 计数不重复求和 |
+| D08 | 多线程 add，成功与拒绝混合；周期/受控关闭汇总 | 调用累计和分类计数正确，未知统计在文本中省略，Core/Facade 计数不重复求和 |
 | D09 | 普通批次和未达到触发阈值的批次 | batch_sealed/attempt_started 只在原动作发生时出现，诊断不触发 flush |
 | D10 | 受控 HTTP 2xx、400、408、429、5xx 与本地 timeout/network lost | HTTP 与 transport 命名空间分开；on/off 错误分类、实际请求次数/次序、backoff/预算一致 |
 | D11 | 最大尝试、预算、保留期耗尽；内存保留关闭/开启，WAL 保留 | reason/disposition 与实际分支一致；释放和保留数量及 onSendResult 次数与基线一致 |
@@ -254,7 +268,7 @@ Core 变化须同步主 C 仓库或现有 core-patches 机制，再更新 `Produ
 | D15 | Core 新事件值与 Swift 4/5/6/7 重叠 | 显式映射正确，尤其新增 Core 4 不误报 admissionRejected，未知值不误归类 |
 | D16 | 注入凭证、正文、带 userinfo/query URL、服务端错误文本 | 所有文本/结构化回调及 DTO description 都无敏感原文；合法 RequestID 能完整关联 |
 | D17 | SDK deadline、NSURLErrorTimedOut、显式 cancel、invalidate、来源不明的 -999 | 正确 timeout_source/cancel_source；一次原有请求终态，不改变 retryable |
-| D18 | 部分上传、无进度回调、连接复用、缺失/迟到 metrics | 已观察字节/时间正确；未知 null；迟到事件关联 attempt_id；不等待 metrics、不新增请求 |
+| D18 | 部分上传、无进度回调、连接复用、缺失/迟到 metrics | 已观察字节/时间正确；未知字段在文本中省略；迟到事件关联 attempt_id；不等待 metrics、不新增请求 |
 | D19 | foreground/background/expiration、automaticLifecycleHandling=NO、App Extension | 仅观察已有分支；原 flush/wake/后台任务配对不变，不新增 UIKit/取消行为 |
 | D20 | close 成功/超时与统计采集、迟到回调并发 | 无 native use-after-free、无 handler 引用循环；close 不等客户文件 I/O，已准入事件有清晰生命周期 |
 | D21 | 非持久化、buffered/sync WAL 失败/恢复/确认/删除 | diagnostics on/off 存盘、恢复、ACK/清理与内存释放相同，无新增 WAL 字段；复用当前持久化回归夹具 |

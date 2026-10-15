@@ -63,7 +63,7 @@
 未知 400 仍终止。关闭该开关时，HTTP 重试集合回退为 Core 的 429/500/502/503/504。
 
 `onDiagnostic` 和 `diagnosticHandler` 使用每个 Producer 独立的串行诊断队列，与
-`onSendResult` 的 `callbackQueue` 隔离。同一事件先投递结构化回调，再投递文本回调；业务结果
+`onSendResult` 的 `callbackQueue` 隔离。同一事件先投递结构化回调，再按等级和限频规则决定是否投递文本回调；业务结果
 回调仍按 `callbackQueue` 执行。结构化事件字段只包含安全的计数、状态、HTTP/transport code、
 `retryable`、`requestID` 和 `errorCode`，回调不会补回已经丢弃的批次。
 
@@ -91,7 +91,17 @@ configuration.diagnosticHandler = ^(NSInteger level, NSString *message) {
 };
 ```
 
-App 负责 logger 的文件路径、轮转、导出和 `fsync`；handler 直接交给文件 logger，不自行重组
+文本限频按实例计算，使用单调时钟滚动 60 秒窗口：Debug/Info 合计 30 条、32 KiB，
+Warning/Error 独立 30 条、32 KiB（SDK 消息字节包含一字节换行，不含 App logger 的额外前缀）。相同 Warning/Error 指纹 60 秒最多输出一条；
+指纹不包含 RequestID、批次 ID 或时间等易变字段。后续可输出消息携带
+`text_suppressed_total` / `text_suppressed_since_last_report`，与队列丢弃计数分开；不新增定时器，
+现有 60 秒 summary 也遵循等级和限额。结构化 `onDiagnostic` 不受文本限频影响。
+这些保护使用 SDK 固定默认值；公开客户端可配置 handler 和等级，不能关闭上述保护或提高限额。
+多个 Producer 的限额相加，重新创建实例会重新计额。
+
+App 负责 logger 的文件路径、轮转、导出和 `fsync`；建议单文件 2 MiB、最多 3 个文件，写入前
+轮转覆盖旧文件，总量约 6 MiB。写入失败停止文件写入，避免递归日志。持续输出即使限频仍会增长，
+必须同时配置文件总容量。App 自行持久化 `onDiagnostic` 时也需要自行限频；handler 直接交给文件 logger，不自行重组
 SDK 内部数据。同一文件由两个 Producer 写入时，logger 必须并发安全。handler 不得重新进入同一
 Producer，也不得同步等待自身文件回调。诊断仅观察，不改变上传、重试、超时或 WAL。`open` 会
 冻结等级和 handler；本节新 API 属于待发布的 2.0.2，线上 2.0.1 不能直接配置。

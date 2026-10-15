@@ -3,7 +3,7 @@ import XCTest
 @testable import VolcengineTLSProducer
 
 final class DiagnosticFormatterTests: XCTestCase {
-    func testSchemaUsesNullForUnknownFieldsAndMillisecondsForDurations() throws {
+    func testSchemaOmitsUnknownFieldsAndUsesMillisecondsForDurations() throws {
         var details = ProducerDiagnosticDetails()
         details.timeMs = 1_793_000_000_123
         details.sequence = 12
@@ -21,7 +21,11 @@ final class DiagnosticFormatterTests: XCTestCase {
         details.batchCount = 16
         details.batchRawBytes = 2048
         details.lingerMs = 3000
+        details.sendConcurrency = 1
+        details.persistenceMode = "memory"
         details.requestTimeoutMs = 90_000
+        details.retryMaxAttempts = 3
+        details.memoryRetryRetentionMs = 5000
         details.addAttemptedTotal = 3
         details.addAcceptedTotal = 2
         details.coreRequestsTotal = 1
@@ -47,21 +51,28 @@ final class DiagnosticFormatterTests: XCTestCase {
         XCTAssertEqual(json["delivery_elapsed_ms"] as? Int, 1250)
         XCTAssertEqual(json["retry_delay_ms"] as? Int, 300)
         XCTAssertEqual(json["http_code"] as? Int, 0)
+        XCTAssertEqual(json["retryable"] as? Bool, false)
         XCTAssertEqual(json["batch_count"] as? Int, 16)
+        XCTAssertEqual(json["send_concurrency"] as? Int, 1)
+        XCTAssertEqual(json["persistence_mode"] as? String, "memory")
         XCTAssertEqual(json["request_timeout_ms"] as? Int, 90_000)
+        XCTAssertEqual(json["retry_max_attempts"] as? Int, 3)
+        XCTAssertEqual(json["memory_retry_retention_ms"] as? Int, 5000)
         XCTAssertEqual(json["add_accepted_total"] as? Int, 2)
-        XCTAssertTrue(json["underlying_error_domain"] is NSNull)
-        XCTAssertTrue(json["dns_ms"] is NSNull)
+        XCTAssertNil(json["underlying_error_domain"])
+        XCTAssertNil(json["dns_ms"])
+        XCTAssertNil(json["fields_omitted"])
     }
 
     func testNonBatchLegacyDefaultsDoNotInventRetryOrTransportFields() throws {
         let message = try XCTUnwrap(DiagnosticFormatter.format(
             ProducerDiagnostic(kind: .opened)))
         let json = try XCTUnwrap(Self.object(message))
-        XCTAssertTrue(json["batch_start_id"] is NSNull)
-        XCTAssertTrue(json["http_code"] is NSNull)
-        XCTAssertTrue(json["transport_code"] is NSNull)
-        XCTAssertTrue(json["retryable"] is NSNull)
+        XCTAssertNil(json["batch_start_id"])
+        XCTAssertNil(json["http_code"])
+        XCTAssertNil(json["transport_code"])
+        XCTAssertNil(json["retryable"])
+        XCTAssertNil(json["reason"])
 
         let batch = try XCTUnwrap(DiagnosticFormatter.format(
             ProducerDiagnostic(
@@ -89,11 +100,116 @@ final class DiagnosticFormatterTests: XCTestCase {
             ProducerDiagnostic(kind: .attemptStarted, retryable: false)))
         for message in [sealed, started] {
             let json = try XCTUnwrap(Self.object(message))
-            XCTAssertTrue(json["batch_start_id"] is NSNull)
-            XCTAssertTrue(json["http_code"] is NSNull)
-            XCTAssertTrue(json["transport_code"] is NSNull)
-            XCTAssertTrue(json["retryable"] is NSNull)
+            XCTAssertNil(json["batch_start_id"])
+            XCTAssertNil(json["http_code"])
+            XCTAssertNil(json["transport_code"])
+            XCTAssertNil(json["retryable"])
         }
+    }
+
+    func testSparseEventsOmitNilEmptyAndEmptyCollectionFields() throws {
+        var details = ProducerDiagnosticDetails()
+        details.event = ""
+        details.producerID = ""
+        details.addRejectedByError = [:]
+        details.fieldsOmitted = false
+
+        let message = try XCTUnwrap(DiagnosticFormatter.format(
+            ProducerDiagnostic(kind: .opened), context: details))
+        let json = try XCTUnwrap(Self.object(message))
+        XCTAssertEqual(json["schema_version"] as? Int, 1)
+        XCTAssertEqual(json["event"] as? String, "opened")
+        XCTAssertNil(json["producer_id"])
+        XCTAssertNil(json["add_rejected_by_error"])
+        XCTAssertNil(json["fields_omitted"])
+
+        details.fieldsOmitted = true
+        let markedMessage = try XCTUnwrap(DiagnosticFormatter.format(
+            ProducerDiagnostic(kind: .opened), context: details))
+        let markedJSON = try XCTUnwrap(Self.object(markedMessage))
+        XCTAssertEqual(markedJSON["fields_omitted"] as? Bool, true)
+    }
+
+    func testNoInformationMarkersAreOmittedOnlyForWhitelistedKeys() throws {
+        var details = ProducerDiagnosticDetails()
+        details.reason = "none"
+        details.disposition = "unknown"
+        details.appState = "none"
+        details.timeoutSource = "unknown"
+        details.cancelSource = "none"
+        details.producerID = "unknown"
+
+        let sparse = try XCTUnwrap(DiagnosticFormatter.format(
+            ProducerDiagnostic(kind: .transportFinished), context: details))
+        let sparseJSON = try XCTUnwrap(Self.object(sparse))
+        XCTAssertNil(sparseJSON["reason"])
+        XCTAssertNil(sparseJSON["disposition"])
+        XCTAssertNil(sparseJSON["app_state"])
+        XCTAssertNil(sparseJSON["timeout_source"])
+        XCTAssertNil(sparseJSON["cancel_source"])
+        XCTAssertEqual(sparseJSON["producer_id"] as? String, "unknown")
+
+        details.reason = "timeout"
+        details.disposition = "retained_wal"
+        details.appState = "background"
+        details.timeoutSource = "request"
+        details.cancelSource = "close"
+        details.requestTimeoutMs = 90_000
+        let useful = try XCTUnwrap(DiagnosticFormatter.format(
+            ProducerDiagnostic(kind: .transportFinished), context: details))
+        let usefulJSON = try XCTUnwrap(Self.object(useful))
+        XCTAssertEqual(usefulJSON["reason"] as? String, "timeout")
+        XCTAssertEqual(usefulJSON["disposition"] as? String, "retained_wal")
+        XCTAssertEqual(usefulJSON["app_state"] as? String, "background")
+        XCTAssertEqual(usefulJSON["timeout_source"] as? String, "request")
+        XCTAssertEqual(usefulJSON["cancel_source"] as? String, "close")
+        XCTAssertEqual(usefulJSON["request_timeout_ms"] as? Int, 90_000)
+    }
+
+    func testSemanticZeroAndFalseValuesRemainInTextAndStructuredDTO() throws {
+        var details = ProducerDiagnosticDetails()
+        details.reason = "unknown"
+        details.httpCode = 0
+        details.retryable = false
+        details.connectionReused = false
+        details.automaticLifecycleHandling = false
+        details.retryMaxAttempts = 0
+        details.memoryRetryRetentionMs = 0
+        details.deliveryElapsedMs = 0
+        details.attemptElapsedMs = 0
+        details.queueWaitMs = 0
+        details.bufferUsedBytes = 0
+        details.bufferLimitBytes = 0
+        details.addAttemptedTotal = 0
+        details.coreRequestsTotal = 0
+        details.diagnosticDroppedSinceLastReport = 0
+
+        let value = ProducerDiagnostic(kind: .transportFinished, context: details)
+        let dto = TLSProducerDiagnostic(value)
+        XCTAssertEqual(dto.context?.reason, "unknown")
+        XCTAssertEqual(dto.context?.httpCode?.intValue, 0)
+        XCTAssertEqual(dto.context?.retryable?.boolValue, false)
+        XCTAssertEqual(dto.context?.automaticLifecycleHandling?.boolValue, false)
+        XCTAssertEqual(dto.context?.retryMaxAttempts?.intValue, 0)
+        XCTAssertEqual(dto.context?.memoryRetryRetentionMs?.intValue, 0)
+
+        let message = try XCTUnwrap(DiagnosticFormatter.format(value))
+        let json = try XCTUnwrap(Self.object(message))
+        XCTAssertNil(json["reason"])
+        XCTAssertEqual(json["http_code"] as? Int, 0)
+        XCTAssertEqual(json["retryable"] as? Bool, false)
+        XCTAssertEqual(json["connection_reused"] as? Bool, false)
+        XCTAssertEqual(json["automatic_lifecycle_handling"] as? Bool, false)
+        XCTAssertEqual(json["retry_max_attempts"] as? Int, 0)
+        XCTAssertEqual(json["memory_retry_retention_ms"] as? Int, 0)
+        XCTAssertEqual(json["delivery_elapsed_ms"] as? Int, 0)
+        XCTAssertEqual(json["attempt_elapsed_ms"] as? Int, 0)
+        XCTAssertEqual(json["queue_wait_ms"] as? Int, 0)
+        XCTAssertEqual(json["buffer_used_bytes"] as? Int, 0)
+        XCTAssertEqual(json["buffer_limit_bytes"] as? Int, 0)
+        XCTAssertEqual(json["add_attempted_total"] as? Int, 0)
+        XCTAssertEqual(json["core_requests_total"] as? Int, 0)
+        XCTAssertEqual(json["diagnostic_dropped_since_last_report"] as? Int, 0)
     }
 
     func testKindAndLevelValuesRemainStable() {
@@ -131,7 +247,7 @@ final class DiagnosticFormatterTests: XCTestCase {
         XCTAssertEqual(details.addRejectedByError?["buffer_full"], 2)
     }
 
-    func testInvalidRequestIDIsNullAndValidRequestIDIsNotTruncated() throws {
+    func testInvalidRequestIDIsOmittedAndValidRequestIDIsNotTruncated() throws {
         let valid = String(repeating: "R", count: 200)
         var details = ProducerDiagnosticDetails()
         details.requestID = valid
@@ -144,19 +260,19 @@ final class DiagnosticFormatterTests: XCTestCase {
         let invalidMessage = try XCTUnwrap(DiagnosticFormatter.format(
             ProducerDiagnostic(kind: .transportFinished), context: details))
         let invalidObject = try XCTUnwrap(Self.object(invalidMessage))
-        XCTAssertTrue(invalidObject["request_id"] is NSNull)
+        XCTAssertNil(invalidObject["request_id"])
 
         details.requestID = String(repeating: "R", count: 257)
         let overlongMessage = try XCTUnwrap(DiagnosticFormatter.format(
             ProducerDiagnostic(kind: .transportFinished), context: details))
         let overlongObject = try XCTUnwrap(Self.object(overlongMessage))
-        XCTAssertTrue(overlongObject["request_id"] is NSNull)
+        XCTAssertNil(overlongObject["request_id"])
 
         details.requestID = "request/id"
         let punctuationMessage = try XCTUnwrap(DiagnosticFormatter.format(
             ProducerDiagnostic(kind: .transportFinished), context: details))
         let punctuationObject = try XCTUnwrap(Self.object(punctuationMessage))
-        XCTAssertTrue(punctuationObject["request_id"] is NSNull)
+        XCTAssertNil(punctuationObject["request_id"])
     }
 
     func testLongOptionalFieldsAreOmittedAsValidJSON() throws {
@@ -166,7 +282,7 @@ final class DiagnosticFormatterTests: XCTestCase {
         details.endpointHost = String(repeating: "e", count: 256)
         details.sdkVersion = String(repeating: "v", count: 128)
         details.attemptID = String(repeating: "a", count: 256)
-        details.requestID = String(repeating: "r", count: 512)
+        details.requestID = String(repeating: "r", count: 256)
         details.producerErrorDomain = String(repeating: "d", count: 256)
         details.producerErrorName = String(repeating: "n", count: 256)
         details.transportKind = String(repeating: "k", count: 256)
@@ -186,7 +302,7 @@ final class DiagnosticFormatterTests: XCTestCase {
         XCTAssertLessThanOrEqual(data.count, DiagnosticFormatter.maxUTF8Bytes)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(json["fields_omitted"] as? Bool, true)
-        XCTAssertTrue(json["attempt_id"] is NSNull)
+        XCTAssertNil(json["attempt_id"])
     }
 
     func testSensitiveValuesNeverAppearInStructuredDetailsOrDescription() throws {

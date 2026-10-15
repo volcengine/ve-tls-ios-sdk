@@ -70,6 +70,7 @@ internal final class DiagnosticEmitter: @unchecked Sendable {
     private let clock: DiagnosticEmitterClock
     private let capacity: Int
     private let queue: DispatchQueue
+    private let textLimiter: DiagnosticTextLimiter
 
     private static let maxRequestIDAssociations = 128
     private static let requestIDAssociationTTLNanos: UInt64 = 30_000_000_000
@@ -101,7 +102,8 @@ internal final class DiagnosticEmitter: @unchecked Sendable {
         source: String = "producer",
         capacity: Int = DiagnosticEmitter.maximumCapacity,
         clock: DiagnosticEmitterClock = DiagnosticEmitterClock(),
-        diagnosticQueue: DispatchQueue? = nil
+        diagnosticQueue: DispatchQueue? = nil,
+        textLimiter: DiagnosticTextLimiter? = nil
     ) {
         self.structuredHandler = structuredHandler
         self.textHandler = textHandler
@@ -109,6 +111,7 @@ internal final class DiagnosticEmitter: @unchecked Sendable {
         self.clock = clock
         self.capacity = max(1, min(capacity, DiagnosticEmitter.maximumCapacity))
         self.source = Self.safeSource(source) ?? "producer"
+        self.textLimiter = textLimiter ?? DiagnosticTextLimiter()
         self.sdkVersion = DiagnosticFieldPolicy.token(sdkVersion, maxBytes: 128)
         self.producerInstanceID = DiagnosticFieldPolicy.token(
             producerInstanceID ?? UUID().uuidString)
@@ -255,7 +258,7 @@ internal final class DiagnosticEmitter: @unchecked Sendable {
     }
 
     /// Updates only destination context. It never calls Core or schedules
-    /// work, and unsafe values are represented as null in later events.
+    /// work. Unsafe values stay nil in structured events and are omitted from text.
     internal func updateDestinationContext(
         producerID: String? = nil,
         topicID: String? = nil,
@@ -473,17 +476,29 @@ internal final class DiagnosticEmitter: @unchecked Sendable {
         // Only a formatter failure contributes to diagnosticsDropped.
         guard level.rawValue >= configuredLevel.rawValue,
               level != .off else { return }
-        guard let message = DiagnosticFormatter.format(
-            event.diagnostic,
+        let output = textLimiter.output(
             level: level,
-            sequence: event.sequence,
-            timeMs: event.timeMs,
-            source: source,
-            context: event.diagnostic.context) else {
+            diagnostic: event.diagnostic,
+            now: clock.monotonicNanoseconds(),
+            render: { [event, level, source] total, sinceReport in
+                DiagnosticFormatter.format(
+                    event.diagnostic,
+                    level: level,
+                    sequence: event.sequence,
+                    timeMs: event.timeMs,
+                    source: source,
+                    context: event.diagnostic.context,
+                    textSuppressedTotal: total,
+                    textSuppressedSinceReport: sinceReport)
+            })
+        switch output {
+        case .emitted(let message):
+            textHandler(level, message)
+        case .formatterFailed:
             if !event.isDropSummary { recordFormatterDrop() }
-            return
+        case nil:
+            break
         }
-        textHandler(level, message)
     }
 
     private func recordFormatterDrop() {

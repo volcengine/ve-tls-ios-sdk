@@ -6,6 +6,43 @@
 
 业务基线是开始本任务时的交付策略工作区，并非 Git HEAD 的原始 2.0.1。Core 基线已从原已登记补丁重建，位于 `/tmp/tls-ios-diagnostic-business-baseline/core`。独立只读复核和 owner 检查确认，本次增量只观察原动作；未调整请求载荷、签名、批次、并发、分类、请求超时、尝试计数、退避、预算或 WAL 决策。
 
+## 2026-10-15 文本字段精简增量
+
+按最新需求，文本 formatter 不再输出所有字段的 null 占位；缺失、空值与无信息默认标记省略，`fields_omitted` 仅在为 true 时出现。实际有语义的 0/false（无 HTTP 响应、不可重试、零统计、关闭的生命周期/保留配置等）仍保留。结构化 `onDiagnostic`、事件源、队列、上传、重试及 WAL 决策均未改变。原有 schema_version=1 的字段改为按事件可选输出。
+
+新增/更新了稀疏字段、默认标记白名单、零值/false 与结构化 DTO、脱敏和 4 KiB 回退测试。完整 SwiftPM 回归：382 用例，0 failures，4 skipped；日志 `/tmp/tls-ios-sparse-formatter-build/full-sdk-tests.log`。真机实际回调样例仍为 13 行，26,574→5,833 bytes（约减少 78%），无 null 字段；本轮完整真机重跑结果与业务对照另存验收产物，未以编译通过代替运行。
+
+## 2026-10-15 文本限频最终验收
+
+文本在原 emitter 的私有 drain 队列执行限频，不新增队列、timer、Core 事件或业务调用。
+按实例单调时钟滚动 60 秒，Debug/Info 为 30 条/32 KiB，Warning/Error 独立 30 条/32 KiB，
+字节包含一字节换行，不含 App logger 自加前缀。重复故障按稳定指纹最多输出一次，窗口从上次
+实际输出开始计时，持续重复不会无限推迟下次输出；指纹表最多 128 项。条数满或重复时跳过 JSON
+格式化。抑制计数通过下一条实际输出文本的 `text_suppressed_total` /
+`text_suppressed_since_last_report` 报告，不更改 typed `onDiagnostic`，不混入业务/FIFO 丢弃计数。
+
+| 本轮执行 | 结果 |
+| --- | --- |
+| 完整 `swift test --scratch-path /tmp/tls-ios-sparse-formatter-build` | 391 项，0 failures，4 skipped；Transport 41、Integration 80、Persistence 37、Contract 191、Bridge 42 |
+| emitter / formatter 针对性测试 | 20 / 11 项通过；覆盖 1440 个一分钟窗口模拟 24 小时故障、窗口不滑动、UTF-8 字节、等级额度隔离、慢回调、指纹有界与格式化失败 |
+| 最新签名 App 真机运行 | iPhone 11 Pro Max / iOS17.5.1；26 项全部通过，2026-10-15T12:50:36.737Z 至 12:51:53.045Z |
+| 同业务配置原回归 off/on | 各 53 请求、25 个业务观察，原始载荷字节、顺序和终态一致，0 个业务差异 |
+| 公开 SDK 重复错误突发 | 各触发 2000 次无效入队；on 收到 2000 条结构化拒绝、1 条拒绝文本，汇总抑制 1999 条；全部文本 12 条/5981 bytes，含换行 |
+| 公开 SDK 连续成功突发 | off/on 各 40 请求/40 成功回调，逐请求载荷和顺序一致；on 收到 245 条结构化事件，文本限制为 30 条/15094 bytes，含换行 |
+| 最新生成头编译 | `arm64-apple-ios13.0` 下的 NSInteger/NSString block 语法检查通过；不等同完整最低系统构建/运行 |
+| 签名及范围 | `codesign --verify --deep --strict` 通过；Core、Bridge、Transport、上传/重试/WAL 源码均未变更 |
+
+证据在工作区 `docs/research/evidence/2026-10-15-ios-v202-device-functional/diagnostic-text-rate/`；
+完整命令、文件哈希、源码 patch、实际 App 与生成头一并保留。内部基线 `44ea2c5`，公开候选基线
+`a0f84c0`，以上为提交前的验收基线；最终提交与推送状态以 Git 记录为准，两个工作区的同范围文件内容相同。
+
+App 仍应配置自己的文件总容量，例如 2 MiB × 3 个文件循环覆盖；SDK 的限频不能代替文件轮转。
+配额按实例计算，反复重建实例会重新计额；App 自行把 typed `onDiagnostic` 写盘时应自行限频。
+本轮未重复 CocoaPods 全矩阵、真实跨进程 WAL/人工 UIKit 生命周期，也未新增最低 iOS13/macOS10.15
+运行证据。原始真实 HTTPS 成功入库仍未验证，4 个真实网络 opt-in 回归依旧 skipped。
+
+以下原始执行记录保留为字段精简前的业务基线；其中“null”描述的是旧文本占位或原生采样字典，新文本按上述规则省略。最低 iOS 13/macOS 10.15 的完整运行、真实 HTTPS 入库等既有验证边界不因本次格式优化而扩大。
+
 ## 客户使用方式
 
 在 `open` 之前设置回调，才能接收初始化失败。SDK 不写文件，路径、轮转、输出级别和 fsync 由 App 的 logger 决定。
@@ -17,7 +54,7 @@ config.diagnosticHandler = ^(NSInteger level, NSString *message) {
 };
 ```
 
-双 handler 同时配置时，每条已投递事件先调用结构化回调，再调用文本回调。文本 Off 不影响结构化回调。慢回调延迟诊断并可能丢弃诊断；它不阻塞发送结果或 close。客户不能把诊断重新 add 到同一个 Producer，也不应在回调内同步等待 SDK 操作。
+双 handler 同时配置时，每条已准入事件先调用结构化回调，再按等级和限频规则决定是否调用文本回调。文本 Off 不影响结构化回调。慢回调延迟诊断并可能丢弃诊断；它不阻塞发送结果或 close。客户不能把诊断重新 add 到同一个 Producer，也不应在回调内同步等待 SDK 操作。
 
 ## 执行结果
 

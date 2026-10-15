@@ -17,7 +17,9 @@ internal enum DiagnosticFormatter {
         sequence: Int64? = nil,
         timeMs: Int64? = nil,
         source: String? = nil,
-        context: ProducerDiagnosticDetails? = nil
+        context: ProducerDiagnosticDetails? = nil,
+        textSuppressedTotal: Int64? = nil,
+        textSuppressedSinceReport: Int64? = nil
     ) -> String? {
         let merged = (diagnostic.context ?? ProducerDiagnosticDetails())
             .merging(context ?? ProducerDiagnosticDetails())
@@ -27,7 +29,9 @@ internal enum DiagnosticFormatter {
             level: level,
             sequence: sequence,
             timeMs: timeMs,
-            source: source)
+            source: source,
+            textSuppressedTotal: textSuppressedTotal,
+            textSuppressedSinceReport: textSuppressedSinceReport)
     }
 
     /// A convenience used by tests and by adapters that already have all
@@ -80,7 +84,9 @@ internal enum DiagnosticFormatter {
         level: ProducerDiagnosticLogLevel?,
         sequence: Int64?,
         timeMs: Int64?,
-        source: String?
+        source: String?,
+        textSuppressedTotal: Int64?,
+        textSuppressedSinceReport: Int64?
     ) -> String? {
         // `.off` is a text-handler configuration value, never an event level.
         let eventLevel = (level == .off ? nil : level)
@@ -98,7 +104,9 @@ internal enum DiagnosticFormatter {
             timeMs: eventTime,
             source: eventSource,
             fieldsOmitted: context.fieldsOmitted ?? false,
-            includeOptionalDetails: true)
+            includeOptionalDetails: true,
+            textSuppressedTotal: textSuppressedTotal,
+            textSuppressedSinceReport: textSuppressedSinceReport)
         if let data = jsonData(object), data.count <= maxUTF8Bytes {
             return String(data: data, encoding: .utf8)
         }
@@ -118,7 +126,9 @@ internal enum DiagnosticFormatter {
             timeMs: eventTime,
             source: eventSource,
             fieldsOmitted: true,
-            includeOptionalDetails: false)
+            includeOptionalDetails: false,
+            textSuppressedTotal: textSuppressedTotal,
+            textSuppressedSinceReport: textSuppressedSinceReport)
         if let data = jsonData(object), data.count <= maxUTF8Bytes {
             return String(data: data, encoding: .utf8)
         }
@@ -136,7 +146,9 @@ internal enum DiagnosticFormatter {
             timeMs: eventTime,
             source: eventSource,
             fieldsOmitted: true,
-            includeOptionalDetails: false)
+            includeOptionalDetails: false,
+            textSuppressedTotal: textSuppressedTotal,
+            textSuppressedSinceReport: textSuppressedSinceReport)
         guard let data = jsonData(object), data.count <= maxUTF8Bytes else { return nil }
         return String(data: data, encoding: .utf8)
     }
@@ -149,10 +161,29 @@ internal enum DiagnosticFormatter {
         timeMs: Int64?,
         source: String,
         fieldsOmitted: Bool,
-        includeOptionalDetails: Bool
+        includeOptionalDetails: Bool,
+        textSuppressedTotal: Int64?,
+        textSuppressedSinceReport: Int64?
     ) -> [String: Any] {
         var result: [String: Any] = [:]
-        func put(_ key: String, _ value: Any?) { result[key] = value ?? NSNull() }
+        func put(_ key: String, _ value: Any?) {
+            guard let value, !(value is NSNull) else { return }
+            if let string = value as? String, string.isEmpty { return }
+            // The rejection map is the formatter's only collection value.
+            if let counts = value as? [String: Int64], counts.isEmpty { return }
+            result[key] = value
+        }
+        func putMeaningfulMarker(_ key: String, _ value: Any?) {
+            if let marker = value as? String {
+                switch key {
+                case "reason", "disposition", "app_state", "timeout_source", "cancel_source":
+                    if marker == "none" || marker == "unknown" { return }
+                default:
+                    break
+                }
+            }
+            put(key, value)
+        }
         func positiveOrNil(_ value: Int) -> Int? { value > 0 ? value : nil }
         func positiveOrNil(_ value: Int64) -> Int64? { value > 0 ? value : nil }
         func milliseconds(_ value: TimeInterval) -> Int64? {
@@ -210,11 +241,11 @@ internal enum DiagnosticFormatter {
         put("underlying_error_domain", context.underlyingErrorDomain)
         put("underlying_error_code", context.underlyingErrorCode)
         put("retryable", context.retryable ?? (legacyCoreFieldsKnown ? diagnostic.retryable : nil))
-        put("reason", context.reason ?? diagnostic.reason.diagnosticName)
-        put("disposition", context.disposition)
-        put("timeout_source", context.timeoutSource)
-        put("cancel_source", context.cancelSource)
-        put("app_state", context.appState)
+        putMeaningfulMarker("reason", context.reason ?? diagnostic.reason.diagnosticName)
+        putMeaningfulMarker("disposition", context.disposition)
+        putMeaningfulMarker("timeout_source", context.timeoutSource)
+        putMeaningfulMarker("cancel_source", context.cancelSource)
+        putMeaningfulMarker("app_state", context.appState)
         put("automatic_lifecycle_handling", context.automaticLifecycleHandling)
         put("buffer_used_bytes", context.bufferUsedBytes)
         put("buffer_limit_bytes", context.bufferLimitBytes)
@@ -260,27 +291,16 @@ internal enum DiagnosticFormatter {
             put("core_bytes_sent_total", context.coreBytesSentTotal)
             put("diagnostic_dropped_total", context.diagnosticDroppedTotal)
             put("diagnostic_dropped_since_last_report", context.diagnosticDroppedSinceLastReport)
-        } else {
-            // Keep the schema stable when optional detail values are omitted.
-            for key in optionalDetailKeys { put(key, nil) }
         }
-        put("fields_omitted", fieldsOmitted)
+        if let textSuppressedTotal, textSuppressedTotal > 0 {
+            put("text_suppressed_total", textSuppressedTotal)
+        }
+        if let textSuppressedSinceReport, textSuppressedSinceReport > 0 {
+            put("text_suppressed_since_last_report", textSuppressedSinceReport)
+        }
+        if fieldsOmitted { result["fields_omitted"] = true }
         return result
     }
-
-    private static let optionalDetailKeys = [
-        "attempt_id", "sent_body_bytes", "expected_body_bytes", "dns_ms",
-        "connection_setup_ms", "tls_handshake_ms", "request_send_ms", "response_wait_ms",
-        "response_read_ms", "network_protocol", "connection_reused", "batch_count",
-        "batch_raw_bytes", "linger_ms", "send_concurrency", "compression", "persistence_mode",
-        "connect_timeout_ms", "request_timeout_ms", "request_idle_timeout_ms",
-        "retry_max_attempts", "retry_total_timeout_ms", "retry_initial_interval_ms",
-        "retry_max_interval_ms", "memory_retry_retention_ms", "close_timeout_ms", "add_attempted_total",
-        "add_accepted_total", "add_rejected_by_error", "core_logs_enqueued_total",
-        "core_logs_dropped_total", "core_batches_built_total", "core_requests_total",
-        "core_requests_failed_total", "core_retries_total", "core_bytes_sent_total",
-        "diagnostic_dropped_total", "diagnostic_dropped_since_last_report",
-    ]
 
     private static func legacyCoreFieldsKnown(_ diagnostic: ProducerDiagnostic) -> Bool {
         switch diagnostic.kind {

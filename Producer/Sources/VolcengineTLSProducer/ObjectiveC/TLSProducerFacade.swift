@@ -446,6 +446,8 @@ public final class TLSProducerConfiguration: NSObject {
     public var memoryRetryRetention: TimeInterval
     public var onDiagnostic: (@Sendable (TLSProducerDiagnostic) -> Void)?
     public var diagnosticLogLevel: TLSProducerDiagnosticLogLevel
+    /// Best-effort text output with per-instance rate/byte limits and repeated-error coalescing.
+    /// App-owned loggers must also bound total file size; typed diagnostics are unaffected.
     public var diagnosticHandler: (@Sendable (Int, String) -> Void)?
 
     // ProducerMetadata
