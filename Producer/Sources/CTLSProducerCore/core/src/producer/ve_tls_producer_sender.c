@@ -2410,7 +2410,7 @@ have_task: {
             &err,
             raw_body_size,
             send_body_size,
-            elapsed,
+            -1,
             delay);
         producer->config.platform.sleep_ms(delay);
     }
@@ -2623,15 +2623,6 @@ retry_fast_after_auth_update:
         for (;;) {
             attempt++;
             ve_tls_error_free_fields(&err);
-            if (!producer->persistent && task.memory_retry_retained &&
-                task.memory_retry_deadline_ms > 0 &&
-                producer->config.platform.time_ms &&
-                producer->config.platform.time_ms() >= task.memory_retry_deadline_ms) {
-                ve_tls_sender_set_synthetic_error(
-                    &err, "RetryRetentionExpired", "memory retry retention expired", 0);
-                terminal_reason = VE_TLS_DELIVERY_DIAGNOSTIC_REASON_RETENTION_EXPIRED;
-                break;
-            }
             if (producer->config.bound_request_timeout_to_retry_budget &&
                 producer->config.retry_policy.total_timeout_ms > 0) {
                 int64_t budget_now = producer->config.platform.time_ms
@@ -2680,16 +2671,6 @@ retry_fast_after_auth_update:
                 err.error_message = ve_tls_strdup("credentials refresh failed");
                 break;
             }
-            if (!producer->persistent && task.memory_retry_retained &&
-                task.memory_retry_deadline_ms > 0 &&
-                producer->config.platform.time_ms &&
-                producer->config.platform.time_ms() >= task.memory_retry_deadline_ms) {
-                ve_tls_owned_credentials_free(&owned_creds);
-                ve_tls_sender_set_synthetic_error(
-                    &err, "RetryRetentionExpired", "memory retry retention expired", 0);
-                terminal_reason = VE_TLS_DELIVERY_DIAGNOSTIC_REASON_RETENTION_EXPIRED;
-                break;
-            }
             if (producer->config.bound_request_timeout_to_retry_budget &&
                 producer->config.retry_policy.total_timeout_ms > 0) {
                 int64_t cap_now = producer->config.platform.time_ms
@@ -2736,9 +2717,7 @@ retry_fast_after_auth_update:
                     ? ve_tls_sender_deadline_from_duration(
                         start_time, producer->config.retry_policy.total_timeout_ms)
                     : 0,
-                !producer->persistent && task.memory_retry_retained
-                    ? task.memory_retry_deadline_ms
-                    : 0,
+                0, /* fast_send excludes memory retry retention. */
                 &task,
                 &err);
             ve_tls_owned_credentials_free(&owned_creds);

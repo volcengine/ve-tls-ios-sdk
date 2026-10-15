@@ -1,5 +1,5 @@
 diff --git a/core/include/ve_tls_producer.h b/core/include/ve_tls_producer.h
-index 31ca7d1..8a9bdd4 100644
+index 31ca7d1..ff2b504 100644
 --- a/core/include/ve_tls_producer.h
 +++ b/core/include/ve_tls_producer.h
 @@ -12,7 +12,8 @@
@@ -12,7 +12,7 @@ index 31ca7d1..8a9bdd4 100644
  
  VE_TLS_BEGIN_DECLS
  
-@@ -81,6 +82,67 @@ typedef struct {
+@@ -81,6 +82,84 @@ typedef struct {
      void * user_param;
  } ve_tls_metrics_sink;
  
@@ -53,6 +53,10 @@ index 31ca7d1..8a9bdd4 100644
 +    int64_t end_id;
 +    int32_t attempt_count;
 +    int32_t cycle_attempt_count;
++    /* For sender delivery events, cumulative from first delivery start,
++     * including retained cycles; uses platform.time_ms, so wall-clock changes
++     * can affect the value. A sender event before delivery starts is 0;
++     * BATCH_SEALED is emitted before sender delivery and is -1 (unavailable). */
 +    int64_t elapsed_ms;
 +    int64_t delay_ms;
 +    int32_t log_count;
@@ -61,17 +65,30 @@ index 31ca7d1..8a9bdd4 100644
 +    int32_t http_code;
 +    int32_t transport_code;
 +    int32_t retryable;
++    /* Borrowed strings; valid only during the diagnostic callback. */
 +    const char * request_id;
 +    const char * error_code;
 +    /* Tail fields preserve the original 0..3 struct offsets. */
 +    uint64_t attempt_id;
++    /* Monotonic duration of the actual HTTP attempt, or -1 if unknown. */
 +    int64_t attempt_elapsed_ms;
++    /* Queue wait is independent of elapsed_ms, or -1 if unavailable. */
 +    int64_t queue_wait_ms;
 +    ve_tls_delivery_diagnostic_disposition disposition;
 +    uint32_t metadata_version;
 +    uint32_t metadata_size;
 +} ve_tls_delivery_diagnostic;
 +
++/*
++ * Delivery diagnostics are invoked synchronously by the SDK, including its
++ * builder/sender workers. Calls are not serialized to a fixed thread, so the
++ * handler must be thread-safe and must return promptly. Do not call close,
++ * destroy, or an operation that can wait for this producer from the handler.
++ *
++ * `event` and its request_id/error_code strings are borrowed and are valid
++ * only until the handler returns. Copy any data that must outlive the call.
++ * No callback reentrancy or serialization guarantee is provided.
++ */
 +typedef void (*ve_tls_delivery_diagnostic_fn)(
 +    const ve_tls_delivery_diagnostic * event,
 +    void * user_param
@@ -80,7 +97,7 @@ index 31ca7d1..8a9bdd4 100644
  typedef struct {
      const char * access_key_id;
      const char * access_key_secret;
-@@ -185,12 +247,24 @@ typedef struct {
+@@ -185,13 +264,38 @@ typedef struct {
      int64_t persistent_max_log_delay_ms;
      ve_tls_persistent_expired_log_policy persistent_expired_log_policy;
      ve_tls_persistent_auth_failure_policy persistent_auth_failure_policy;
@@ -103,9 +120,51 @@ index 31ca7d1..8a9bdd4 100644
 +/* Exact layout size used by version 3 callers. */
 +#define VE_TLS_CONFIG_VERSION_3_SIZE sizeof(ve_tls_config)
  
++/*
++ * Send callbacks are synchronous SDK calls, including on worker threads,
++ * and may run concurrently.
++ * req_id, error_message, raw_buffer, and the v2 error object/fields are
++ * borrowed for the duration of the callback; copy them before returning if
++ * needed later. The handler must not block or call close, destroy, or an
++ * operation that can wait for this producer. A retained memory batch ended by
++ * close may report VE_TLS_CLOSED (v2 error->error_code is ProducerClosed;
++ * v1 receives the corresponding error_message). close does not promise a
++ * final network attempt. A persistent delayed retry remains
++ * unacknowledged in WAL for later recovery and does not imply the same
++ * terminal callback.
++ */
  typedef void (*ve_tls_send_done_fn)(
      ve_tls_result result,
-@@ -280,6 +354,8 @@ VE_TLS_API ve_tls_log_template * ve_tls_template_create(ve_tls_producer * produc
+     size_t log_bytes,
+@@ -228,6 +332,14 @@ typedef struct {
+     uint64_t request_latency_buckets[8];
+ } ve_tls_metrics;
+ 
++/*
++ * Legacy init initializes only the pre-versioned prefix through
++ * VE_TLS_CONFIG_LEGACY_SIZE; legacy create consumes only that prefix and does
++ * not enable any versioned tail. For V1/V2/V3 callers, pair the versioned
++ * initializer and constructor with the same exact size and version. Do not
++ * treat an uninitialized legacy tail as a versioned input or widen the legacy
++ * copy contract.
++ */
+ VE_TLS_API void ve_tls_config_init(ve_tls_config * config);
+ VE_TLS_API ve_tls_result ve_tls_config_init_versioned(
+     ve_tls_config * config,
+@@ -251,6 +363,12 @@ VE_TLS_API ve_tls_producer * ve_tls_producer_create_versioned(
+ VE_TLS_API ve_tls_result ve_tls_producer_update_endpoint(ve_tls_producer * producer, const char * endpoint, const char * region, const char * topic_id);
+ /* Transactional with the same rollback and old-or-new snapshot guarantee. */
+ VE_TLS_API ve_tls_result ve_tls_producer_update_static_credentials(ve_tls_producer * producer, const char * access_key_id, const char * access_key_secret, const char * security_token);
++/*
++ * close ends already-retained memory-only batches; they may receive
++ * VE_TLS_CLOSED/ProducerClosed and do not receive a final attempt merely
++ * because close waits. Persistent delayed retries remain unacknowledged in
++ * WAL for later recovery. Backgrounding an iOS app is not equivalent to close.
++ */
+ VE_TLS_API ve_tls_result ve_tls_producer_close(ve_tls_producer * producer, int32_t timeout_ms);
+ VE_TLS_API ve_tls_result ve_tls_producer_close_split(ve_tls_producer * producer, int32_t flusher_timeout_ms, int32_t sender_timeout_ms);
+ VE_TLS_API void ve_tls_producer_destroy(ve_tls_producer * producer);
+@@ -280,6 +398,8 @@ VE_TLS_API ve_tls_log_template * ve_tls_template_create(ve_tls_producer * produc
  VE_TLS_API ve_tls_result ve_tls_template_add_values(ve_tls_log_template * tpl, int64_t time_ms, int32_t has_time_ns, uint32_t time_ns, const char * const * values, const size_t * value_lens, size_t value_count, int flush);
  VE_TLS_API void ve_tls_template_destroy(ve_tls_log_template * tpl);
  VE_TLS_API ve_tls_result ve_tls_producer_flush(ve_tls_producer * producer);
@@ -267,7 +326,7 @@ index c3cb528..c194301 100644
                  const char * err_msg = NULL;
                  if (ve_tls_manager_prepare_send_task(producer, &t, &err_code, &err_msg) != 0) {
 diff --git a/core/src/producer/ve_tls_producer_sender.c b/core/src/producer/ve_tls_producer_sender.c
-index 7729d3a..c340eb1 100644
+index 7729d3a..b6012a9 100644
 --- a/core/src/producer/ve_tls_producer_sender.c
 +++ b/core/src/producer/ve_tls_producer_sender.c
 @@ -153,10 +153,37 @@ static void ve_tls_breaker_release_half_open_guard(ve_tls_producer * producer) {
@@ -1233,7 +1292,7 @@ index 7729d3a..c340eb1 100644
 +            &err,
 +            raw_body_size,
 +            send_body_size,
-+            elapsed,
++            -1,
 +            delay);
          producer->config.platform.sleep_ms(delay);
      }
@@ -1323,7 +1382,7 @@ index 7729d3a..c340eb1 100644
          int64_t credential_version;
  retry_fast_after_auth_update:
          attempt = 0;
-@@ -1786,13 +2618,52 @@ retry_fast_after_auth_update:
+@@ -1786,13 +2618,43 @@ retry_fast_after_auth_update:
              ? producer->config.platform.time_ms()
              : 0;
          sent_ok = 0;
@@ -1332,15 +1391,6 @@ index 7729d3a..c340eb1 100644
          for (;;) {
              attempt++;
              ve_tls_error_free_fields(&err);
-+            if (!producer->persistent && task.memory_retry_retained &&
-+                task.memory_retry_deadline_ms > 0 &&
-+                producer->config.platform.time_ms &&
-+                producer->config.platform.time_ms() >= task.memory_retry_deadline_ms) {
-+                ve_tls_sender_set_synthetic_error(
-+                    &err, "RetryRetentionExpired", "memory retry retention expired", 0);
-+                terminal_reason = VE_TLS_DELIVERY_DIAGNOSTIC_REASON_RETENTION_EXPIRED;
-+                break;
-+            }
 +            if (producer->config.bound_request_timeout_to_retry_budget &&
 +                producer->config.retry_policy.total_timeout_ms > 0) {
 +                int64_t budget_now = producer->config.platform.time_ms
@@ -1376,21 +1426,11 @@ index 7729d3a..c340eb1 100644
              const char * ak = NULL;
              const char * sk = NULL;
              const char * token = NULL;
-@@ -1809,7 +2680,67 @@ retry_fast_after_auth_update:
+@@ -1809,7 +2671,55 @@ retry_fast_after_auth_update:
                  err.error_message = ve_tls_strdup("credentials refresh failed");
                  break;
              }
 -            int rc = ve_tls_send_put_logs(producer, ak, sk, token, send_compress_type, send_body_data, send_body_size, raw_body_size, task.log_count, task.earliest, task.latest, task.hash_key, &err);
-+            if (!producer->persistent && task.memory_retry_retained &&
-+                task.memory_retry_deadline_ms > 0 &&
-+                producer->config.platform.time_ms &&
-+                producer->config.platform.time_ms() >= task.memory_retry_deadline_ms) {
-+                ve_tls_owned_credentials_free(&owned_creds);
-+                ve_tls_sender_set_synthetic_error(
-+                    &err, "RetryRetentionExpired", "memory retry retention expired", 0);
-+                terminal_reason = VE_TLS_DELIVERY_DIAGNOSTIC_REASON_RETENTION_EXPIRED;
-+                break;
-+            }
 +            if (producer->config.bound_request_timeout_to_retry_budget &&
 +                producer->config.retry_policy.total_timeout_ms > 0) {
 +                int64_t cap_now = producer->config.platform.time_ms
@@ -1437,15 +1477,13 @@ index 7729d3a..c340eb1 100644
 +                    ? ve_tls_sender_deadline_from_duration(
 +                        start_time, producer->config.retry_policy.total_timeout_ms)
 +                    : 0,
-+                !producer->persistent && task.memory_retry_retained
-+                    ? task.memory_retry_deadline_ms
-+                    : 0,
++                0, /* fast_send excludes memory retry retention. */
 +                &task,
 +                &err);
              ve_tls_owned_credentials_free(&owned_creds);
              int64_t attempt_end = producer->config.platform.time_ms ? producer->config.platform.time_ms() : 0;
              int64_t attempt_ms = attempt_end - attempt_start;
-@@ -1821,25 +2752,109 @@ retry_fast_after_auth_update:
+@@ -1821,25 +2731,109 @@ retry_fast_after_auth_update:
              ve_tls_metrics_emit(producer, "request_latency_ms", attempt_ms, err.http_code);
              if (rc == 0) {
                  sent_ok = 1;
@@ -1555,7 +1593,7 @@ index 7729d3a..c340eb1 100644
              producer->config.platform.sleep_ms(delay);
          }
          int64_t total_end = producer->config.platform.time_ms ? producer->config.platform.time_ms() : 0;
-@@ -1873,9 +2888,32 @@ retry_fast_after_auth_update:
+@@ -1873,9 +2867,32 @@ retry_fast_after_auth_update:
              if (cbs.cb2) {
                  cbs.cb2(VE_TLS_OK, task.batch_bytes, send_body_size, &err, NULL, cbs.cb2_param, task.start_id, task.end_id);
              }
@@ -1588,7 +1626,7 @@ index 7729d3a..c340eb1 100644
          }
          ve_tls_error_free_fields(&err);
          ve_tls_sender_release_task(producer, &task);
-@@ -1904,12 +2942,29 @@ next_task:
+@@ -1904,12 +2921,29 @@ next_task:
              int wait_sendq_ms = 0;
              ve_tls_delayed_promote_due(
                  producer,
@@ -1619,7 +1657,7 @@ index 7729d3a..c340eb1 100644
                  if ((producer->closing || producer->stop) && producer->persistent &&
                      task.persistent_retry_cycle > 0) {
                      producer->config.platform.mutex_unlock(producer->mutex);
-@@ -2046,6 +3101,7 @@ next_task:
+@@ -2046,6 +3080,7 @@ next_task:
          }
          producer->config.platform.mutex_unlock(producer->mutex);
  
@@ -1627,7 +1665,7 @@ index 7729d3a..c340eb1 100644
          const unsigned char * send_body_data = NULL;
          size_t send_body_size = 0;
          size_t raw_body_size = 0;
-@@ -2082,6 +3138,7 @@ next_task:
+@@ -2082,6 +3117,7 @@ next_task:
          int sent_ok;
          int entered_breaker;
          int half_open_guard;
@@ -1635,7 +1673,7 @@ index 7729d3a..c340eb1 100644
          int64_t credential_version;
  retry_keyed_after_auth_update:
          attempt = 0;
-@@ -2091,11 +3148,29 @@ retry_keyed_after_auth_update:
+@@ -2091,11 +3127,29 @@ retry_keyed_after_auth_update:
          sent_ok = 0;
          entered_breaker = 0;
          half_open_guard = 0;
@@ -1665,7 +1703,7 @@ index 7729d3a..c340eb1 100644
              int64_t gate_now = producer->config.platform.time_ms ? producer->config.platform.time_ms() : 0;
              int64_t next_bk = 0;
              int64_t next_rl = 0;
-@@ -2106,6 +3181,11 @@ retry_keyed_after_auth_update:
+@@ -2106,6 +3160,11 @@ retry_keyed_after_auth_update:
                  if (next <= 0) {
                      next = gate_now + 10;
                  }
@@ -1677,7 +1715,7 @@ index 7729d3a..c340eb1 100644
                  ve_tls_sender_defer_task(producer, kq, &task, next);
                  ve_tls_error_free_fields(&err);
                  goto next_task;
-@@ -2130,9 +3210,31 @@ retry_keyed_after_auth_update:
+@@ -2130,9 +3189,31 @@ retry_keyed_after_auth_update:
              }
  
              ve_tls_rate_limit_wait(producer, send_body_size);
@@ -1709,7 +1747,7 @@ index 7729d3a..c340eb1 100644
              const char * ak = NULL;
              const char * sk = NULL;
              const char * token = NULL;
-@@ -2149,7 +3251,67 @@ retry_keyed_after_auth_update:
+@@ -2149,7 +3230,67 @@ retry_keyed_after_auth_update:
                  err.error_message = ve_tls_strdup("credentials refresh failed");
                  break;
              }
@@ -1778,7 +1816,7 @@ index 7729d3a..c340eb1 100644
              ve_tls_owned_credentials_free(&owned_creds);
              int64_t attempt_end = producer->config.platform.time_ms ? producer->config.platform.time_ms() : 0;
              int64_t attempt_ms = attempt_end - attempt_start;
-@@ -2161,25 +3323,109 @@ retry_keyed_after_auth_update:
+@@ -2161,25 +3302,109 @@ retry_keyed_after_auth_update:
              ve_tls_metrics_emit(producer, "request_latency_ms", attempt_ms, err.http_code);
              if (rc == 0) {
                  sent_ok = 1;
@@ -1888,7 +1926,7 @@ index 7729d3a..c340eb1 100644
              producer->config.platform.sleep_ms(delay);
          }
          int64_t total_end = producer->config.platform.time_ms ? producer->config.platform.time_ms() : 0;
-@@ -2207,6 +3453,40 @@ retry_keyed_after_auth_update:
+@@ -2207,6 +3432,40 @@ retry_keyed_after_auth_update:
              goto next_task;
          }
          if (!sent_ok) {
@@ -1929,7 +1967,7 @@ index 7729d3a..c340eb1 100644
              int persistent_retry = ve_tls_handle_persistent_retry_cycle_failure(
                  producer,
                  kq,
-@@ -2237,9 +3517,32 @@ retry_keyed_after_auth_update:
+@@ -2237,9 +3496,32 @@ retry_keyed_after_auth_update:
              if (cbs.cb2) {
                  cbs.cb2(VE_TLS_OK, task.batch_bytes, send_body_size, &err, NULL, cbs.cb2_param, task.start_id, task.end_id);
              }
@@ -2093,7 +2131,7 @@ index ae8c8f4..c4a9a09 100644
      if (!producer) {
          return VE_TLS_INVALID;
 diff --git a/tests/test_basic.c b/tests/test_basic.c
-index 6b91600..577df59 100644
+index 6b91600..1d94c62 100644
 --- a/tests/test_basic.c
 +++ b/tests/test_basic.c
 @@ -36,9 +36,35 @@
@@ -4076,7 +4114,16 @@ index 6b91600..577df59 100644
      __atomic_store_n(
          &g_persistent_live_retry_allow_success, 1, __ATOMIC_RELEASE);
      for (int i = 0; i < 500; i++) {
-@@ -18403,6 +19902,20 @@ int main(void) {
+@@ -18335,6 +19834,8 @@ static int t_p9_global_env_create(void) {
+ #include "test_builder_sign_regressions.inc"
+ #include "test_producer_admission_regressions.inc"
+ #include "test_persistent_reader_regressions.inc"
++#include "test_delivery_thread_cases.inc"
++#include "test_config_version_contract.inc"
+ 
+ int main(void) {
+     int rc = 0;
+@@ -18403,6 +19904,28 @@ int main(void) {
      RUN(94, test_sender_step_credentials_provider_failure_drops());
      RUN(95, test_sender_step_retries_transport_then_ok());
      RUN(103, test_sender_step_retry_total_timeout_caps_delay());
@@ -4094,6 +4141,1234 @@ index 6b91600..577df59 100644
 +    RUN(357, test_sender_step_deadline_includes_request_preparation());
 +    RUN(358, test_sender_http_error_code_collision_does_not_mask_retry());
 +    RUN(359, test_sender_diagnostics_toggle_preserves_transport_and_wal_observations());
++    RUN(360, test_sender_thread_memory_retry_expiry());
++    RUN(361, test_sender_thread_memory_retry_close_discards());
++    RUN(362, test_sender_thread_credentials_expire_before_http());
++    RUN(363, test_sender_thread_memory_retry_requeue_oom());
++    RUN(364, test_sender_step_retention_elapsed_is_cumulative());
++    RUN(365, test_sender_thread_keyed_retention_elapsed_is_cumulative());
++    RUN(366, test_config_version_initialization_contract());
++    RUN(367, test_sender_thread_persistent_close_preserves_wal());
      RUN(96, test_sender_step_compress_unsupported_drops());
      RUN(97, test_sender_step_breaker_half_open_curl_nonretry_drops());
      RUN(98, test_sender_step_http_non200_plain_message());
+diff --git a/tests/test_config_version_contract.inc b/tests/test_config_version_contract.inc
+new file mode 100644
+index 0000000..570b9d4
+--- /dev/null
++++ b/tests/test_config_version_contract.inc
+@@ -0,0 +1,323 @@
++#ifndef VE_TLS_CONFIG_VERSION_CONTRACT_INC
++#define VE_TLS_CONFIG_VERSION_CONTRACT_INC
++
++#include "ve_tls_producer.h"
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++typedef struct {
++    ve_tls_config config;
++    unsigned char guard[32];
++} ve_tls_config_contract_canary;
++
++typedef struct {
++    ve_tls_platform platform;
++    ve_tls_mutex * mutex;
++    ve_tls_cond * cond;
++    int requests;
++    int callbacks;
++    int successes;
++    int diagnostics;
++    int terminal_successes;
++    int schema_valid;
++    int bad_wire;
++} ve_tls_config_contract_state;
++
++static int ve_tls_config_contract_bytes_are(
++    const unsigned char * bytes,
++    size_t size,
++    unsigned char value
++) {
++    for (size_t i = 0; i < size; i++) {
++        if (bytes[i] != value) return 0;
++    }
++    return 1;
++}
++
++static int ve_tls_config_contract_http_do(
++    ve_tls_http_client * client,
++    const ve_tls_http_request * request,
++    ve_tls_http_response * response
++) {
++    ve_tls_config_contract_state * state = client ? client->user_data : NULL;
++    if (!state || !request || !response ||
++        !request->method || strcmp(request->method, "POST") != 0 ||
++        !request->url || request->body_size == 0) {
++        if (state) {
++            state->platform.mutex_lock(state->mutex);
++            state->bad_wire = 1;
++            state->platform.mutex_unlock(state->mutex);
++        }
++        return -1;
++    }
++    state->platform.mutex_lock(state->mutex);
++    state->requests++;
++    state->platform.cond_broadcast(state->cond);
++    state->platform.mutex_unlock(state->mutex);
++    response->status_code = 200;
++    return 0;
++}
++
++static void ve_tls_config_contract_http_free(
++    ve_tls_http_client * client,
++    ve_tls_http_response * response
++) {
++    (void)client;
++    (void)response;
++}
++
++static void ve_tls_config_contract_send_done(
++    ve_tls_result result,
++    size_t log_bytes,
++    size_t compressed_bytes,
++    const char * request_id,
++    const char * error_message,
++    const unsigned char * raw_buffer,
++    void * user_param,
++    int64_t start_id,
++    int64_t end_id
++) {
++    (void)log_bytes;
++    (void)compressed_bytes;
++    (void)request_id;
++    (void)error_message;
++    (void)raw_buffer;
++    (void)start_id;
++    (void)end_id;
++    ve_tls_config_contract_state * state = user_param;
++    if (!state) return;
++    state->platform.mutex_lock(state->mutex);
++    state->callbacks++;
++    state->successes += result == VE_TLS_OK;
++    state->platform.cond_broadcast(state->cond);
++    state->platform.mutex_unlock(state->mutex);
++}
++
++static void ve_tls_config_contract_diagnostic(
++    const ve_tls_delivery_diagnostic * event,
++    void * user_param
++) {
++    ve_tls_config_contract_state * state = user_param;
++    if (!state || !event) return;
++    state->platform.mutex_lock(state->mutex);
++    state->diagnostics++;
++    if (event->metadata_version == VE_TLS_DELIVERY_DIAGNOSTIC_METADATA_VERSION_1 &&
++        event->metadata_size == sizeof(*event)) {
++        state->schema_valid = 1;
++    }
++    if (event->event == VE_TLS_DELIVERY_DIAGNOSTIC_BATCH_TERMINAL &&
++        event->reason == VE_TLS_DELIVERY_DIAGNOSTIC_REASON_SUCCESS) {
++        state->terminal_successes++;
++    }
++    state->platform.cond_broadcast(state->cond);
++    state->platform.mutex_unlock(state->mutex);
++}
++
++static int ve_tls_config_contract_state_init(
++    ve_tls_config_contract_state * state,
++    const ve_tls_platform * platform
++) {
++    memset(state, 0, sizeof(*state));
++    state->platform = *platform;
++    state->mutex = state->platform.mutex_create();
++    state->cond = state->platform.cond_create();
++    if (state->mutex && state->cond) return 0;
++    if (state->cond) state->platform.cond_destroy(state->cond);
++    if (state->mutex) state->platform.mutex_destroy(state->mutex);
++    memset(state, 0, sizeof(*state));
++    return -1;
++}
++
++static void ve_tls_config_contract_state_reset(
++    ve_tls_config_contract_state * state
++) {
++    state->platform.mutex_lock(state->mutex);
++    state->requests = 0;
++    state->callbacks = 0;
++    state->successes = 0;
++    state->diagnostics = 0;
++    state->terminal_successes = 0;
++    state->schema_valid = 0;
++    state->bad_wire = 0;
++    state->platform.mutex_unlock(state->mutex);
++}
++
++static void ve_tls_config_contract_state_destroy(
++    ve_tls_config_contract_state * state
++) {
++    if (!state || !state->mutex || !state->cond) return;
++    state->platform.cond_destroy(state->cond);
++    state->platform.mutex_destroy(state->mutex);
++    state->mutex = NULL;
++    state->cond = NULL;
++}
++
++static int ve_tls_config_contract_wait(
++    ve_tls_config_contract_state * state,
++    int requests,
++    int callbacks,
++    int diagnostics,
++    int terminal_successes
++) {
++    int64_t deadline = state->platform.time_ms() + 5000;
++    state->platform.mutex_lock(state->mutex);
++    while (state->requests < requests ||
++           state->callbacks < callbacks ||
++           state->diagnostics < diagnostics ||
++           state->terminal_successes < terminal_successes) {
++        int64_t remaining = deadline - state->platform.time_ms();
++        if (remaining <= 0) break;
++        state->platform.cond_timedwait_ms(state->cond, state->mutex, remaining);
++    }
++    int ok = state->requests >= requests &&
++        state->callbacks >= callbacks &&
++        state->diagnostics >= diagnostics &&
++        state->terminal_successes >= terminal_successes;
++    state->platform.mutex_unlock(state->mutex);
++    return ok ? 0 : -1;
++}
++
++#define VE_TLS_CONFIG_CONTRACT_CHECK(expression) do { \
++    if (!(expression)) { \
++        fprintf(stderr, "%s:%d: %s\n", __func__, __LINE__, #expression); \
++        rc = -1; \
++        goto done; \
++    } \
++} while (0)
++
++static int test_config_version_initialization_contract(void) {
++    int rc = 0;
++    ve_tls_config cfg;
++    ve_tls_config_contract_state state;
++    ve_tls_producer * producer = NULL;
++    int state_ready = 0;
++    const uint32_t versions[] = {
++        VE_TLS_CONFIG_VERSION_1,
++        VE_TLS_CONFIG_VERSION_2,
++        VE_TLS_CONFIG_VERSION_3
++    };
++    const size_t sizes[] = {
++        VE_TLS_CONFIG_VERSION_1_SIZE,
++        VE_TLS_CONFIG_VERSION_2_SIZE,
++        VE_TLS_CONFIG_VERSION_3_SIZE
++    };
++
++    ve_tls_config_contract_canary legacy_storage;
++    ve_tls_config legacy_expected;
++    memset(&legacy_storage, 0xA5, sizeof(legacy_storage));
++    memset(&legacy_expected, 0x3C, sizeof(legacy_expected));
++    ve_tls_config_init(&legacy_expected);
++    ve_tls_config_init(&legacy_storage.config);
++    VE_TLS_CONFIG_CONTRACT_CHECK(memcmp(
++        &legacy_storage.config,
++        &legacy_expected,
++        VE_TLS_CONFIG_LEGACY_SIZE) == 0);
++    VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_config_contract_bytes_are(
++        ((const unsigned char *)&legacy_storage.config) + VE_TLS_CONFIG_LEGACY_SIZE,
++        sizeof(legacy_storage.config) - VE_TLS_CONFIG_LEGACY_SIZE,
++        0xA5));
++    VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_config_contract_bytes_are(
++        legacy_storage.guard, sizeof(legacy_storage.guard), 0xA5));
++
++    for (size_t i = 0; i < 2; i++) {
++        ve_tls_config_contract_canary versioned_storage;
++        ve_tls_config versioned_expected;
++        memset(&versioned_storage, 0xA5, sizeof(versioned_storage));
++        memset(&versioned_expected, 0x3C, sizeof(versioned_expected));
++        VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_config_init_versioned(
++            &versioned_expected, sizes[i], versions[i]) == VE_TLS_OK);
++        VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_config_init_versioned(
++            &versioned_storage.config, sizes[i], versions[i]) == VE_TLS_OK);
++        VE_TLS_CONFIG_CONTRACT_CHECK(memcmp(
++            &versioned_storage.config, &versioned_expected, sizes[i]) == 0);
++        VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_config_contract_bytes_are(
++            ((const unsigned char *)&versioned_storage.config) + sizes[i],
++            sizeof(versioned_storage.config) - sizes[i],
++            0xA5));
++        VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_config_contract_bytes_are(
++            versioned_storage.guard, sizeof(versioned_storage.guard), 0xA5));
++    }
++
++    ve_tls_config_contract_canary v3_storage;
++    ve_tls_config v3_expected;
++    memset(&v3_storage, 0xA5, sizeof(v3_storage));
++    memset(&v3_expected, 0x3C, sizeof(v3_expected));
++    VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_config_init_versioned(
++        &v3_expected, VE_TLS_CONFIG_VERSION_3_SIZE, VE_TLS_CONFIG_VERSION_3) == VE_TLS_OK);
++    VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_config_init_versioned(
++        &v3_storage.config, VE_TLS_CONFIG_VERSION_3_SIZE, VE_TLS_CONFIG_VERSION_3) == VE_TLS_OK);
++    VE_TLS_CONFIG_CONTRACT_CHECK(memcmp(
++        &v3_storage.config, &v3_expected, sizeof(v3_storage.config)) == 0);
++    VE_TLS_CONFIG_CONTRACT_CHECK(v3_storage.config.memory_retry_retention_ms == 0);
++    VE_TLS_CONFIG_CONTRACT_CHECK(v3_storage.config.bound_request_timeout_to_retry_budget == 0);
++    VE_TLS_CONFIG_CONTRACT_CHECK(v3_storage.config.delivery_diagnostic == NULL);
++    VE_TLS_CONFIG_CONTRACT_CHECK(v3_storage.config.delivery_diagnostic_param == NULL);
++    VE_TLS_CONFIG_CONTRACT_CHECK(v3_storage.config.retry_transient_http_errors == 0);
++    VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_config_contract_bytes_are(
++        v3_storage.guard, sizeof(v3_storage.guard), 0xA5));
++
++    VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_config_init_versioned(
++        &cfg, sizeof(cfg), VE_TLS_CONFIG_VERSION_3) == VE_TLS_OK);
++    cfg.endpoint = "https://example.com";
++    cfg.region = "cn-beijing";
++    cfg.topic_id = "topic";
++    cfg.access_key_id = "ak";
++    cfg.access_key_secret = "sk";
++    cfg.compress_type = "none";
++    cfg.send_thread_count = 1;
++    cfg.pack_thread_count = 1;
++    cfg.flush_interval_ms = 1;
++    cfg.log_count_per_package = 1;
++    cfg.retry_policy.max_attempts = 1;
++    cfg.http_client.do_request = ve_tls_config_contract_http_do;
++    cfg.http_client.free_response = ve_tls_config_contract_http_free;
++    cfg.delivery_diagnostic = ve_tls_config_contract_diagnostic;
++
++    VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_config_contract_state_init(
++        &state, &cfg.platform) == 0);
++    state_ready = 1;
++    cfg.http_client.user_data = &state;
++    cfg.delivery_diagnostic_param = &state;
++
++    producer = ve_tls_producer_create_versioned(
++        &cfg, VE_TLS_CONFIG_VERSION_3_SIZE, VE_TLS_CONFIG_VERSION_3);
++    VE_TLS_CONFIG_CONTRACT_CHECK(producer != NULL);
++    ve_tls_producer_set_send_done(producer, ve_tls_config_contract_send_done, &state);
++    ve_tls_kv kv = {"message", "config-version-contract"};
++    VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_producer_add_log_kv(
++        producer, state.platform.time_ms(), &kv, 1, 1) == VE_TLS_OK);
++    VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_config_contract_wait(&state, 1, 1, 1, 1) == 0);
++    VE_TLS_CONFIG_CONTRACT_CHECK(state.successes >= 1 && state.schema_valid == 1);
++    VE_TLS_CONFIG_CONTRACT_CHECK(state.bad_wire == 0);
++    VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_producer_close(producer, 5000) == VE_TLS_OK);
++    ve_tls_producer_destroy(producer);
++    producer = NULL;
++
++    /* Reuse the V3-populated config: legacy create consumes only its prefix. */
++    ve_tls_config_contract_state_reset(&state);
++    producer = ve_tls_producer_create(&cfg);
++    VE_TLS_CONFIG_CONTRACT_CHECK(producer != NULL);
++    ve_tls_producer_set_send_done(producer, ve_tls_config_contract_send_done, &state);
++    VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_producer_add_log_kv(
++        producer, state.platform.time_ms(), &kv, 1, 1) == VE_TLS_OK);
++    VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_config_contract_wait(&state, 1, 1, 0, 0) == 0);
++    VE_TLS_CONFIG_CONTRACT_CHECK(state.diagnostics == 0);
++    VE_TLS_CONFIG_CONTRACT_CHECK(state.successes >= 1 && state.bad_wire == 0);
++    VE_TLS_CONFIG_CONTRACT_CHECK(ve_tls_producer_close(producer, 5000) == VE_TLS_OK);
++    ve_tls_producer_destroy(producer);
++    producer = NULL;
++
++done:
++    if (producer) {
++        (void)ve_tls_producer_close(producer, 5000);
++        ve_tls_producer_destroy(producer);
++    }
++    if (state_ready) ve_tls_config_contract_state_destroy(&state);
++    return rc;
++}
++
++#undef VE_TLS_CONFIG_CONTRACT_CHECK
++
++#endif
+diff --git a/tests/test_delivery_thread_cases.inc b/tests/test_delivery_thread_cases.inc
+new file mode 100644
+index 0000000..fee62ab
+--- /dev/null
++++ b/tests/test_delivery_thread_cases.inc
+@@ -0,0 +1,885 @@
++/* Real sender-thread retention coverage.  This file is textually included by
++ * test_basic.c after its internal test fixtures, so it may use the internal
++ * producer/queue types only to build a deterministic allocator fixture. */
++
++#define TLS_THREAD_MAX_SCHEDULED 64
++
++typedef enum {
++    TLS_THREAD_HTTP_RETRY = 0,
++    TLS_THREAD_HTTP_REQUEUE_OOM = 1
++} tls_thread_http_mode;
++
++typedef struct tls_thread_state {
++    ve_tls_platform platform;
++    ve_tls_mutex * mutex;
++    ve_tls_cond * cond;
++    ve_tls_producer * producer;
++    tls_thread_http_mode http_mode;
++    int64_t http_sleep_ms;
++    int http_success;
++    int request_count;
++    int callback_count;
++    int callback_v1_count;
++    int retained_count;
++    int terminal_count;
++    int scheduled_count;
++    int provider_calls;
++    int schema_error;
++    int oom_fixture_error;
++    int credential_test_clock;
++    int oom_hit;
++    ve_tls_result result;
++    ve_tls_result callback_v1_result;
++    ve_tls_delivery_diagnostic_reason terminal_reason;
++    ve_tls_delivery_diagnostic_disposition terminal_disposition;
++    ve_tls_delivery_diagnostic_disposition retained_disposition;
++    char terminal_error_code[64];
++    char callback_error_code[64];
++    char callback_v1_error_message[128];
++    int64_t scheduled_elapsed[TLS_THREAD_MAX_SCHEDULED];
++} tls_thread_state;
++
++/* The producer under the credentials-deadline test sees this wrapper, while
++ * tls_thread_wait continues to use state.platform.time_ms directly. */
++static _Atomic int64_t tls_thread_clock_offset_ms;
++static int64_t (*tls_thread_clock_base_ms)(void);
++
++static int64_t tls_thread_clock_ms(void) {
++    int64_t base = tls_thread_clock_base_ms ? tls_thread_clock_base_ms() : 0;
++    int64_t offset = atomic_load_explicit(&tls_thread_clock_offset_ms, memory_order_relaxed);
++    if (offset > 0 && base > INT64_MAX - offset) return INT64_MAX;
++    if (offset < 0 && base < INT64_MIN - offset) return INT64_MIN;
++    return base + offset;
++}
++
++static void tls_thread_clock_reset(void) {
++    atomic_store_explicit(&tls_thread_clock_offset_ms, 0, memory_order_relaxed);
++    tls_thread_clock_base_ms = NULL;
++}
++
++static int64_t tls_thread_provider_now(const tls_thread_state * state) {
++    if (state && state->credential_test_clock) return tls_thread_clock_ms();
++    return state && state->platform.time_ms ? state->platform.time_ms() : 0;
++}
++
++static int tls_thread_state_init(tls_thread_state * state) {
++    if (!state) return -1;
++    memset(state, 0, sizeof(*state));
++    state->result = VE_TLS_INVALID;
++    ve_tls_platform_init_default(&state->platform);
++    state->mutex = state->platform.mutex_create();
++    state->cond = state->platform.cond_create();
++    if (!state->mutex || !state->cond) {
++        if (state->cond) state->platform.cond_destroy(state->cond);
++        if (state->mutex) state->platform.mutex_destroy(state->mutex);
++        memset(state, 0, sizeof(*state));
++        return -1;
++    }
++    return 0;
++}
++
++static void tls_thread_state_destroy(tls_thread_state * state) {
++    if (!state) return;
++    if (state->cond) state->platform.cond_destroy(state->cond);
++    if (state->mutex) state->platform.mutex_destroy(state->mutex);
++    memset(state, 0, sizeof(*state));
++}
++
++typedef int (*tls_thread_predicate)(const tls_thread_state * state);
++
++static int tls_thread_wait(
++    tls_thread_state * state,
++    tls_thread_predicate predicate,
++    int64_t timeout_ms
++) {
++    if (!state || !predicate || timeout_ms < 0) return -1;
++    int64_t now = state->platform.time_ms ? state->platform.time_ms() : 0;
++    int64_t deadline = now > INT64_MAX - timeout_ms ? INT64_MAX : now + timeout_ms;
++    state->platform.mutex_lock(state->mutex);
++    while (!predicate(state)) {
++        now = state->platform.time_ms ? state->platform.time_ms() : deadline;
++        int64_t remaining = deadline - now;
++        if (remaining <= 0) break;
++        if (!state->platform.cond_timedwait_ms ||
++            state->platform.cond_timedwait_ms(state->cond, state->mutex, remaining) != 0) {
++            break;
++        }
++    }
++    int ok = predicate(state);
++    state->platform.mutex_unlock(state->mutex);
++    return ok ? 0 : -1;
++}
++
++static int tls_thread_pred_retained(const tls_thread_state * state) {
++    return state && state->retained_count >= 1;
++}
++
++static int tls_thread_pred_terminal(const tls_thread_state * state) {
++    return state && state->terminal_count >= 1 && state->callback_count >= 1;
++}
++
++static int tls_thread_wait_quiet(tls_thread_state * state, int64_t timeout_ms) {
++    if (!state || timeout_ms < 0) return -1;
++    state->platform.mutex_lock(state->mutex);
++    if (state->platform.cond_timedwait_ms) {
++        (void)state->platform.cond_timedwait_ms(state->cond, state->mutex, timeout_ms);
++    } else if (state->platform.sleep_ms) {
++        state->platform.mutex_unlock(state->mutex);
++        state->platform.sleep_ms(timeout_ms);
++        return 0;
++    }
++    state->platform.mutex_unlock(state->mutex);
++    return 0;
++}
++
++static void tls_thread_reset_observations(tls_thread_state * state) {
++    if (!state) return;
++    state->platform.mutex_lock(state->mutex);
++    state->producer = NULL;
++    state->request_count = 0;
++    state->callback_count = 0;
++    state->callback_v1_count = 0;
++    state->retained_count = 0;
++    state->terminal_count = 0;
++    state->scheduled_count = 0;
++    state->provider_calls = 0;
++    state->schema_error = 0;
++    state->oom_fixture_error = 0;
++    state->result = VE_TLS_INVALID;
++    state->callback_v1_result = VE_TLS_INVALID;
++    state->terminal_reason = VE_TLS_DELIVERY_DIAGNOSTIC_REASON_NONE;
++    state->terminal_disposition = VE_TLS_DELIVERY_DIAGNOSTIC_DISPOSITION_UNKNOWN;
++    state->retained_disposition = VE_TLS_DELIVERY_DIAGNOSTIC_DISPOSITION_UNKNOWN;
++    memset(state->terminal_error_code, 0, sizeof(state->terminal_error_code));
++    memset(state->callback_error_code, 0, sizeof(state->callback_error_code));
++    memset(state->callback_v1_error_message, 0, sizeof(state->callback_v1_error_message));
++    memset(state->scheduled_elapsed, 0, sizeof(state->scheduled_elapsed));
++    state->platform.mutex_unlock(state->mutex);
++}
++
++static int tls_thread_pred_two_retained(const tls_thread_state * state) {
++    return state && state->retained_count >= 2 && state->scheduled_count >= 3;
++}
++
++static int tls_thread_elapsed_is_cumulative(const tls_thread_state * state) {
++    if (!state || state->scheduled_count <= 0 || state->scheduled_count > TLS_THREAD_MAX_SCHEDULED) {
++        return 0;
++    }
++    int64_t previous = -1;
++    for (int i = 0; i < state->scheduled_count; i++) {
++        if (state->scheduled_elapsed[i] < 0 ||
++            (previous >= 0 && state->scheduled_elapsed[i] < previous)) {
++            return 0;
++        }
++        previous = state->scheduled_elapsed[i];
++    }
++    return 1;
++}
++
++static void tls_thread_diagnostic(
++    const ve_tls_delivery_diagnostic * event,
++    void * user_param
++) {
++    tls_thread_state * state = (tls_thread_state *)user_param;
++    if (!state || !event) return;
++    state->platform.mutex_lock(state->mutex);
++    if (event->metadata_version != VE_TLS_DELIVERY_DIAGNOSTIC_METADATA_VERSION_1 ||
++        event->metadata_size != sizeof(*event)) {
++        state->schema_error = 1;
++    }
++    if (event->event == VE_TLS_DELIVERY_DIAGNOSTIC_RETRY_SCHEDULED) {
++        if (state->scheduled_count < TLS_THREAD_MAX_SCHEDULED) {
++            state->scheduled_elapsed[state->scheduled_count] = event->elapsed_ms;
++        } else {
++            state->schema_error = 1;
++        }
++        state->scheduled_count++;
++    } else if (event->event == VE_TLS_DELIVERY_DIAGNOSTIC_BATCH_RETAINED) {
++        state->retained_count++;
++        state->retained_disposition = event->disposition;
++    } else if (event->event == VE_TLS_DELIVERY_DIAGNOSTIC_BATCH_TERMINAL) {
++        state->terminal_count++;
++        state->terminal_reason = event->reason;
++        state->terminal_disposition = event->disposition;
++        snprintf(
++            state->terminal_error_code,
++            sizeof(state->terminal_error_code),
++            "%s",
++            event->error_code ? event->error_code : "");
++    }
++    state->platform.cond_broadcast(state->cond);
++    state->platform.mutex_unlock(state->mutex);
++}
++
++static void tls_thread_done(
++    ve_tls_result result,
++    size_t log_bytes,
++    size_t compressed_bytes,
++    const ve_tls_error * error,
++    const unsigned char * raw_buffer,
++    void * user_param,
++    int64_t start_id,
++    int64_t end_id
++) {
++    (void)log_bytes;
++    (void)compressed_bytes;
++    (void)raw_buffer;
++    (void)start_id;
++    (void)end_id;
++    tls_thread_state * state = (tls_thread_state *)user_param;
++    if (!state) return;
++    state->platform.mutex_lock(state->mutex);
++    state->callback_count++;
++    state->result = result;
++    snprintf(
++        state->callback_error_code,
++        sizeof(state->callback_error_code),
++        "%s",
++        error && error->error_code ? error->error_code : "");
++    state->platform.cond_broadcast(state->cond);
++    state->platform.mutex_unlock(state->mutex);
++}
++
++static void tls_thread_done_v1(
++    ve_tls_result result,
++    size_t log_bytes,
++    size_t compressed_bytes,
++    const char * req_id,
++    const char * error_message,
++    const unsigned char * raw_buffer,
++    void * user_param,
++    int64_t start_id,
++    int64_t end_id
++) {
++    (void)log_bytes;
++    (void)compressed_bytes;
++    (void)req_id;
++    (void)raw_buffer;
++    (void)start_id;
++    (void)end_id;
++    tls_thread_state * state = (tls_thread_state *)user_param;
++    if (!state) return;
++    state->platform.mutex_lock(state->mutex);
++    state->callback_v1_count++;
++    state->callback_v1_result = result;
++    snprintf(
++        state->callback_v1_error_message,
++        sizeof(state->callback_v1_error_message),
++        "%s",
++        error_message ? error_message : "");
++    state->platform.cond_broadcast(state->cond);
++    state->platform.mutex_unlock(state->mutex);
++}
++
++static ve_tls_key_queue * tls_thread_find_inflight_queue(ve_tls_producer * producer) {
++    if (!producer || !producer->key_buckets) return NULL;
++    for (size_t i = 0; i < producer->key_bucket_count; i++) {
++        for (ve_tls_key_queue * q = producer->key_buckets[i]; q; q = q->hnext) {
++            if (q->inflight || (q->count == 0 && q->q)) return q;
++        }
++    }
++    return NULL;
++}
++
++static _Thread_local int tls_thread_fail_requeue_alloc;
++
++static int tls_thread_http_do(
++    ve_tls_http_client * client,
++    const ve_tls_http_request * req,
++    ve_tls_http_response * resp
++) {
++    (void)req;
++    if (!client || !resp) return -1;
++    tls_thread_state * state = (tls_thread_state *)client->user_data;
++    if (!state) return -1;
++    state->platform.mutex_lock(state->mutex);
++    state->request_count++;
++    tls_thread_http_mode mode = state->http_mode;
++    int64_t sleep_ms = state->http_sleep_ms;
++    int http_success = state->http_success;
++    ve_tls_producer * producer = state->producer;
++    state->platform.cond_broadcast(state->cond);
++    state->platform.mutex_unlock(state->mutex);
++
++    if (sleep_ms > 0 && state->platform.sleep_ms) {
++        state->platform.sleep_ms(sleep_ms);
++    }
++    if (http_success) {
++        resp->status_code = 200;
++        return 0;
++    }
++    if (mode == TLS_THREAD_HTTP_REQUEUE_OOM) {
++        int fixture_ok = 0;
++        if (producer && producer->mutex) {
++            producer->config.platform.mutex_lock(producer->mutex);
++            ve_tls_key_queue * q = tls_thread_find_inflight_queue(producer);
++            if (q && q->q && q->count == 0) {
++                /* The popped task owns no ring slot.  Drop only the ring so
++                 * the real memory-retention push_front must allocate it. */
++                ve_tls_free(q->q);
++                q->q = NULL;
++                q->cap = 0;
++                q->head = 0;
++                q->tail = 0;
++                q->count = 0;
++                fixture_ok = 1;
++            }
++            producer->config.platform.mutex_unlock(producer->mutex);
++        }
++        if (!fixture_ok) {
++            state->platform.mutex_lock(state->mutex);
++            state->oom_fixture_error = 1;
++            state->platform.mutex_unlock(state->mutex);
++        } else {
++            tls_thread_fail_requeue_alloc = 1;
++        }
++    }
++    resp->transport_kind = VE_TLS_TRANSPORT_GENERIC;
++    resp->transport_code = 7;
++    resp->transport_retryable = 1;
++    return -1;
++}
++
++static void tls_thread_http_free(
++    ve_tls_http_client * client,
++    ve_tls_http_response * response
++) {
++    (void)client;
++    (void)response;
++}
++
++static int tls_thread_credentials(
++    ve_tls_credentials * out,
++    void * user_param
++) {
++    tls_thread_state * state = (tls_thread_state *)user_param;
++    if (!state || !out) return -1;
++    state->platform.mutex_lock(state->mutex);
++    state->provider_calls++;
++    int call = state->provider_calls;
++    state->platform.cond_broadcast(state->cond);
++    state->platform.mutex_unlock(state->mutex);
++
++    int64_t now = tls_thread_provider_now(state);
++    if (call >= 2) {
++        /* Cross the producer's 60000 ms retention deadline in one atomic
++         * clock adjustment, then return credentials valid at that new time. */
++        atomic_fetch_add_explicit(
++            &tls_thread_clock_offset_ms, 60001, memory_order_relaxed);
++        now = tls_thread_provider_now(state);
++    }
++    out->access_key_id = "retention-test-ak";
++    out->access_key_secret = "retention-test-sk";
++    out->security_token = NULL;
++    out->expire_time_ms = call == 1 ? now + 5 : now + 60000;
++    return 0;
++}
++
++static int tls_thread_config(
++    ve_tls_config * config,
++    tls_thread_state * state,
++    int64_t retention_ms,
++    int32_t max_attempts,
++    int64_t retry_interval_ms
++) {
++    if (!config || !state ||
++        ve_tls_config_init_versioned(
++            config, sizeof(*config), VE_TLS_CONFIG_VERSION_3) != VE_TLS_OK) {
++        return -1;
++    }
++    config->endpoint = "https://retention.example.com";
++    config->region = "cn-beijing";
++    config->topic_id = "retention-test-topic";
++    config->access_key_id = "retention-test-ak";
++    config->access_key_secret = "retention-test-sk";
++    config->compress_type = "none";
++    config->send_thread_count = 1;
++    config->pack_thread_count = 1;
++    config->use_global_env = 0;
++    config->flush_interval_ms = 1;
++    config->log_count_per_package = 1;
++    config->request_timeout_ms = 1000;
++    config->retry_policy.max_attempts = max_attempts;
++    config->retry_policy.initial_interval_ms = retry_interval_ms;
++    config->retry_policy.max_interval_ms = retry_interval_ms;
++    config->retry_policy.randomization_factor = 0;
++    config->memory_retry_retention_ms = retention_ms;
++    config->http_client.do_request = tls_thread_http_do;
++    config->http_client.free_response = tls_thread_http_free;
++    config->http_client.user_data = state;
++    config->delivery_diagnostic = tls_thread_diagnostic;
++    config->delivery_diagnostic_param = state;
++    return 0;
++}
++
++static ve_tls_producer * tls_thread_open(
++    ve_tls_config * config,
++    tls_thread_state * state
++) {
++    ve_tls_producer * producer = ve_tls_producer_create_versioned(
++        config, sizeof(*config), VE_TLS_CONFIG_VERSION_3);
++    if (!producer) return NULL;
++    state->platform.mutex_lock(state->mutex);
++    state->producer = producer;
++    state->platform.mutex_unlock(state->mutex);
++    ve_tls_producer_set_send_done_v2(producer, tls_thread_done, state);
++    return producer;
++}
++
++static int tls_thread_add_one(ve_tls_producer * producer) {
++    static const char body[] = "retention-thread-payload";
++    return producer && ve_tls_producer_add_log_raw(
++        producer, body, sizeof(body) - 1, 1) == VE_TLS_OK ? 0 : -1;
++}
++
++static int tls_thread_expect_terminal(
++    const tls_thread_state * state,
++    ve_tls_result result,
++    ve_tls_delivery_diagnostic_reason reason,
++    const char * error_code
++) {
++    return state && state->schema_error == 0 && state->request_count >= 1 &&
++        state->callback_count == 1 && state->terminal_count == 1 &&
++        state->result == result && state->terminal_reason == reason &&
++        state->terminal_disposition == VE_TLS_DELIVERY_DIAGNOSTIC_DISPOSITION_DISCARD &&
++        (!error_code || strcmp(state->terminal_error_code, error_code) == 0) &&
++        (!error_code || strcmp(state->callback_error_code, error_code) == 0);
++}
++
++static int tls_thread_expect_success(const tls_thread_state * state) {
++    return state && state->schema_error == 0 && state->request_count == 1 &&
++        state->callback_count == 1 && state->terminal_count == 1 &&
++        state->result == VE_TLS_OK &&
++        state->terminal_reason == VE_TLS_DELIVERY_DIAGNOSTIC_REASON_SUCCESS &&
++        state->terminal_disposition == VE_TLS_DELIVERY_DIAGNOSTIC_DISPOSITION_SUCCESS;
++}
++
++static int test_sender_thread_memory_retry_expiry(void) {
++    tls_thread_state state;
++    ve_tls_config config;
++    ve_tls_producer * producer = NULL;
++    int observed = 0;
++    int rc = -1;
++    if (tls_thread_state_init(&state) != 0 ||
++        tls_thread_config(&config, &state, 80, 1, 1000) != 0) {
++        tls_thread_state_destroy(&state);
++        return -1;
++    }
++    state.http_mode = TLS_THREAD_HTTP_RETRY;
++    state.http_sleep_ms = 2;
++    producer = tls_thread_open(&config, &state);
++    if (!producer || tls_thread_add_one(producer) != 0 ||
++        tls_thread_wait(&state, tls_thread_pred_retained, 1500) != 0 ||
++        tls_thread_wait(&state, tls_thread_pred_terminal, 2500) != 0) {
++        goto done;
++    }
++    observed = 1;
++done:
++    if (producer) {
++        (void)ve_tls_producer_close(producer, 3000);
++        ve_tls_producer_destroy(producer);
++    }
++    if (observed) {
++        rc = tls_thread_expect_terminal(
++            &state,
++            VE_TLS_DROP_ERROR,
++            VE_TLS_DELIVERY_DIAGNOSTIC_REASON_RETENTION_EXPIRED,
++            "RetryRetentionExpired") && state.request_count == 1 &&
++            state.retained_count == 1 ? 0 : -2;
++    }
++    tls_thread_state_destroy(&state);
++    return rc;
++}
++
++static int test_sender_thread_memory_retry_close_discards(void) {
++    tls_thread_state state;
++    ve_tls_config config;
++    ve_tls_producer * producer = NULL;
++    int close_rc = VE_TLS_INVALID;
++    int observed = 0;
++    int rc = -1;
++    if (tls_thread_state_init(&state) != 0 ||
++        tls_thread_config(&config, &state, 60000, 1, 1000) != 0) {
++        tls_thread_state_destroy(&state);
++        return -1;
++    }
++    state.http_mode = TLS_THREAD_HTTP_RETRY;
++    state.http_sleep_ms = 2;
++    producer = tls_thread_open(&config, &state);
++    if (producer) {
++        ve_tls_producer_set_send_done(producer, tls_thread_done_v1, &state);
++    }
++    if (!producer || tls_thread_add_one(producer) != 0 ||
++        tls_thread_wait(&state, tls_thread_pred_retained, 1500) != 0) {
++        goto done;
++    }
++    close_rc = ve_tls_producer_close(producer, 3000);
++    observed = 1;
++done:
++    if (producer) ve_tls_producer_destroy(producer);
++    if (observed) {
++        rc = close_rc == VE_TLS_OK &&
++            tls_thread_expect_terminal(
++                &state,
++                VE_TLS_CLOSED,
++                VE_TLS_DELIVERY_DIAGNOSTIC_REASON_CLOSED,
++                "ProducerClosed") &&
++            state.callback_v1_count == 1 &&
++            state.callback_v1_result == VE_TLS_CLOSED &&
++            strcmp(state.callback_v1_error_message, "producer closed") == 0 &&
++            state.request_count == 1 && state.retained_count == 1 ? 0 : -2;
++    }
++    tls_thread_state_destroy(&state);
++    return rc;
++}
++
++static int test_sender_thread_credentials_expire_before_http(void) {
++    tls_thread_state state;
++    ve_tls_config config;
++    ve_tls_producer * producer = NULL;
++    int observed = 0;
++    int rc = -1;
++    if (tls_thread_state_init(&state) != 0 ||
++        tls_thread_config(&config, &state, 60000, 1, 30) != 0) {
++        tls_thread_state_destroy(&state);
++        return -1;
++    }
++    config.access_key_id = NULL;
++    config.access_key_secret = NULL;
++    config.credentials_provider = tls_thread_credentials;
++    config.credentials_provider_param = &state;
++    config.credentials_expire_advance_ms = 0;
++    config.credentials_refresh_min_interval_ms = 0;
++    state.credential_test_clock = 1;
++    tls_thread_clock_base_ms = state.platform.time_ms;
++    atomic_store_explicit(&tls_thread_clock_offset_ms, 0, memory_order_relaxed);
++    config.platform.time_ms = tls_thread_clock_ms;
++    state.http_mode = TLS_THREAD_HTTP_RETRY;
++    state.http_sleep_ms = 2;
++    producer = tls_thread_open(&config, &state);
++    if (!producer || tls_thread_add_one(producer) != 0 ||
++        tls_thread_wait(&state, tls_thread_pred_terminal, 3000) != 0) {
++        goto done;
++    }
++    observed = 1;
++done:
++    if (producer) {
++        (void)ve_tls_producer_close(producer, 3000);
++        ve_tls_producer_destroy(producer);
++    }
++    tls_thread_clock_reset();
++    if (observed) {
++        rc = tls_thread_expect_terminal(
++            &state,
++            VE_TLS_DROP_ERROR,
++            VE_TLS_DELIVERY_DIAGNOSTIC_REASON_RETENTION_EXPIRED,
++            "RetryRetentionExpired") && state.request_count == 1 &&
++            state.provider_calls >= 2 ? 0 : -2;
++    }
++    tls_thread_state_destroy(&state);
++    return rc;
++}
++
++typedef struct tls_thread_alloc_state {
++    _Atomic int64_t live;
++    _Atomic int hit;
++} tls_thread_alloc_state;
++
++static void * tls_thread_alloc_malloc(size_t size, void * user_data) {
++    tls_thread_alloc_state * state = (tls_thread_alloc_state *)user_data;
++    void * p = malloc(size);
++    if (p && state) atomic_fetch_add_explicit(&state->live, 1, memory_order_relaxed);
++    return p;
++}
++
++static void * tls_thread_alloc_calloc(size_t n, size_t size, void * user_data) {
++    tls_thread_alloc_state * state = (tls_thread_alloc_state *)user_data;
++    if (tls_thread_fail_requeue_alloc && n == 64 && size == sizeof(ve_tls_send_task)) {
++        tls_thread_fail_requeue_alloc = 0;
++        if (state) atomic_store_explicit(&state->hit, 1, memory_order_relaxed);
++        return NULL;
++    }
++    void * p = calloc(n, size);
++    if (p && state) atomic_fetch_add_explicit(&state->live, 1, memory_order_relaxed);
++    return p;
++}
++
++static void * tls_thread_alloc_realloc(void * ptr, size_t size, void * user_data) {
++    tls_thread_alloc_state * state = (tls_thread_alloc_state *)user_data;
++    void * p = realloc(ptr, size);
++    if (!ptr && p && state) atomic_fetch_add_explicit(&state->live, 1, memory_order_relaxed);
++    return p;
++}
++
++static void tls_thread_alloc_free(void * ptr, void * user_data) {
++    tls_thread_alloc_state * state = (tls_thread_alloc_state *)user_data;
++    if (ptr && state) atomic_fetch_sub_explicit(&state->live, 1, memory_order_relaxed);
++    free(ptr);
++}
++
++static char * tls_thread_alloc_strdup(const char * string, void * user_data) {
++    if (!string) return NULL;
++    size_t size = strlen(string) + 1;
++    char * result = (char *)tls_thread_alloc_malloc(size, user_data);
++    if (result) memcpy(result, string, size);
++    return result;
++}
++
++static int test_sender_thread_memory_retry_requeue_oom(void) {
++    tls_thread_state state;
++    tls_thread_alloc_state alloc_state;
++    ve_tls_alloc_hooks saved_hooks;
++    ve_tls_alloc_hooks hooks;
++    ve_tls_config config;
++    ve_tls_producer * producer = NULL;
++    int hooks_installed = 0;
++    int observed = 0;
++    int rc = -1;
++    memset(&alloc_state, 0, sizeof(alloc_state));
++    atomic_init(&alloc_state.live, 0);
++    atomic_init(&alloc_state.hit, 0);
++    if (tls_thread_state_init(&state) != 0 ||
++        tls_thread_config(&config, &state, 60000, 1, 1000) != 0) {
++        tls_thread_state_destroy(&state);
++        return -1;
++    }
++    memset(&hooks, 0, sizeof(hooks));
++    hooks.malloc_fn = tls_thread_alloc_malloc;
++    hooks.calloc_fn = tls_thread_alloc_calloc;
++    hooks.realloc_fn = tls_thread_alloc_realloc;
++    hooks.free_fn = tls_thread_alloc_free;
++    hooks.strdup_fn = tls_thread_alloc_strdup;
++    hooks.user_data = &alloc_state;
++    ve_tls_alloc_get_hooks(&saved_hooks);
++    ve_tls_alloc_set_hooks(&hooks);
++    hooks_installed = 1;
++    state.http_mode = TLS_THREAD_HTTP_REQUEUE_OOM;
++    state.http_sleep_ms = 2;
++    producer = tls_thread_open(&config, &state);
++    if (!producer || tls_thread_add_one(producer) != 0 ||
++        tls_thread_wait(&state, tls_thread_pred_terminal, 2500) != 0) {
++        goto done;
++    }
++    observed = 1;
++done:
++    if (producer) {
++        (void)ve_tls_producer_close(producer, 3000);
++        ve_tls_producer_destroy(producer);
++    }
++    if (hooks_installed) ve_tls_alloc_set_hooks(&saved_hooks);
++    if (observed) {
++        rc = !state.oom_fixture_error &&
++            atomic_load_explicit(&alloc_state.hit, memory_order_relaxed) &&
++            tls_thread_expect_terminal(
++                &state,
++                VE_TLS_DROP_ERROR,
++                VE_TLS_DELIVERY_DIAGNOSTIC_REASON_NON_RETRYABLE,
++                "OutOfMemory") && state.request_count == 1 ? 0 : -2;
++    }
++    if (rc == 0 && atomic_load_explicit(&alloc_state.live, memory_order_relaxed) != 0) {
++        rc = -3;
++    }
++    tls_thread_state_destroy(&state);
++    return rc;
++}
++
++static int tls_thread_step_elapsed_http_do(
++    ve_tls_http_client * client,
++    const ve_tls_http_request * req,
++    ve_tls_http_response * resp
++) {
++    (void)req;
++    if (!client || !resp) return -1;
++    tls_thread_state * state = (tls_thread_state *)client->user_data;
++    if (!state) return -1;
++    state->request_count++;
++    g_fake_time += 5;
++    resp->transport_kind = VE_TLS_TRANSPORT_GENERIC;
++    resp->transport_code = 9;
++    resp->transport_retryable = 1;
++    return -1;
++}
++
++static int test_sender_step_retention_elapsed_is_cumulative(void) {
++    tls_thread_state state;
++    ve_tls_config config;
++    ve_tls_producer producer;
++    int rc = -1;
++    if (tls_thread_state_init(&state) != 0) {
++        return -1;
++    }
++    ve_tls_config_init(&config);
++    g_real_platform = config.platform;
++    g_fake_time = 10000;
++    config.platform.time_ms = test_fake_time_ms;
++    config.platform.sleep_ms = test_fake_sleep_ms;
++    config.platform.cond_timedwait_ms = test_fake_cond_timedwait_ms;
++    config.endpoint = "https://retention.example.com";
++    config.region = "cn-beijing";
++    config.topic_id = "retention-test-topic";
++    config.access_key_id = "retention-test-ak";
++    config.access_key_secret = "retention-test-sk";
++    config.compress_type = "none";
++    config.retry_policy.max_attempts = 2;
++    config.retry_policy.initial_interval_ms = 1;
++    config.retry_policy.max_interval_ms = 1;
++    config.retry_policy.randomization_factor = 0;
++    config.http_client.do_request = tls_thread_step_elapsed_http_do;
++    config.http_client.free_response = tls_thread_http_free;
++    config.http_client.user_data = &state;
++    config.delivery_diagnostic = tls_thread_diagnostic;
++    config.delivery_diagnostic_param = &state;
++    if (init_fake_sender_producer(&producer, &config) != 0) goto done;
++    producer.config.memory_retry_retention_ms = 100;
++    producer.send_done_v2 = tls_thread_done;
++    producer.send_done_v2_param = &state;
++    producer.delivery_diagnostic = tls_thread_diagnostic;
++    producer.delivery_diagnostic_param = &state;
++    int first_step_rc = enqueue_delivery_test_task(&producer, "k1", 1) == 0
++        ? ve_tls_sender_step(&producer) : -1;
++    if (first_step_rc != 1 || state.scheduled_count < 2 || !producer.delayed_head) {
++        destroy_fake_sender_producer(&producer);
++        goto done;
++    }
++    g_fake_time += 1;
++    int second_step_rc = ve_tls_sender_step(&producer);
++    if (second_step_rc != 1 || state.scheduled_count < 3) {
++        destroy_fake_sender_producer(&producer);
++        goto done;
++    }
++    rc = state.schema_error == 0 &&
++        tls_thread_elapsed_is_cumulative(&state) &&
++        state.scheduled_elapsed[2] > state.scheduled_elapsed[0] ? 0 : -2;
++    destroy_fake_sender_producer(&producer);
++done:
++    tls_thread_state_destroy(&state);
++    return rc;
++}
++
++static int test_sender_thread_keyed_retention_elapsed_is_cumulative(void) {
++    tls_thread_state state;
++    ve_tls_config config;
++    ve_tls_producer * producer = NULL;
++    int rc = -1;
++    int observed = 0;
++    if (tls_thread_state_init(&state) != 0 ||
++        tls_thread_config(&config, &state, 60000, 2, 1) != 0) {
++        tls_thread_state_destroy(&state);
++        return -1;
++    }
++    state.http_mode = TLS_THREAD_HTTP_RETRY;
++    state.http_sleep_ms = 2;
++    producer = tls_thread_open(&config, &state);
++    if (!producer || tls_thread_add_one(producer) != 0 ||
++        tls_thread_wait(&state, tls_thread_pred_two_retained, 1500) != 0) {
++        goto done;
++    }
++    observed = 1;
++done:
++    if (producer) {
++        (void)ve_tls_producer_close(producer, 3000);
++        ve_tls_producer_destroy(producer);
++    }
++    if (observed) {
++        rc = state.schema_error == 0 &&
++            tls_thread_elapsed_is_cumulative(&state) &&
++            state.scheduled_elapsed[2] > state.scheduled_elapsed[0] ? 0 : -2;
++    }
++    tls_thread_state_destroy(&state);
++    return rc;
++}
++
++static int test_sender_thread_persistent_close_preserves_wal(void) {
++    tls_thread_state state;
++    ve_tls_config config;
++    ve_tls_producer * producer = NULL;
++    char dir[PATH_MAX] = {0};
++    int p1_close_rc = VE_TLS_INVALID;
++    int p2_close_rc = VE_TLS_INVALID;
++    int p3_close_rc = VE_TLS_INVALID;
++    int p1_checkpoint = -1;
++    int p2_checkpoint = -1;
++    int p2_success = 0;
++    int observed_p1 = 0;
++    int observed_p2 = 0;
++    int observed_p3 = 0;
++    int rc = -1;
++
++    if (tls_thread_state_init(&state) != 0 ||
++        tls_thread_config(&config, &state, 0, 1, 60000) != 0 ||
++        make_temp_dir(dir, sizeof(dir)) != 0) {
++        tls_thread_state_destroy(&state);
++        cleanup_persistent_dir(dir);
++        return -1;
++    }
++    config.use_global_env = 0;
++    config.use_persistent = 1;
++    config.persistent_file_path = dir;
++    config.persistent_durability = VE_TLS_PDURABILITY_SYNC_WAL;
++    config.max_persistent_log_count = 64;
++    config.max_persistent_file_size = 1024;
++    config.max_persistent_file_count = 4;
++    state.http_mode = TLS_THREAD_HTTP_RETRY;
++    state.http_sleep_ms = 2;
++    state.http_success = 0;
++
++    producer = tls_thread_open(&config, &state);
++    if (!producer || tls_thread_add_one(producer) != 0 ||
++        tls_thread_wait(&state, tls_thread_pred_retained, 1500) != 0) {
++        goto done;
++    }
++    p1_close_rc = (int)ve_tls_producer_close(producer, 3000);
++    p1_checkpoint = test_producer_checkpoint_acked_log_id(producer);
++    observed_p1 = 1;
++    if (producer) ve_tls_producer_destroy(producer);
++    producer = NULL;
++    if (p1_close_rc != VE_TLS_OK || p1_checkpoint != 0 ||
++        state.request_count != 1 || state.callback_count != 0 ||
++        state.terminal_count != 0 ||
++        state.retained_disposition != VE_TLS_DELIVERY_DIAGNOSTIC_DISPOSITION_RETAINED_WAL) {
++        goto done;
++    }
++
++    tls_thread_reset_observations(&state);
++    state.http_success = 1;
++    producer = tls_thread_open(&config, &state);
++    if (!producer || ve_tls_producer_recover(producer) != VE_TLS_OK ||
++        tls_thread_wait(&state, tls_thread_pred_terminal, 3000) != 0) {
++        goto done;
++    }
++    p2_close_rc = (int)ve_tls_producer_close(producer, 3000);
++    p2_checkpoint = test_producer_checkpoint_acked_log_id(producer);
++    observed_p2 = 1;
++    if (producer) ve_tls_producer_destroy(producer);
++    producer = NULL;
++    p2_success = tls_thread_expect_success(&state);
++    if (!p2_success || p2_close_rc != VE_TLS_OK ||
++        p2_checkpoint < 1) {
++        goto done;
++    }
++
++    tls_thread_reset_observations(&state);
++    producer = tls_thread_open(&config, &state);
++    if (!producer || ve_tls_producer_recover(producer) != VE_TLS_OK ||
++        tls_thread_wait_quiet(&state, 250) != 0) {
++        goto done;
++    }
++    p3_close_rc = (int)ve_tls_producer_close(producer, 3000);
++    observed_p3 = 1;
++    if (producer) ve_tls_producer_destroy(producer);
++    producer = NULL;
++    rc = p3_close_rc == VE_TLS_OK && state.request_count == 0 &&
++        state.callback_count == 0 && state.terminal_count == 0 ? 0 : -2;
++
++done:
++    if (producer) {
++        (void)ve_tls_producer_close(producer, 3000);
++        ve_tls_producer_destroy(producer);
++    }
++    if (!observed_p1 || !observed_p2 || !observed_p3) rc = -1;
++    tls_thread_state_destroy(&state);
++    cleanup_persistent_dir(dir);
++    return rc;
++}
++
++#undef TLS_THREAD_MAX_SCHEDULED

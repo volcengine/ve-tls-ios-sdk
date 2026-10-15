@@ -37,6 +37,10 @@ Keep this version boundary explicit when comparing server observations.
   WAL; `.buffered` has crash/power-loss boundaries, while `.sync` waits for WAL
   sync on admission. Retained attempts are diagnostic events, not terminal send
   results. At most one terminal callback is delivered for a live batch.
+  Closing ends already-retained memory-only batches with a closed failure;
+  the close timeout does not grant them an extra final HTTP attempt. Delayed
+  persistent retries keep unacknowledged WAL for reopen recovery instead of
+  synthesizing the same terminal failure. Backgrounding is not a close call.
 - Network recovery is an explicit hint to advance retained retry tasks. It must
   not cancel in-flight requests or bypass authentication, breakers or limits.
 - HTTP classification uses status plus the exact structured service `ErrorCode`;
@@ -54,6 +58,11 @@ Keep this version boundary explicit when comparing server observations.
 - Diagnostic callbacks are opt-in, serial and asynchronous. Payloads contain
   only numeric counters, stable reason/kind values, and validated request/error
   identifiers. No log bodies, server messages, URLs or credentials are included.
+  Sender delivery `elapsed` is cumulative from the first delivery start across
+  retained cycles; it uses the existing Core scheduling clock. Per-attempt
+  duration is separate and monotonic. A pre-delivery `batch_sealed` event has
+  no delivery elapsed value. Core callbacks remain synchronous; the iOS
+  adapter copies safe values into its bounded asynchronous diagnostic queue.
 
 ## Acceptance
 

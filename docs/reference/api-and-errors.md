@@ -170,6 +170,12 @@ public func close(timeout: TimeInterval) async throws
 封闭新写入，停止 worker，并在 timeout 内完成本地封批和持久化工作。成功不表示所有日志已
 远端送达。并发等待同一次关闭的调用者收到相同结果；失败后可再次调用 `close` 重试本地关闭。
 
+非持久化模式中，因暂态失败而进入 `memoryRetryRetention` 的已保留批次会在 close 时结束，
+其发送结果为 `.failure` / `ProducerError.closed`。close 的 timeout 不会给这些批次追加最后一次
+发送机会；重新打开内存实例也不会恢复它们。持久化模式中的延迟重试则保留未确认 WAL，
+不人为合成同类终止回调，后续使用相同 `producerID` 打开时恢复。iOS 进入后台不等同于 close；
+自动生命周期处理沿用后台封批和前台唤醒，不保证系统挂起期间送达。
+
 ## SendResult
 
 每个由当前活跃 Producer 拥有的封闭批次最多回调一次终态结果：

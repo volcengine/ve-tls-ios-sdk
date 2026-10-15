@@ -54,6 +54,8 @@ let configuration = try ProducerConfiguration(
 `persistence: .buffered` 已由 WAL 保留可重试失败；如果业务明确选择内存模式并希望
 跨 retry cycle 保留，可改为 `persistence: .memory`、省略 `producerID`，并设置
 `memoryRetryRetention: 86_400`。内存保留仍受同一有限 buffer 约束，进程退出后不能恢复。
+已进入内存保留的批次会在 `close` 时以 closed 失败结束，不再获得最后一次发送机会；需要跨 close
+恢复时应使用 WAL。详见[关闭与恢复边界](../docs/reference/api-and-errors.md#close)。
 
 Objective-C 的字段是同一合同的扁平映射：
 

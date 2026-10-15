@@ -119,6 +119,10 @@ typedef struct {
     int64_t end_id;
     int32_t attempt_count;
     int32_t cycle_attempt_count;
+    /* For sender delivery events, cumulative from first delivery start,
+     * including retained cycles; uses platform.time_ms, so wall-clock changes
+     * can affect the value. A sender event before delivery starts is 0;
+     * BATCH_SEALED is emitted before sender delivery and is -1 (unavailable). */
     int64_t elapsed_ms;
     int64_t delay_ms;
     int32_t log_count;
@@ -127,17 +131,30 @@ typedef struct {
     int32_t http_code;
     int32_t transport_code;
     int32_t retryable;
+    /* Borrowed strings; valid only during the diagnostic callback. */
     const char * request_id;
     const char * error_code;
     /* Tail fields preserve the original 0..3 struct offsets. */
     uint64_t attempt_id;
+    /* Monotonic duration of the actual HTTP attempt, or -1 if unknown. */
     int64_t attempt_elapsed_ms;
+    /* Queue wait is independent of elapsed_ms, or -1 if unavailable. */
     int64_t queue_wait_ms;
     ve_tls_delivery_diagnostic_disposition disposition;
     uint32_t metadata_version;
     uint32_t metadata_size;
 } ve_tls_delivery_diagnostic;
 
+/*
+ * Delivery diagnostics are invoked synchronously by the SDK, including its
+ * builder/sender workers. Calls are not serialized to a fixed thread, so the
+ * handler must be thread-safe and must return promptly. Do not call close,
+ * destroy, or an operation that can wait for this producer from the handler.
+ *
+ * `event` and its request_id/error_code strings are borrowed and are valid
+ * only until the handler returns. Copy any data that must outlive the call.
+ * No callback reentrancy or serialization guarantee is provided.
+ */
 typedef void (*ve_tls_delivery_diagnostic_fn)(
     const ve_tls_delivery_diagnostic * event,
     void * user_param
@@ -266,6 +283,19 @@ typedef struct {
 /* Exact layout size used by version 3 callers. */
 #define VE_TLS_CONFIG_VERSION_3_SIZE sizeof(ve_tls_config)
 
+/*
+ * Send callbacks are synchronous SDK calls, including on worker threads,
+ * and may run concurrently.
+ * req_id, error_message, raw_buffer, and the v2 error object/fields are
+ * borrowed for the duration of the callback; copy them before returning if
+ * needed later. The handler must not block or call close, destroy, or an
+ * operation that can wait for this producer. A retained memory batch ended by
+ * close may report VE_TLS_CLOSED (v2 error->error_code is ProducerClosed;
+ * v1 receives the corresponding error_message). close does not promise a
+ * final network attempt. A persistent delayed retry remains
+ * unacknowledged in WAL for later recovery and does not imply the same
+ * terminal callback.
+ */
 typedef void (*ve_tls_send_done_fn)(
     ve_tls_result result,
     size_t log_bytes,
@@ -302,6 +332,14 @@ typedef struct {
     uint64_t request_latency_buckets[8];
 } ve_tls_metrics;
 
+/*
+ * Legacy init initializes only the pre-versioned prefix through
+ * VE_TLS_CONFIG_LEGACY_SIZE; legacy create consumes only that prefix and does
+ * not enable any versioned tail. For V1/V2/V3 callers, pair the versioned
+ * initializer and constructor with the same exact size and version. Do not
+ * treat an uninitialized legacy tail as a versioned input or widen the legacy
+ * copy contract.
+ */
 VE_TLS_API void ve_tls_config_init(ve_tls_config * config);
 VE_TLS_API ve_tls_result ve_tls_config_init_versioned(
     ve_tls_config * config,
@@ -325,6 +363,12 @@ VE_TLS_API ve_tls_producer * ve_tls_producer_create_versioned(
 VE_TLS_API ve_tls_result ve_tls_producer_update_endpoint(ve_tls_producer * producer, const char * endpoint, const char * region, const char * topic_id);
 /* Transactional with the same rollback and old-or-new snapshot guarantee. */
 VE_TLS_API ve_tls_result ve_tls_producer_update_static_credentials(ve_tls_producer * producer, const char * access_key_id, const char * access_key_secret, const char * security_token);
+/*
+ * close ends already-retained memory-only batches; they may receive
+ * VE_TLS_CLOSED/ProducerClosed and do not receive a final attempt merely
+ * because close waits. Persistent delayed retries remain unacknowledged in
+ * WAL for later recovery. Backgrounding an iOS app is not equivalent to close.
+ */
 VE_TLS_API ve_tls_result ve_tls_producer_close(ve_tls_producer * producer, int32_t timeout_ms);
 VE_TLS_API ve_tls_result ve_tls_producer_close_split(ve_tls_producer * producer, int32_t flusher_timeout_ms, int32_t sender_timeout_ms);
 VE_TLS_API void ve_tls_producer_destroy(ve_tls_producer * producer);

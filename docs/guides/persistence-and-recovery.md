@@ -90,6 +90,11 @@ let recovered = try await Producer.open(
 `add` 成功不等于远端成功；`close` 成功也不等于所有日志已经送达。持久化批次在当前实例
 关闭后可能留在 WAL，并由后续实例恢复，因此旧实例的回调不保证收到这些批次的最终结果。
 
+内存重试保留与 WAL 不同：`memoryRetryRetention` 中已保留的非持久化批次在 close 时结束，
+报告 `.failure` / `closed`；close 等待时间不提供额外的最后一次请求，后续内存实例无法恢复。
+持久化的延迟重试关闭后仍保留未确认 WAL，不提前 ACK，也不使用同类合成失败回调；
+需要跨 close 或进程退出恢复时，应使用 `.buffered` 或 `.sync`。进入后台本身不等同于 close。
+
 ### `add` 抛错后是否还会发送
 
 有可能。持久化模式先写 WAL，再完成内存入队。如果后续遇到 `bufferFull`、等待超时、
