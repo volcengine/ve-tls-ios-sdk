@@ -557,6 +557,7 @@ typedef struct {
     char * access_key_id;
     char * access_key_secret;
     char * security_token;
+    char * api_key;
 } ve_tls_owned_credentials;
 
 typedef struct {
@@ -576,6 +577,7 @@ static void ve_tls_owned_credentials_free(ve_tls_owned_credentials * owned) {
     ve_tls_secure_free_str(&owned->access_key_id);
     ve_tls_secure_free_str(&owned->access_key_secret);
     ve_tls_secure_free_str(&owned->security_token);
+    ve_tls_secure_free_str(&owned->api_key);
     memset(owned, 0, sizeof(*owned));
 }
 
@@ -775,6 +777,19 @@ static int ve_tls_get_signing_credentials(
     *out_static_cred_version = 0;
     memset(owned, 0, sizeof(*owned));
 
+    producer->config.platform.mutex_lock(producer->mutex);
+    if (producer->cfg_api_key && producer->cfg_api_key[0] != 0) {
+        owned->api_key = ve_tls_strdup(producer->cfg_api_key);
+        *out_static_cred_version = __atomic_load_n(&producer->static_cred_version, __ATOMIC_ACQUIRE);
+        producer->config.platform.mutex_unlock(producer->mutex);
+        if (!owned->api_key) {
+            ve_tls_owned_credentials_free(owned);
+            return -1;
+        }
+        return 0;
+    }
+    producer->config.platform.mutex_unlock(producer->mutex);
+
     if (!producer->config.credentials_provider) {
         int64_t version = __atomic_load_n(&producer->static_cred_version, __ATOMIC_ACQUIRE);
         *out_static_cred_version = version;
@@ -802,6 +817,7 @@ static int ve_tls_is_sensitive_header_key(const char * key, size_t n) {
     if (n == strlen("x-security-token") && strncasecmp(key, "x-security-token", n) == 0) return 1;
     if (n == strlen("x-date") && strncasecmp(key, "x-date", n) == 0) return 1;
     if (n == strlen("x-content-sha256") && strncasecmp(key, "x-content-sha256", n) == 0) return 1;
+    if (n == strlen("x-tls-anonymous-identity") && strncasecmp(key, "x-tls-anonymous-identity", n) == 0) return 1;
     return 0;
 }
 
@@ -1701,6 +1717,7 @@ static int ve_tls_send_put_logs(
     const char * access_key_id,
     const char * access_key_secret,
     const char * security_token,
+    const char * api_key,
     const char * actual_compress_type,
     const unsigned char * body,
     size_t body_size,
@@ -1783,32 +1800,62 @@ static int ve_tls_send_put_logs(
 
     char * signed_headers = NULL;
     int signed_pooled = 0;
-    int sign_ok = ve_tls_sign_v4_append(
-        access_key_id,
-        access_key_secret,
-        security_token,
-        cfg->region ? cfg->region : "",
-        "TLS",
-        "POST",
-        cfg->host ? cfg->host : "",
-        "/PutLogs",
-        cfg->query ? cfg->query : "",
-        body,
-        body_size,
-        headers,
-        &signed_headers
-    );
-    if (sign_ok != 0) {
-        ve_tls_header_buf_release(producer, headers, headers_pooled);
-        ve_tls_error_set_client(out_error, "sign request failed");
-        return -1;
+    size_t signed_len = 0;
+    size_t signed_cap = 0;
+    int api_key_headers = api_key && api_key[0] != 0;
+    if (api_key_headers) {
+        signed_headers = headers;
+        signed_len = hlen;
+        signed_cap = hcap;
+        signed_pooled = headers_pooled;
+        headers = NULL;
+        hlen = 0;
+        hcap = 0;
+        headers_pooled = 0;
+    } else {
+        int sign_ok = ve_tls_sign_v4_append(
+            access_key_id,
+            access_key_secret,
+            security_token,
+            cfg->region ? cfg->region : "",
+            "TLS",
+            "POST",
+            cfg->host ? cfg->host : "",
+            "/PutLogs",
+            cfg->query ? cfg->query : "",
+            body,
+            body_size,
+            headers,
+            &signed_headers
+        );
+        if (sign_ok != 0) {
+            ve_tls_header_buf_release(producer, headers, headers_pooled);
+            ve_tls_error_set_client(out_error, "sign request failed");
+            return -1;
+        }
+        signed_len = signed_headers ? strlen(signed_headers) : 0;
+        signed_cap = signed_len + 1;
+        ve_tls_headers_try_use_pool(producer, &signed_headers, signed_len, &signed_cap, &signed_pooled);
     }
-    size_t signed_len = signed_headers ? strlen(signed_headers) : 0;
-    size_t signed_cap = signed_len + 1;
-    ve_tls_headers_try_use_pool(producer, &signed_headers, signed_len, &signed_cap, &signed_pooled);
     if (ve_tls_headers_append(producer, &signed_headers, &signed_len, &signed_cap, &signed_pooled, "log-count", count) != 0 ||
         ve_tls_headers_append(producer, &signed_headers, &signed_len, &signed_cap, &signed_pooled, "earliest-log-time", earliest_s) != 0 ||
         ve_tls_headers_append(producer, &signed_headers, &signed_len, &signed_cap, &signed_pooled, "latest-log-time", latest_s) != 0) {
+        ve_tls_header_buf_release(producer, headers, headers_pooled);
+        ve_tls_header_buf_release(producer, signed_headers, signed_pooled);
+        ve_tls_error_set_client(out_error, "build headers failed");
+        return -1;
+    }
+    if (api_key_headers && ve_tls_headers_append(
+            producer,
+            &signed_headers,
+            &signed_len,
+            &signed_cap,
+            &signed_pooled,
+            "x-tls-anonymous-identity",
+            api_key) != 0) {
+        /* The API key is appended last, so a failed allocation cannot have
+         * copied it into the request buffer. */
+        ve_tls_secure_zero(signed_headers, signed_len + 1);
         ve_tls_header_buf_release(producer, headers, headers_pooled);
         ve_tls_header_buf_release(producer, signed_headers, signed_pooled);
         ve_tls_error_set_client(out_error, "build headers failed");
@@ -1835,7 +1882,7 @@ static int ve_tls_send_put_logs(
     req.tcp_keepalive = cfg->tcp_keepalive;
     req.tcp_keepidle = cfg->tcp_keepidle;
     req.tcp_keepintvl = cfg->tcp_keepintvl;
-    req.debug_log = cfg->http_debug;
+    req.debug_log = api_key && api_key[0] != 0 ? 0 : cfg->http_debug;
     ve_tls_http_response resp;
     ve_tls_http_response_init(&resp);
     resp.transport_kind = VE_TLS_TRANSPORT_GENERIC;
@@ -1923,6 +1970,9 @@ static int ve_tls_send_put_logs(
             diagnostic_task->diagnostic_attempt_monotonic_ms >= 0 &&
             finished_ms >= diagnostic_task->diagnostic_attempt_monotonic_ms
                 ? finished_ms - diagnostic_task->diagnostic_attempt_monotonic_ms : -1;
+    }
+    if (api_key_headers && signed_headers) {
+        ve_tls_secure_zero(signed_headers, signed_len + 1);
     }
     ve_tls_header_buf_release(producer, headers, headers_pooled);
     ve_tls_header_buf_release(producer, signed_headers, signed_pooled);
@@ -2280,6 +2330,7 @@ have_task: {
             ak,
             sk,
             token,
+            owned_creds.api_key,
             send_compress_type,
             send_body_data,
             send_body_size,
@@ -2704,6 +2755,7 @@ retry_fast_after_auth_update:
                 ak,
                 sk,
                 token,
+                owned_creds.api_key,
                 send_compress_type,
                 send_body_data,
                 send_body_size,
@@ -3273,6 +3325,7 @@ retry_keyed_after_auth_update:
                 ak,
                 sk,
                 token,
+                owned_creds.api_key,
                 send_compress_type,
                 send_body_data,
                 send_body_size,

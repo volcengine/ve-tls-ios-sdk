@@ -233,6 +233,7 @@ struct ve_tls_producer {
     char * cfg_access_key_id;
     char * cfg_access_key_secret;
     char * cfg_security_token;
+    char * cfg_api_key;
     char * cfg_api_version;
     char * cfg_compress_type;
     char * cfg_ca_cert_path;

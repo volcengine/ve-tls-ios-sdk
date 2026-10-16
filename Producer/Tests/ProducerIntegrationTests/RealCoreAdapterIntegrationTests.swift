@@ -1142,9 +1142,10 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
                 group.addTask {
                     if index < acceptedCount {
                         do {
-                            try self.addFixedLog(
-                                to: producer,
-                                value: "concurrent-\(index)",
+                            try producer.add(
+                                LogEvent(
+                                    timestamp: Date(timeIntervalSince1970: 1_700_000_000.123),
+                                    contents: ["message": .string("concurrent-\(index)")]),
                                 mode: .normal)
                             outcomes.record(accepted: true)
                         } catch {

@@ -2,7 +2,7 @@
 
 本工作区已实现文本 `diagnosticHandler`，应用可直接在回调中调用自己的文件 logger。复用原 `onDiagnostic` 与 Core 事件源；诊断共享每实例的独立 1024 条有界队列，文本使用等级过滤与最多 4096 bytes 的单行 JSON。只读统计每 60 秒输出，受控关闭前另输出汇总。
 
-原始实施分支：`feat/ios-delivery-policy-alignment`；内部交付分支：`feat/ios-delivery-policy-alignment-internal`，以内部 `master` 为提交基线。实施前 Git 基线：`8b8a142d3c20a60f0b4a72ed7fd79c991a0b4976`。已有交付策略与诊断增量一并纳入功能分支，提交范围以 Git 记录为准。当前源码版本为待发布的 2.0.2；已发布 2.0.1 不含新接口，Core 状态仍为 `UNRELEASED_INTEGRATION`。
+原始实施分支：`feat/ios-delivery-policy-alignment`；内部交付分支：`feat/ios-delivery-policy-alignment-internal`，以内部 `master` 为提交基线。实施前 Git 基线：`8b8a142d3c20a60f0b4a72ed7fd79c991a0b4976`。已有交付策略与诊断增量一并纳入功能分支，提交范围以 Git 记录为准。当前源码版本为待发布的 2.0.2；已发布 2.0.1 不含新接口，当时 Core 状态为 `UNRELEASED_INTEGRATION`；当前来源和候选/标签状态以 `Producer/CORE_VERSION` 为准。
 
 业务基线是开始本任务时的交付策略工作区，并非 Git HEAD 的原始 2.0.1。Core 基线已从原已登记补丁重建，位于 `/tmp/tls-ios-diagnostic-business-baseline/core`。独立只读复核和 owner 检查确认，本次增量只观察原动作；未调整请求载荷、签名、批次、并发、分类、请求超时、尝试计数、退避、预算或 WAL 决策。
 

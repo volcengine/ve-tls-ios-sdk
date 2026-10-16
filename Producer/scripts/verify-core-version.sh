@@ -88,6 +88,16 @@ if [[ "${status}" != "INTEGRATED" ]] && [[ "${status}" != "UNRELEASED_INTEGRATIO
     echo "FAIL: unsupported Core integration status: ${status}"
     exit 1
 fi
+if [[ "${status}" == "INTEGRATED" ]]; then
+    if [[ "${integration_patch_count}" != "0" ]]; then
+        echo "FAIL: INTEGRATED must not contain integration_patch"
+        exit 1
+    fi
+    if [[ "${integration_patch_sha_count}" != "0" ]]; then
+        echo "FAIL: INTEGRATED must not contain integration_patch_sha256"
+        exit 1
+    fi
+fi
 if [[ "${component}" != "ve-tls-c-sdk" ]]; then
     echo "FAIL: unexpected Core component: ${component}"
     exit 1
@@ -186,17 +196,18 @@ if [[ "${status}" == "UNRELEASED_INTEGRATION" ]]; then
         exit 1
     fi
 
-    if [[ ! -x "${VENDOR_VERIFIER}" ]]; then
-        echo "FAIL: vendor verifier is missing or not executable: ${VENDOR_VERIFIER}"
-        exit 1
-    fi
-    if "${VENDOR_VERIFIER}"; then
-        :
-    else
-        vendor_rc=$?
-        echo "FAIL: verify-core-vendor.sh failed (exit ${vendor_rc})"
-        exit "${vendor_rc}"
-    fi
+fi
+
+if [[ ! -x "${VENDOR_VERIFIER}" ]]; then
+    echo "FAIL: vendor verifier is missing or not executable: ${VENDOR_VERIFIER}"
+    exit 1
+fi
+if "${VENDOR_VERIFIER}"; then
+    :
+else
+    vendor_rc=$?
+    echo "FAIL: verify-core-vendor.sh failed (exit ${vendor_rc})"
+    exit "${vendor_rc}"
 fi
 
 echo "OK: Core integration registry is complete and well formed."

@@ -278,21 +278,14 @@ final class DiagnosticEmitterTests: XCTestCase {
     func testTextSuppressionCountersAttachToAdmissionSummaryWithoutRecursion() throws {
         let structured = LockedValues<ProducerDiagnostic>()
         let text = LockedValues<String>()
-        let monotonicLock = NSLock()
-        var monotonicCalls = 0
+        let monotonicClock = AdmissionSummaryMonotonicClock()
         let emitter = DiagnosticEmitter(
             structuredHandler: { structured.append($0) },
             textHandler: { _, message in text.append(message) },
             level: .debug,
             clock: DiagnosticEmitterClock(
                 wallMilliseconds: { 10 },
-                monotonicNanoseconds: {
-                    monotonicLock.lock()
-                    defer { monotonicLock.unlock() }
-                    let value: UInt64 = monotonicCalls < 3 ? 0 : 60
-                    monotonicCalls += 1
-                    return value
-                }),
+                monotonicNanoseconds: { monotonicClock.nextNanoseconds() }),
             textLimiter: DiagnosticTextLimiter(
                 messageLimit: 1,
                 byteLimit: 32 * 1_024,
@@ -816,6 +809,19 @@ private final class MutableDiagnosticClock: @unchecked Sendable {
 
     func setMonotonic(_ value: UInt64) {
         lock.lock(); self.value = value; lock.unlock()
+    }
+}
+
+private final class AdmissionSummaryMonotonicClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    func nextNanoseconds() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        let value: UInt64 = callCount < 3 ? 0 : 60
+        callCount += 1
+        return value
     }
 }
 

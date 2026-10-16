@@ -15,6 +15,8 @@
 # skips are reported separately and do not count as executed checks.
 #
 # Environment: any (individual scripts SKIP on unsupported platforms).
+# PUBLIC_SYMBOL_PRODUCT optionally selects the final linked SDK/App artifact;
+# only verify-public-symbols.sh receives this path.
 # Evidence level: aggregation only; see each script's header for its limits.
 # Usage: verify-all.sh [--release|--integration]
 #
@@ -98,6 +100,13 @@ for script in "${scripts[@]}"; do
     output=""
     if [[ "${script}" == "verify-core-version.sh" ]]; then
         if output="$("${path}" "${core_version_mode}" 2>&1)"; then
+            rc=0
+        else
+            rc=$?
+        fi
+    elif [[ "${script}" == "verify-public-symbols.sh" ]] &&
+         [[ -n "${PUBLIC_SYMBOL_PRODUCT:-}" ]]; then
+        if output="$("${path}" "${PUBLIC_SYMBOL_PRODUCT}" 2>&1)"; then
             rc=0
         else
             rc=$?

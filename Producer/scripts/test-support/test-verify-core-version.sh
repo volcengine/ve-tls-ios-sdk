@@ -55,7 +55,8 @@ printf '%s\n' \
     '#!/usr/bin/env bash' \
     'set -euo pipefail' \
     'if [[ -n "${VENDOR_CALL_LOG:-}" ]]; then' \
-    '    if [[ "$#" -eq 0 ]]; then : > "${VENDOR_CALL_LOG}"; else printf "%s\\n" "$@" > "${VENDOR_CALL_LOG}"; fi' \
+    '    printf "%s\\n" called > "${VENDOR_CALL_LOG}"' \
+    '    if [[ "$#" -gt 0 ]]; then printf "%s\\n" "$@" >> "${VENDOR_CALL_LOG}"; fi' \
     'fi' \
     'if [[ "${VENDOR_STUB_MODE:-pass}" == "fail" ]]; then echo "FAIL: fixture vendor verifier"; exit 17; fi' \
     'echo "OK: fixture vendor verifier"' \
@@ -156,12 +157,20 @@ run_fixture() {
 
 write_registry INTEGRATED
 run_fixture integrated-release 0 'OK: Core integration registry' --release
+if [[ "$(cat "${vendor_log}")" != "called" ]]; then
+    echo 'FAIL: integrated release did not invoke verify-core-vendor.sh'
+    exit 1
+fi
 run_fixture integrated-integration 0 'OK: Core integration registry' --integration
+if [[ "$(cat "${vendor_log}")" != "called" ]]; then
+    echo 'FAIL: integrated integration did not invoke verify-core-vendor.sh'
+    exit 1
+fi
 
 write_registry UNRELEASED_INTEGRATION
 run_fixture unreleased-integration 0 'OK: Core integration registry' --integration
-if [[ -s "${vendor_log}" ]]; then
-    echo 'FAIL: integration mode passed arguments to verify-core-vendor.sh'
+if [[ "$(cat "${vendor_log}")" != "called" ]]; then
+    echo 'FAIL: unreleased integration did not invoke verify-core-vendor.sh'
     exit 1
 fi
 run_fixture unreleased-release 1 '^BLOCKED: unreleased Core integration' --release
@@ -222,6 +231,20 @@ write_registry UNRELEASED_INTEGRATION
 stub_mode="fail"
 run_fixture vendor-failure 17 'verify-core-vendor.sh failed \(exit 17\)' --integration
 stub_mode=""
+
+write_registry INTEGRATED
+stub_mode="fail"
+run_fixture integrated-vendor-failure 17 'verify-core-vendor.sh failed \(exit 17\)' --integration
+run_fixture integrated-release-vendor-failure 17 'verify-core-vendor.sh failed \(exit 17\)' --release
+stub_mode=""
+
+write_registry INTEGRATED
+printf '%s\n' "integration_patch: ${patch_rel}" >> "${repo}/Producer/CORE_VERSION"
+run_fixture integrated-residual-patch 1 'INTEGRATED must not contain integration_patch' --integration
+
+write_registry INTEGRATED
+printf '%s\n' "integration_patch_sha256: ${patch_sha}" >> "${repo}/Producer/CORE_VERSION"
+run_fixture integrated-residual-patch-hash 1 'INTEGRATED must not contain integration_patch_sha256' --release
 
 run_fixture bad-cli-argument 2 '^usage:' --bad
 run_fixture extra-cli-argument 2 '^usage:' --integration extra

@@ -1,21 +1,23 @@
 # Vendored Producer Core provenance
 
-status: UNRELEASED_INTEGRATION
+status: INTEGRATED
 component: ve-tls-c-sdk
-upstream_core_tag: v0.3.2
-upstream_core_full_sha: 1d41ec4edb850ee7dd0b7f63c49738d6a9669c21
+upstream_core_version: 0.3.4
+upstream_core_tag: v0.3.4
+upstream_core_tag_status: NOT_CREATED
+upstream_core_full_sha: 383eaae464a6b707280304284f06e015448ddd70
+upstream_core_repository: https://code.byted.org/volcengine/ve-tls-c-sdk
 vendor_manifest: Producer/CORE_VENDOR_SHA256SUMS
-integration_patch: Producer/core-patches/delivery-policy-v3.patch
-integration_patch_sha256: 541d49289e91f946e911443d333e667672647380d364e30b08d9aa90bb1f42f6
 vendor_overlays: include/ve_tls_export.h,third_party/lz4/lz4.c
 vendor_additions: include/CTLSProducerCore.h,core/ve_tls_iosp_version.c
 license: Apache-2.0
 
-The vendored source matches the registered base commit plus the integration
-patch and the listed Apple packaging overlays and wrapper files. The patch
-contains Core regression tests and preserves older configuration ABI versions.
-Applications should use the public VolcengineTLSProducer Swift or Objective-C
-API instead of the C symbols.
-
-Selected review fixes and their regression tests are carried from Core commit
-53c31ed4bd27611c2c282819fe27f65ad08de28a; the registered base above remains unchanged.
+The vendor is the complete mapped source from the frozen Core 0.3.4 candidate
+commit above, plus the listed Apple packaging overlays and wrapper files.
+There is no integration patch. Core regression tests remain in that commit.
+INTEGRATED describes source integration, not a published Core release. The tag
+name is intended for the future release; NOT_CREATED means it does not exist
+and no package publication is claimed. Creating tags or publishing remains a
+separate explicitly authorized action after release-candidate acceptance.
+Applications use the public VolcengineTLSProducer Swift or Objective-C API;
+the C API-key entry points remain private implementation details on iOS.

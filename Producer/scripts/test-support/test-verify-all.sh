@@ -7,6 +7,7 @@ trap 'rm -rf "${fixture}"' EXIT
 cp "${SCRIPT_DIR}/../verify-all.sh" "${fixture}/verify-all.sh"
 
 summary_arg_log="${fixture}/core-version-args.log"
+symbol_arg_log="${fixture}/public-symbol-args.log"
 
 for script in verify-core-version.sh verify-core-vendor.sh verify-public-symbols.sh verify-producer-packages.sh verify-objective-c-producer.sh; do
     if [[ "${script}" == "verify-core-version.sh" ]]; then
@@ -20,6 +21,17 @@ for script in verify-core-version.sh verify-core-vendor.sh verify-public-symbols
             '  blocked) echo "CORE_VERSION status: BLOCKED"; echo "FAIL: unavailable Core"; exit 1 ;;' \
             '  *) echo "OK: fixture core"; exit 0 ;;' \
             'esac' \
+            > "${fixture}/${script}"
+    elif [[ "${script}" == "verify-public-symbols.sh" ]]; then
+        printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            'set -euo pipefail' \
+            'if [[ -n "${SYMBOL_ARG_LOG:-}" ]]; then' \
+            '    : > "${SYMBOL_ARG_LOG}"' \
+            '    if [[ "$#" -gt 0 ]]; then printf "%s\\n" "$@" > "${SYMBOL_ARG_LOG}"; fi' \
+            'fi' \
+            'if [[ "${SUMMARY_TEST_CASE}" == "symbol-failure" ]]; then echo "FAIL: symbol fixture"; exit 0; fi' \
+            'echo "OK: fixture symbols"' \
             > "${fixture}/${script}"
     else
         printf '%s\n' \
@@ -38,6 +50,44 @@ for script in verify-core-version.sh verify-core-vendor.sh verify-public-symbols
     fi
     chmod +x "${fixture}/${script}"
 done
+
+SUMMARY_ARG_LOG="${summary_arg_log}" SYMBOL_ARG_LOG="${symbol_arg_log}" SUMMARY_TEST_CASE=success \
+    bash "${fixture}/verify-all.sh" > "${fixture}/result-no-symbol-product.log" 2>&1
+if [[ -s "${symbol_arg_log}" ]]; then
+    echo 'FAIL: empty PUBLIC_SYMBOL_PRODUCT should preserve the no-argument symbol check'
+    cat "${symbol_arg_log}"
+    exit 1
+fi
+echo 'OK: empty PUBLIC_SYMBOL_PRODUCT preserves symbol-check arguments'
+
+symbol_product="${fixture}/product with spaces/VolcengineTLSProducer"
+mkdir -p "$(dirname "${symbol_product}")"
+SUMMARY_ARG_LOG="${summary_arg_log}" SYMBOL_ARG_LOG="${symbol_arg_log}" \
+    SUMMARY_TEST_CASE=success PUBLIC_SYMBOL_PRODUCT="${symbol_product}" \
+    bash "${fixture}/verify-all.sh" > "${fixture}/result-symbol-product.log" 2>&1
+if [[ "$(cat "${symbol_arg_log}")" != "${symbol_product}" ]]; then
+    echo 'FAIL: PUBLIC_SYMBOL_PRODUCT was not passed verbatim only to verify-public-symbols.sh'
+    cat "${symbol_arg_log}"
+    cat "${fixture}/result-symbol-product.log"
+    exit 1
+fi
+if [[ "$(cat "${summary_arg_log}")" != "--release" ]]; then
+    echo 'FAIL: PUBLIC_SYMBOL_PRODUCT leaked into the core-version arguments'
+    exit 1
+fi
+echo 'OK: PUBLIC_SYMBOL_PRODUCT preserves a path containing spaces'
+
+rc=0
+SUMMARY_ARG_LOG="${summary_arg_log}" SYMBOL_ARG_LOG="${symbol_arg_log}" \
+    SUMMARY_TEST_CASE=symbol-failure PUBLIC_SYMBOL_PRODUCT="${symbol_product}" \
+    bash "${fixture}/verify-all.sh" > "${fixture}/result-symbol-failure.log" 2>&1 || rc=$?
+if [[ "${rc}" -ne 1 ]] ||
+   ! grep -Eq '^verify-public-symbols\.sh[[:space:]]+FAIL$' "${fixture}/result-symbol-failure.log"; then
+    echo "FAIL: symbol failure expected suite exit=1 and public-symbol FAIL, got exit=${rc}"
+    cat "${fixture}/result-symbol-failure.log"
+    exit 1
+fi
+echo 'OK: public-symbol failure fails the suite'
 
 for test_case in success failure nonzero skip unknown blocked; do
     rc=0

@@ -354,6 +354,36 @@ VE_TLS_API ve_tls_producer * ve_tls_producer_create_versioned(
     uint32_t config_version
 );
 /*
+ * Creates a producer that authenticates PutLogs requests with api_key by
+ * sending x-tls-anonymous-identity. A non-empty key is copied before worker
+ * threads or automatic WAL recovery start; AK/SK and credentials_provider are
+ * not required and are ignored while the key is active. ASCII control bytes
+ * (including CR/LF and DEL) are rejected. Each request attempt captures its
+ * key, so retries use a key rotated before that attempt. API-key requests
+ * disable HTTP debug logging to avoid leaking the key. NULL or an empty key
+ * selects the configured AK/SK or credentials provider mode.
+ *
+ * Example:
+ *   ve_tls_config cfg;
+ *   ve_tls_config_init(&cfg);
+ *   cfg.endpoint = "https://tls.example.com";
+ *   cfg.region = "cn-example";
+ *   cfg.topic_id = "topic-id";
+ *   ve_tls_producer * producer =
+ *       ve_tls_producer_create_with_api_key(&cfg, "api-key-value");
+ */
+VE_TLS_API ve_tls_producer * ve_tls_producer_create_with_api_key(
+    const ve_tls_config * config,
+    const char * api_key
+);
+/* Same authentication semantics with exact-size V1/V2/V3 config validation. */
+VE_TLS_API ve_tls_producer * ve_tls_producer_create_with_api_key_versioned(
+    const ve_tls_config * config,
+    size_t config_size,
+    uint32_t config_version,
+    const char * api_key
+);
+/*
  * Updates the active send target for subsequent requests. Requests that have already
  * entered the send path may still use the previously captured endpoint/region/topic.
  * The update is transactional: failure leaves config, version, and runtime snapshot
@@ -363,6 +393,13 @@ VE_TLS_API ve_tls_producer * ve_tls_producer_create_versioned(
 VE_TLS_API ve_tls_result ve_tls_producer_update_endpoint(ve_tls_producer * producer, const char * endpoint, const char * region, const char * topic_id);
 /* Transactional with the same rollback and old-or-new snapshot guarantee. */
 VE_TLS_API ve_tls_result ve_tls_producer_update_static_credentials(ve_tls_producer * producer, const char * access_key_id, const char * access_key_secret, const char * security_token);
+/*
+ * Transactionally rotates api_key. NULL or empty clears it and falls back to
+ * configured AK/SK/provider; if no fallback exists, later sends fail locally
+ * before network I/O. Rotation advances the credential generation and wakes
+ * persistent auth-failure waiters.
+ */
+VE_TLS_API ve_tls_result ve_tls_producer_update_api_key(ve_tls_producer * producer, const char * api_key);
 /*
  * close ends already-retained memory-only batches; they may receive
  * VE_TLS_CLOSED/ProducerClosed and do not receive a final attempt merely
