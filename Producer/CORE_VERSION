@@ -6,7 +6,6 @@ upstream_core_version: 0.3.4
 upstream_core_tag: v0.3.4
 upstream_core_tag_status: NOT_CREATED
 upstream_core_full_sha: 383eaae464a6b707280304284f06e015448ddd70
-upstream_core_repository: https://code.byted.org/volcengine/ve-tls-c-sdk
 vendor_manifest: Producer/CORE_VENDOR_SHA256SUMS
 vendor_overlays: include/ve_tls_export.h,third_party/lz4/lz4.c
 vendor_additions: include/CTLSProducerCore.h,core/ve_tls_iosp_version.c
