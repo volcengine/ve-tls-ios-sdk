@@ -198,3 +198,40 @@ podspec、固定请求 `User-Agent`、诊断 `sdk_version`、版本校验器与�
 - 版本校验器 `bash -n`、修改文件 whitespace 与重新构建 SDK 的公开符号检查通过。新版本结果汇总 `/tmp/tls-ios-v202-test-results.json`；此前 CocoaPods 四种集成的运行记录保留为原版本证据，不冒充本轮重跑。
 
 原始分支与内部 `master`（`b04e65dd19f885004cd1840bf1fc2f831702e13b`）没有共同祖先，Codebase MR 的差异接口报错。内部交付改为从该 master 创建新分支，迁入本工作区的最终文件树；要求新提交的 tree 与本轮已验证的原始实施分支 tree 完全相同，并验证 master 是新分支的祖先。保留原分支和提交，不强推、不改写 master。相对内部 master 还包含现有 2.0.1 module map 修复与 Consumer→Producer 测试/校验工具命名同步。
+
+
+## 2026-10-16 Core 0.3.4 候选与完整发布验收
+
+Core SDK/CMake/SBOM 版本为 `0.3.4`，冻结来源提交为
+`383eaae464a6b707280304284f06e015448ddd70`。vendor 对应该完整源码提交及既有
+Apple overlays/wrapper，已移除临时集成补丁。`INTEGRATED` 只表示源码集成完成；
+登记中的 `upstream_core_tag_status: NOT_CREATED` 明确表示尚未打 tag 或发布。
+默认服务请求头 `x-tls-apiversion` 仍为 `0.3.0`，它不是 C ABI 版本；iOS 包、UA 和诊断版本仍为 `2.0.2`。
+
+发布校验修复了 `INTEGRATED` 状态漏检 vendor 的问题，并拒绝残留临时补丁字段。
+`PUBLIC_SYMBOL_PRODUCT` 可指定本轮最终链接产物。31 项 Core 门禁回归及汇总器参数、
+失败传播回归通过；两处测试夹具的 Swift 6 并发捕获已修复，未放宽并发检查或修改 SDK。
+
+对不可变源码快照执行完整 `verify-all.sh --release`，不使用 skip 或提高最低目标的参数，结果为退出码 `1`：
+
+| 检查 | 结果 |
+|---|---|
+| Core 版本登记 | PASS |
+| vendor 校验及登记 Core SHA 的逐文件比对 | PASS |
+| 本轮最终真机 App 的公开符号 | PASS，无导出的 Core/LZ4 私有符号 |
+| 包消费验证 | FAIL：Xcode 27 不接受声明的最低系统构建目标；pod lib lint 失败 |
+| 外部纯 Objective-C 集成 | FAIL：CocoaPods 的 macOS10.15/iOS13 构建被工具链拒绝 |
+
+Core 静态 Release 14/14、共享库/ABI/导出/consumer 11/11、ASan+UBSan 14/14 通过。
+严格 Swift 6 的 macOS 测试和 iOS18.6 模拟器测试各执行 391 项、4 项真实网络 opt-in 跳过、0 失败。
+SwiftPM 外部纯 Objective-C 的生成头导入、链接和运行通过；这不替代失败的 CocoaPods 最低目标验收。
+
+最终签名的 iPhone11ProMax/iOS17.5.1 App 通过 26 项功能及 2 项限频用例。
+诊断开/关及旧/新 Core 两种对照各有 25 组观测、每侧 53 次请求，正文、顺序和终态一致。
+2000 次相同拒绝保留 2000 条结构化事件，文本故障 1 条、汇总抑制 1999 次；40 次成功请求对照一致。
+生成 Objective-C 头的 `arm64-apple-ios13.0` 语法与可用性检查通过，不能视作完整最低系统运行。
+
+完整日志：`tls-ios-core034-verify-all-release-frozen-20261016.log`。
+ASan 使用 `detect_leaks=0`，LZ4 既有 UBSan 例外保持不变；不声称 LSan 或真实 TLS 入库通过。
+当前仍不具备正式发布 2.0.2 的完整验证条件，需要在支持声明最低系统的工具链上重跑失败子项及完整套件。
+未创建 Core/iOS tag，未发布任何包，未通过改状态、提高产品最低版本或跳过门禁放行。
