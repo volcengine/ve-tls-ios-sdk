@@ -3055,6 +3055,11 @@ next_task:
             }
             ve_tls_sender_heartbeat_persistent(producer);
             producer->config.platform.mutex_lock(producer->mutex);
+            /* close may have signaled while heartbeat ran without this mutex.
+               Revisit retained work before sleeping on its old retry deadline. */
+            if ((producer->closing || producer->stop) && producer->delayed_head) {
+                continue;
+            }
             if (producer->stop && !producer->ready_head) {
                 int pending = 0;
                 if (producer->key_buckets) {

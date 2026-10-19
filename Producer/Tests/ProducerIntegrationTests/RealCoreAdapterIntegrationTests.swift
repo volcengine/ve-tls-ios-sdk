@@ -6,6 +6,7 @@
 //
 
 import XCTest
+import Darwin
 @testable import VolcengineTLSProducer
 import TLSProducerBridge
 
@@ -1301,7 +1302,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
                 withoutNames,
                 withNames,
                 "diagnostic observation must not change WAL file cleanup")
-            XCTAssertEqual(withoutNames, Set(["manifest", "checkpoint", "seg-000001.log"]))
+            XCTAssertEqual(withoutNames, Set(["manifest", "checkpoint", "seg-000001.log", "lease.lock"]))
             XCTAssertEqual(
                 withDiagnostics.diagnostics.filter { $0.kind == .batchTerminal }.count,
                 1)
@@ -1559,7 +1560,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
                 contents: ["message": "persistent-recovery"],
                 flush: false)
 
-            let files = [".ios-producer.lock", "manifest", "checkpoint", "lease", "seg-000001.log"]
+            let files = [".ios-producer.lock", "manifest", "checkpoint", "lease", "lease.lock", "seg-000001.log"]
                 .map { directory.appendingPathComponent($0) }
             for file in files {
                 XCTAssertTrue(
@@ -1604,6 +1605,88 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             XCTAssertFalse(recovered.isClosed)
             try recovered.close(withTimeout: 5)
         }
+    }
+
+    func testPersistentDirectoryRejectsBusyCoreGuardWithoutRemovingLease() throws {
+        let producerID = "bridge-core-lock-\(UUID().uuidString.prefix(12))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let leaseURL = directory.appendingPathComponent("lease")
+        let originalLease = Data("existing-core-owner".utf8)
+        try originalLease.write(to: leaseURL)
+        let lockURL = directory.appendingPathComponent("lease.lock")
+        let fd = lockURL.path.withCString {
+            Darwin.open($0, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, mode_t(0o600))
+        }
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        guard fd >= 0 else { return }
+        defer { _ = Darwin.close(fd) }
+        // Some Darwin Swift overlays import the flock struct but hide the
+        // same-named C function. Resolve libc explicitly; absence is a failure.
+        let libc = try XCTUnwrap(dlopen(nil, RTLD_NOW))
+        defer { _ = dlclose(libc) }
+        let symbol = try XCTUnwrap(dlsym(libc, "flock"))
+        typealias FileLock = @convention(c) (Int32, Int32) -> Int32
+        let fileLock = unsafeBitCast(symbol, to: FileLock.self)
+        let locked = fileLock(fd, LOCK_EX | LOCK_NB)
+        XCTAssertEqual(locked, 0)
+        guard locked == 0 else { return }
+        defer { _ = fileLock(fd, LOCK_UN) }
+
+        XCTAssertThrowsError(try makeBridgeAdapter(
+            requestTimeout: 0.2,
+            maxLogCount: 1,
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path))
+        XCTAssertEqual(try Data(contentsOf: leaseURL), originalLease,
+                       "Bridge must not remove a lease while its Core guard is held")
+    }
+
+    /// Persistence keeps the Core guard for the same lifetime as the bridge
+    /// directory lock. A successful close must release both even while the
+    /// adapter object remains alive, so a new instance can recover immediately.
+    func testPersistentCoreGuardIsHeldUntilSuccessfulClose() throws {
+        let producerID = "bridge-lifetime-\(UUID().uuidString.prefix(12))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let first = try makeBridgeAdapter(
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)
+        defer { try? first.close(withTimeout: 5) }
+        try first.open()
+
+        let fd = directory.appendingPathComponent("lease.lock").path.withCString {
+            Darwin.open($0, O_RDWR | O_CLOEXEC | O_NOFOLLOW)
+        }
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        guard fd >= 0 else { return }
+        defer { _ = Darwin.close(fd) }
+        let libc = try XCTUnwrap(dlopen(nil, RTLD_NOW))
+        defer { _ = dlclose(libc) }
+        let symbol = try XCTUnwrap(dlsym(libc, "flock"))
+        typealias FileLock = @convention(c) (Int32, Int32) -> Int32
+        let fileLock = unsafeBitCast(symbol, to: FileLock.self)
+
+        let liveLockResult = fileLock(fd, LOCK_EX | LOCK_NB)
+        let liveLockError = errno
+        if liveLockResult == 0 { _ = fileLock(fd, LOCK_UN) }
+        XCTAssertEqual(liveLockResult, -1, "a live persistent adapter must hold the Core guard")
+        XCTAssertTrue(liveLockError == EWOULDBLOCK || liveLockError == EAGAIN)
+
+        try first.close(withTimeout: 5)
+        let closedLockResult = fileLock(fd, LOCK_EX | LOCK_NB)
+        XCTAssertEqual(closedLockResult, 0, "successful close must release the Core guard")
+        if closedLockResult == 0 { _ = fileLock(fd, LOCK_UN) }
+
+        let reopened = try makeBridgeAdapter(
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)
+        try reopened.open()
+        try reopened.close(withTimeout: 5)
     }
 
     /// The bridge lock is the live-process exclusion. A second adapter for

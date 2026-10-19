@@ -6,6 +6,8 @@
 
 #import "TLSRealCoreAdapter.h"
 #import "CTLSProducerCore.h"
+#include "../../CTLSProducerCore/core/src/producer/ve_tls_lease.h"
+#include "../../CTLSProducerCore/core/src/producer/ve_tls_persistent.h"
 #import "Bridge/TLSRedactingLogger.h"
 #import "Bridge/TLSThreadAssertions.h"
 #import "Transport/TLSTransport.h"
@@ -253,34 +255,52 @@ static int tls_acquire_persistent_directory_lock(NSString *directory,
     }
 
     NSString *leasePath = [directory stringByAppendingPathComponent:kTLSCoreLeaseFileName];
+    int coreGuardFD = -1;
+    if (ve_tls_lease_guard_enter(leasePath.fileSystemRepresentation, 0, &coreGuardFD) != 0) {
+        if (failureReason) {
+            *failureReason = @"persistent Core file operation is in progress";
+        }
+        (void)flock(fd, LOCK_UN);
+        close(fd);
+        return -1;
+    }
+    // The native guard open does not pass through platform.file_open. Apply
+    // the same mandatory backup/protection attributes before Core can use it.
+    if (!tls_apply_file_attributes([leasePath stringByAppendingString:@".lock"])) {
+        if (failureReason) {
+            *failureReason = @"persistent Core lock attributes could not be applied";
+        }
+        goto core_guard_failed;
+    }
     struct stat leaseStat;
     if (lstat(leasePath.fileSystemRepresentation, &leaseStat) == 0) {
         if (!S_ISREG(leaseStat.st_mode) && !S_ISLNK(leaseStat.st_mode)) {
             if (failureReason) {
                 *failureReason = @"persistent lease is not a regular file";
             }
-            (void)flock(fd, LOCK_UN);
-            close(fd);
-            return -1;
+            goto core_guard_failed;
         }
         if (unlink(leasePath.fileSystemRepresentation) != 0 && errno != ENOENT) {
             if (failureReason) {
                 *failureReason = @"persistent lease could not be removed";
             }
-            (void)flock(fd, LOCK_UN);
-            close(fd);
-            return -1;
+            goto core_guard_failed;
         }
     } else if (errno != ENOENT) {
         if (failureReason) {
             *failureReason = @"persistent lease could not be inspected";
         }
-        (void)flock(fd, LOCK_UN);
-        close(fd);
-        return -1;
+        goto core_guard_failed;
     }
 
+    ve_tls_lease_guard_leave(coreGuardFD);
     return fd;
+
+core_guard_failed:
+    ve_tls_lease_guard_leave(coreGuardFD);
+    (void)flock(fd, LOCK_UN);
+    close(fd);
+    return -1;
 }
 
 static void tls_release_persistent_directory_lock(int *fd) {
@@ -1138,8 +1158,12 @@ static BOOL TLSValidEndpoint(NSString *endpoint) {
     cConfig.tls_verify_peer = 1;
     cConfig.tls_verify_host = 1;
 
-    // Create the producer
-    _producer = ve_tls_producer_create_versioned(&cConfig, sizeof(cConfig), VE_TLS_CONFIG_VERSION_CURRENT);
+    // Persistence already owns .ios-producer.lock. Keep the Core guard for
+    // that same lifetime instead of re-locking/re-reading the lease per WAL
+    // operation. Memory delivery keeps the public constructor unchanged.
+    _producer = cConfig.use_persistent
+        ? ve_tls_producer_create_exclusive_persistence(&cConfig, sizeof(cConfig))
+        : ve_tls_producer_create_versioned(&cConfig, sizeof(cConfig), VE_TLS_CONFIG_VERSION_CURRENT);
     free(tagKV);
     if (!_producer) {
         if (error) {

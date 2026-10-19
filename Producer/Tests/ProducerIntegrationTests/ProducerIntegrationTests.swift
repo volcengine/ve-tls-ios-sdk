@@ -728,7 +728,7 @@ final class ProducerIntegrationTests: XCTestCase {
             XCTAssertEqual(withoutDiagnostics.finalRequests, withDiagnostics.finalRequests)
             XCTAssertEqual(withoutDiagnostics.walFileNames, withDiagnostics.walFileNames)
             let expectedWALFiles: Set<String> = [
-                "manifest", "checkpoint", "seg-000001.log",
+                "manifest", "checkpoint", "seg-000001.log", "lease.lock",
             ]
             XCTAssertEqual(withoutDiagnostics.walFileNames, expectedWALFiles)
             XCTAssertEqual(withDiagnostics.walFileNames, expectedWALFiles)
