@@ -31,6 +31,86 @@ public func validate() throws
 `validate()` 可用于业务配置预检；`open` 和 `updateDestination` 仍会重新校验。`region`、
 `projectID` 或 `topicID` 含有首尾空白时，校验会失败。
 
+## 网络、重试与诊断配置
+
+`ProducerConfiguration` 的网络相关默认值如下：
+
+| 字段 | 默认值 | 语义 |
+|---|---:|---|
+| `connectTimeout` | 10 秒 | URLSession 兼容提示，不保证独立 TCP 连接截止时间 |
+| `requestTimeout` | 90 秒 | 单次 attempt 的整体安全截止，会被 retry 剩余预算裁剪 |
+| `requestIdleTimeout` | 50 秒 | URLSession 空闲超时，网络加载活动会重置 |
+| `retry` | `RetryConfiguration()` | `maxAttempts=0`、`totalTimeout=90` 秒、`initialInterval=0.5` 秒、`maxInterval=10` 秒、`retryTransientHTTPResponses=true` |
+| `memoryRetryRetention` | 0 秒 | 内存模式跨 retry cycle 保留窗口；0 关闭，进程退出后不能恢复 |
+| `onDiagnostic` | `nil` | 在 SDK 独立的串行诊断队列异步投递的结构化回调 |
+| `diagnosticLogLevel` | `.info` | 文本诊断等级；`.off` 只关闭文本回调 |
+| `diagnosticHandler` | `nil` | 可选的安全 JSON 文本回调 |
+
+`RetryConfiguration.maxAttempts` 包含首次请求；0 取消尝试次数上限，但不取消
+`totalTimeout`。`retryTransientHTTPResponses` 开启时，在预算内重试收到的 408/499 和 400 中
+结构化标记为 transient 的上传错误；参数错误和未知 400 终止。关闭后回退到 429/500/502/503/504。
+`TimeInterval` 配置统一使用秒。Objective-C 使用同名扁平字段
+`retryMaxAttempts`、`retryTotalTimeout`、`retryInitialInterval`、`retryMaxInterval`、
+`retryTransientHTTPResponses`、`memoryRetryRetention`、`onDiagnostic`、
+`diagnosticLogLevel` 和 `diagnosticHandler`。
+
+`onDiagnostic` 只应记录事件的数值计数、稳定 kind/reason、HTTP/transport code、`retryable`、
+`requestID` 和 `errorCode`，不要记录日志正文、URL 或凭据。它和文本
+`diagnosticHandler` 在每个 Producer 独立的串行诊断队列中投递，与 `onSendResult` 的
+`callbackQueue` 隔离；同一事件先投递结构化回调，再投递文本回调，业务结果回调合同不变。
+
+### 文本诊断适配器（未发布）
+
+Swift API 为：
+
+```swift
+public enum ProducerDiagnosticLogLevel: Int {
+    case debug = 0
+    case info = 1
+    case warning = 2
+    case error = 3
+    case off = 4
+}
+
+public var diagnosticLogLevel: ProducerDiagnosticLogLevel = .info
+public var diagnosticHandler:
+    (@Sendable (ProducerDiagnosticLogLevel, String) -> Void)? = nil
+```
+
+Objective-C 映射为以下公开 enum 和 `ProducerConfiguration` 属性：
+
+```objc
+typedef NS_ENUM(NSInteger, TLSProducerDiagnosticLogLevel) {
+    TLSProducerDiagnosticLogLevelDebug = 0,
+    TLSProducerDiagnosticLogLevelInfo = 1,
+    TLSProducerDiagnosticLogLevelWarning = 2,
+    TLSProducerDiagnosticLogLevelError = 3,
+    TLSProducerDiagnosticLogLevelOff = 4,
+};
+
+@property(nonatomic) TLSProducerDiagnosticLogLevel diagnosticLogLevel;
+@property(nonatomic, copy, nullable) void (^diagnosticHandler)(NSInteger level,
+                                                                 NSString *message);
+```
+
+配置示例：
+
+```objc
+configuration.diagnosticLogLevel = TLSProducerDiagnosticLogLevelInfo;
+configuration.diagnosticHandler = ^(NSInteger level, NSString *message) {
+    BXLogI(@"[VolcTLS-SDK][terminal] %@", message);
+};
+```
+
+等级只过滤文本，`.off` 不影响结构化 `onDiagnostic`。每条文本消息是 SDK 生成的安全 JSON，
+最大 4 KiB UTF-8；每个 Producer 的诊断 FIFO 最大 1024 条，满时 best effort 丢弃并在后续
+报告丢弃计数。SDK 每 60 秒发送累计 summary，并在 `close` 前发送一次 summary。App 负责
+文件 logger、路径、轮转、导出和 `fsync`，handler 应直接交给 logger，不自行拼接 SDK 内部数据；
+两个 Producer 共用文件时 logger 必须并发安全。handler 不得重新进入同一 Producer，也不得
+同步等待自己的文件回调。诊断只观察，不改变上传、重试、超时或 WAL。
+
+`open` 会冻结等级和 handler；这些新增 API 属于待发布的 2.0.2，线上 2.0.1 不能直接配置。
+
 ## Producer.open
 
 ```swift
@@ -72,6 +152,15 @@ public func updateDestination(_ destination: Destination) throws
 原子替换 endpoint、region、project 和 topic。此前已接收但尚未发送的日志会使用新目标，属于
 current-target 语义。
 
+## notifyNetworkRecovered
+
+```swift
+public func notifyNetworkRecovered() throws
+```
+
+这是网络恢复提示：它推进仍保留的 transient 失败，不取消进行中的请求，也不恢复已经丢弃的批次。
+Objective-C 入口为 `notifyNetworkRecoveredWithError:`；该提示不保证后台期间送达。
+
 ## close
 
 ```swift
@@ -80,6 +169,12 @@ public func close(timeout: TimeInterval) async throws
 
 封闭新写入，停止 worker，并在 timeout 内完成本地封批和持久化工作。成功不表示所有日志已
 远端送达。并发等待同一次关闭的调用者收到相同结果；失败后可再次调用 `close` 重试本地关闭。
+
+非持久化模式中，因暂态失败而进入 `memoryRetryRetention` 的已保留批次会在 close 时结束，
+其发送结果为 `.failure` / `ProducerError.closed`。close 的 timeout 不会给这些批次追加最后一次
+发送机会；重新打开内存实例也不会恢复它们。持久化模式中的延迟重试则保留未确认 WAL，
+不人为合成同类终止回调，后续使用相同 `producerID` 打开时恢复。iOS 进入后台不等同于 close；
+自动生命周期处理沿用后台封批和前台唤醒，不保证系统挂起期间送达。
 
 ## SendResult
 

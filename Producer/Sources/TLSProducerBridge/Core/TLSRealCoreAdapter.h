@@ -75,6 +75,10 @@ typedef void (^TLSRealCoreAdapterSendResultHandler)(
     int64_t startID,
     int64_t endID);
 
+/// Safe Core diagnostic event, distinct from a terminal send-result callback.
+typedef void (^TLSRealCoreAdapterDiagnosticHandler)(
+    NSDictionary<NSString *, id> *safeFields);
+
 /// Real C Core adapter.
 ///
 /// One instance per Producer. Wraps a ve_tls_producer from the C Core.
@@ -85,6 +89,7 @@ typedef void (^TLSRealCoreAdapterSendResultHandler)(
 /// Package-internal build probe. The C symbol remains hidden; tests observe
 /// the integrated Core version through the bridge boundary.
 @property (class, nonatomic, readonly, copy) NSString *coreVersion;
+@property (class, nonatomic, readonly, copy) NSString *sdkVersion;
 
 /// Creates a real core adapter.
 /// Returns nil and sets `error` if the C Core producer could not be created.
@@ -104,6 +109,13 @@ typedef void (^TLSRealCoreAdapterSendResultHandler)(
                             maxBufferBytes:(NSInteger)maxBufferBytes
                             connectTimeout:(NSTimeInterval)connectTimeout
                             requestTimeout:(NSTimeInterval)requestTimeout
+                        requestIdleTimeout:(NSTimeInterval)requestIdleTimeout
+                          retryMaxAttempts:(NSInteger)retryMaxAttempts
+                         retryTotalTimeout:(NSTimeInterval)retryTotalTimeout
+                      retryInitialInterval:(NSTimeInterval)retryInitialInterval
+                          retryMaxInterval:(NSTimeInterval)retryMaxInterval
+                      memoryRetryRetention:(NSTimeInterval)memoryRetryRetention
+               retryTransientHTTPResponses:(BOOL)retryTransientHTTPResponses
                                 lz4Enabled:(BOOL)lz4Enabled
                               sessionConfiguration:(nullable NSURLSessionConfiguration *)sessionConfiguration
                               bufferFullPolicy:(NSInteger)bufferFullPolicy
@@ -114,6 +126,7 @@ typedef void (^TLSRealCoreAdapterSendResultHandler)(
                            maxLogAgeSeconds:(NSInteger)maxLogAgeSeconds
                           expiredLogPolicy:(NSInteger)expiredLogPolicy
                          authFailurePolicy:(NSInteger)authFailurePolicy
+                             diagnosticSink:(nullable TLSRealCoreAdapterDiagnosticHandler)diagnosticSink
                              callbackQueue:(dispatch_queue_t)callbackQueue
                                       error:(NSError * _Nullable * _Nullable)error
     NS_DESIGNATED_INITIALIZER;
@@ -191,10 +204,15 @@ typedef void (^TLSRealCoreAdapterSendResultHandler)(
 
 /// Flushes pending batches (best-effort).
 - (void)flush;
+- (void)notifyNetworkRecovered;
+
+/// Read-only, best-effort scalar counters; nil while closing/closed/busy.
+- (nullable NSDictionary<NSString *, id> *)diagnosticSnapshot;
 
 /// The send-result callback. Set by the Swift layer before open.
 /// Delivered on the configured callback queue.
 @property (nonatomic, copy, nullable) TLSRealCoreAdapterSendResultHandler onSendResult;
+@property (nonatomic, copy, nullable) TLSRealCoreAdapterDiagnosticHandler onDiagnostic;
 
 /// YES only after a close has completed successfully.
 @property (nonatomic, readonly) BOOL isClosed;

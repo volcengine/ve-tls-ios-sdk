@@ -34,8 +34,14 @@
 | `sendConcurrency` | `Int` | 1 | 1...8 个发送线程 |
 | `compression` | `Compression` | `.lz4` | `.lz4` 或 `.disabled` |
 | `persistence` | `Persistence` | `.disabled` | `.disabled`、`.memory`、`.buffered`、`.sync` |
-| `connectTimeout` | `TimeInterval` | 10 秒 | 大于 0、至少 1 毫秒、整毫秒、有限且不超过 `Int32.max` 毫秒 |
-| `requestTimeout` | `TimeInterval` | 15 秒 | 同上；单次 HTTP 请求硬截止时间 |
+| `connectTimeout` | `TimeInterval` | 10 秒 | 大于 0、至少 1 毫秒、整毫秒、有限且不超过 `Int32.max` 毫秒；URLSession 兼容提示，不保证独立 TCP 连接计时器，也不会覆盖 `requestIdleTimeout` |
+| `requestTimeout` | `TimeInterval` | 90 秒 | 同上；单次 attempt 的整体安全截止时间，并会被 `retry.totalTimeout` 的剩余预算进一步裁剪 |
+| `requestIdleTimeout` | `TimeInterval` | 50 秒 | 同上；URLSession 空闲超时，网络加载活动会重置计时 |
+| `retry` | `RetryConfiguration` | `RetryConfiguration()` | `maxAttempts=0`、`totalTimeout=90` 秒、`initialInterval=0.5` 秒、`maxInterval=10` 秒、`retryTransientHTTPResponses=true` |
+| `memoryRetryRetention` | `TimeInterval` | 0 秒 | 仅内存模式的跨 retry cycle 保留窗口；0 关闭；仍受同一有限 buffer 约束，进程退出后不能恢复 |
+| `onDiagnostic` | `(@Sendable (ProducerDiagnostic) -> Void)?` | `nil` | 在 SDK 独立的串行诊断队列异步投递；只应记录公开的数值、状态、HTTP/transport code、`requestID` 和 `errorCode` |
+| `diagnosticLogLevel` | `ProducerDiagnosticLogLevel` | `.info` | 只过滤文本 `diagnosticHandler`；`.off` 不关闭结构化 `onDiagnostic` |
+| `diagnosticHandler` | `(@Sendable (ProducerDiagnosticLogLevel, String) -> Void)?` | `nil` | 可选的安全 JSON 文本回调；由 SDK 独立的串行诊断队列投递 |
 | `metadata` | `ProducerMetadata` | 平台默认 | 可使用空字符串或空 tags；字符串不支持 NUL |
 | `maxLogAge` | `TimeInterval` | 7 天 | 大于 0、有限、整秒且不溢出 64 位毫秒 |
 | `expiredLogPolicy` | `ExpiredLogPolicy` | `.rewriteTimestamp` | 过期日志改写当前时间或丢弃 |
@@ -48,6 +54,57 @@
 
 所有公开字段在 `open` 后都被冻结。运行期间只支持通过 `updateCredentials` 和
 `updateDestination` 原子更新对应整组值。
+
+### RetryConfiguration
+
+`maxAttempts` 包含首次请求；为 0 表示不限制尝试次数，但 `totalTimeout` 仍然生效。
+`maxInterval` 是 Core 加 20% 抖动前的退避上限。`retryTransientHTTPResponses` 默认开启时，
+会在有界预算内重试收到的 408/499，以及 400 中结构化标记为 transient 的上传错误；参数错误和
+未知 400 仍终止。关闭该开关时，HTTP 重试集合回退为 Core 的 429/500/502/503/504。
+
+`onDiagnostic` 和 `diagnosticHandler` 使用每个 Producer 独立的串行诊断队列，与
+`onSendResult` 的 `callbackQueue` 隔离。同一事件先投递结构化回调，再按等级和限频规则决定是否投递文本回调；业务结果
+回调仍按 `callbackQueue` 执行。结构化事件字段只包含安全的计数、状态、HTTP/transport code、
+`retryable`、`requestID` 和 `errorCode`，回调不会补回已经丢弃的批次。
+
+### 文本诊断适配器（未发布）
+
+`ProducerDiagnosticLogLevel` 的原始值固定为 `.debug = 0`、`.info = 1`、`.warning = 2`、
+`.error = 3`、`.off = 4`，默认 `.info`；`diagnosticHandler` 默认 `nil`。等级是阈值，只影响
+文本消息。每条文本消息是 SDK 生成的安全 JSON，最大 4 KiB UTF-8；诊断 FIFO 最大 1024 条，
+满时 best effort 丢弃并在后续报告丢弃计数。SDK 每 60 秒发累计 summary，`close` 前再发一次。
+
+```swift
+var configuration = try ProducerConfiguration(diagnosticLogLevel: .info)
+configuration.diagnosticHandler = { _, message in
+    appFileLogger.append(message)
+}
+```
+
+Objective-C 使用 `TLSProducerDiagnosticLogLevel` 和
+`void (^)(NSInteger level, NSString *message)`：
+
+```objc
+configuration.diagnosticLogLevel = TLSProducerDiagnosticLogLevelInfo;
+configuration.diagnosticHandler = ^(NSInteger level, NSString *message) {
+    BXLogI(@"[VolcTLS-SDK][terminal] %@", message);
+};
+```
+
+文本限频按实例计算，使用单调时钟滚动 60 秒窗口：Debug/Info 合计 30 条、32 KiB，
+Warning/Error 独立 30 条、32 KiB（SDK 消息字节包含一字节换行，不含 App logger 的额外前缀）。相同 Warning/Error 指纹 60 秒最多输出一条；
+指纹不包含 RequestID、批次 ID 或时间等易变字段。后续可输出消息携带
+`text_suppressed_total` / `text_suppressed_since_last_report`，与队列丢弃计数分开；不新增定时器，
+现有 60 秒 summary 也遵循等级和限额。结构化 `onDiagnostic` 不受文本限频影响。
+这些保护使用 SDK 固定默认值；公开客户端可配置 handler 和等级，不能关闭上述保护或提高限额。
+多个 Producer 的限额相加，重新创建实例会重新计额。
+
+App 负责 logger 的文件路径、轮转、导出和 `fsync`；建议单文件 2 MiB、最多 3 个文件，写入前
+轮转覆盖旧文件，总量约 6 MiB。写入失败停止文件写入，避免递归日志。持续输出即使限频仍会增长，
+必须同时配置文件总容量。App 自行持久化 `onDiagnostic` 时也需要自行限频；handler 直接交给文件 logger，不自行重组
+SDK 内部数据。同一文件由两个 Producer 写入时，logger 必须并发安全。handler 不得重新进入同一
+Producer，也不得同步等待自身文件回调。诊断仅观察，不改变上传、重试、超时或 WAL。`open` 会
+冻结等级和 handler；本节新 API 属于待发布的 2.0.2，线上 2.0.1 不能直接配置。
 
 ## 枚举
 
@@ -116,7 +173,16 @@ let configuration = try ProducerConfiguration(
     compression: .lz4,
     persistence: .buffered,
     connectTimeout: 10,
-    requestTimeout: 15,
+    requestTimeout: 90,
+    requestIdleTimeout: 50,
+    retry: RetryConfiguration(
+        maxAttempts: 0,
+        totalTimeout: 90,
+        initialInterval: 0.5,
+        maxInterval: 10,
+        retryTransientHTTPResponses: true
+    ),
+    memoryRetryRetention: 0,
     metadata: ProducerMetadata(
         source: "my-app",
         tags: ["environment": "production"]

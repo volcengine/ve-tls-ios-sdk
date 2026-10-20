@@ -6,16 +6,25 @@
 //
 
 import XCTest
+import Darwin
 @testable import VolcengineTLSProducer
 import TLSProducerBridge
 
 /// Minimal HTTP stub that intercepts requests via URLProtocol.
 final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
     private final class Registry: @unchecked Sendable {
+        struct ScriptedOutcome: @unchecked Sendable {
+            let response: (HTTPURLResponse, Data)?
+            let error: NSError?
+            let delay: TimeInterval
+            let hangs: Bool
+        }
+
         let lock = NSLock()
         var stubbedResponses: [String: (HTTPURLResponse, Data)] = [:]
         var responseDelays: [String: TimeInterval] = [:]
         var hangingPaths: Set<String> = []
+        var scriptedOutcomes: [String: [ScriptedOutcome]] = [:]
         var requestLog: [(url: String, body: Data?, headers: [String: String])] = []
         var requestExpectation: XCTestExpectation?
     }
@@ -38,6 +47,59 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         registry.stubbedResponses[path] = (response, body)
         registry.responseDelays[path] = delay
         registry.hangingPaths.remove(path)
+        registry.scriptedOutcomes.removeValue(forKey: path)
+    }
+
+    /// Installs a finite response script for one path. Each request consumes
+    /// one item; after the script is exhausted the normal single response
+    /// registry is used. The script is test-only and never changes request
+    /// construction or Core retry policy.
+    static func setResponseSequence(
+        statusCodes: [Int],
+        body: Data = Data(),
+        requestIDPrefix: String = "script-req",
+        delay: TimeInterval = 0,
+        forPath path: String
+    ) {
+        registry.lock.lock()
+        defer { registry.lock.unlock() }
+        registry.scriptedOutcomes[path] = statusCodes.enumerated().map { index, status in
+            let response = HTTPURLResponse(
+                url: URL(string: "https://stub.local\(path)")!,
+                statusCode: status,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["x-tls-request-id": "\(requestIDPrefix)-\(index + 1)"])!
+            return Registry.ScriptedOutcome(
+                response: (response, body), error: nil, delay: delay, hangs: false)
+        }
+        registry.hangingPaths.remove(path)
+    }
+
+    /// Installs a finite NSError script for one path. This is used only for
+    /// deterministic transport-error comparisons; request ordering remains
+    /// the URLProtocol request log order.
+    static func setNetworkErrorSequence(
+        codes: [Int],
+        domain: String = NSURLErrorDomain,
+        forPath path: String
+    ) {
+        registry.lock.lock()
+        defer { registry.lock.unlock() }
+        let fallbackResponse = HTTPURLResponse(
+            url: URL(string: "https://stub.local\(path)")!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["x-tls-request-id": "network-recovery"])!
+        registry.stubbedResponses[path] = (fallbackResponse, Data())
+        registry.responseDelays[path] = 0
+        registry.scriptedOutcomes[path] = codes.map { code in
+            Registry.ScriptedOutcome(
+                response: nil,
+                error: NSError(domain: domain, code: code),
+                delay: 0,
+                hangs: false)
+        }
+        registry.hangingPaths.remove(path)
     }
 
     static func setHanging(forPath path: String) {
@@ -46,6 +108,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         registry.hangingPaths.insert(path)
         registry.stubbedResponses.removeValue(forKey: path)
         registry.responseDelays.removeValue(forKey: path)
+        registry.scriptedOutcomes.removeValue(forKey: path)
     }
 
     static func recordedRequests() -> [(url: String, body: Data?, headers: [String: String])] {
@@ -66,6 +129,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         registry.stubbedResponses.removeAll()
         registry.responseDelays.removeAll()
         registry.hangingPaths.removeAll()
+        registry.scriptedOutcomes.removeAll()
         registry.requestLog.removeAll()
         registry.requestExpectation = nil
     }
@@ -104,6 +168,13 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         let path = request.url?.path ?? "/"
         Self.registry.lock.lock()
+        let scripted: Registry.ScriptedOutcome?
+        if var outcomes = Self.registry.scriptedOutcomes[path], !outcomes.isEmpty {
+            scripted = outcomes.removeFirst()
+            Self.registry.scriptedOutcomes[path] = outcomes
+        } else {
+            scripted = nil
+        }
         let isHanging = Self.registry.hangingPaths.contains(path)
         let stub = Self.registry.stubbedResponses[path]
         let delay = Self.registry.responseDelays[path] ?? 0
@@ -116,18 +187,24 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         Self.registry.lock.unlock()
         requestExpectation?.fulfill()
 
-        if isHanging {
+        if isHanging || scripted?.hangs == true {
             // Deliberately do not call any URLProtocol client callback. The
             // bridge's hard request deadline must cancel this task and turn
             // it into a bounded transport failure.
             return
         }
 
-        if delay > 0 {
-            Thread.sleep(forTimeInterval: delay)
+        let effectiveDelay = scripted?.delay ?? delay
+        if effectiveDelay > 0 {
+            Thread.sleep(forTimeInterval: effectiveDelay)
         }
 
-        if let (response, body) = stub {
+        if let error = scripted?.error {
+            client?.urlProtocol(self, didFailWithError: error)
+            return
+        }
+
+        if let (response, body) = scripted?.response ?? stub {
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             if !body.isEmpty {
                 client?.urlProtocol(self, didLoad: body)
@@ -295,6 +372,13 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             maxBufferBytes: maxBufferBytes,
             connectTimeout: 1,
             requestTimeout: requestTimeout,
+            requestIdleTimeout: 50,
+            retryMaxAttempts: 3,
+            retryTotalTimeout: 90,
+            retryInitialInterval: 0.5,
+            retryMaxInterval: 10,
+            memoryRetryRetention: 0,
+            retryTransientHTTPResponses: false,
             lz4Enabled: lz4Enabled,
             sessionConfiguration: sessionConfiguration,
             bufferFullPolicy: 0,
@@ -305,6 +389,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             maxLogAgeSeconds: 7 * 24 * 60 * 60,
             expiredLogPolicy: 0,
             authFailurePolicy: authFailurePolicy,
+            diagnosticSink: nil,
             callbackQueue: DispatchQueue(label: "com.volcengine.tls.test.callback", qos: .utility))
     }
 
@@ -341,6 +426,151 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             hashKey: nil,
             contents: ["message": value],
             flush: true)
+    }
+
+    private struct RequestSnapshot: Equatable {
+        let url: String
+        let body: Data?
+        let headers: [String: String]
+    }
+
+    private struct PublicScenarioResult {
+        let requests: [RequestSnapshot]
+        let sendResults: [SendResult]
+        let diagnostics: [ProducerDiagnostic]
+        let directoryEntries: [String: Int64]?
+    }
+
+    private func requestSnapshots() -> [RequestSnapshot] {
+        RealCoreStubURLProtocol.recordedRequests().map { request in
+            RequestSnapshot(
+                url: request.url,
+                body: request.body,
+                headers: Self.comparableHeaders(request.headers))
+        }
+    }
+
+    /// X-Date and Authorization are the only volatile signing headers. All
+    /// other headers remain in the comparison so a diagnostic path cannot
+    /// silently alter service routing, compression or business metadata.
+    private static func comparableHeaders(_ headers: [String: String]) -> [String: String] {
+        headers.reduce(into: [String: String]()) { result, pair in
+            let key = pair.key.lowercased()
+            guard key != "authorization", key != "x-date" else { return }
+            result[key] = pair.value
+        }
+    }
+
+    private func runPublicScenario(
+        diagnostics: RealCoreDiagnosticCollector?,
+        persistence: Persistence = .disabled,
+        producerID: String? = nil,
+        responseSequence: [Int] = [200],
+        responseBody: Data = Data(),
+        networkErrorCodes: [Int]? = nil
+    ) async throws -> PublicScenarioResult {
+        RealCoreStubURLProtocol.reset()
+        if let networkErrorCodes {
+            RealCoreStubURLProtocol.setNetworkErrorSequence(
+                codes: networkErrorCodes,
+                forPath: "/PutLogs")
+        } else {
+            RealCoreStubURLProtocol.setResponseSequence(
+                statusCodes: responseSequence,
+                body: responseBody,
+                requestIDPrefix: "scenario",
+                forPath: "/PutLogs")
+        }
+
+        var configuration = try makeConfig()
+        configuration.batch.maxLogCount = 1
+        configuration.batch.linger = 60
+        configuration.requestTimeout = 1
+        configuration.requestIdleTimeout = 1
+        configuration.retry = RetryConfiguration(
+            maxAttempts: max(
+                responseSequence.count,
+                networkErrorCodes.map { $0.count + 1 } ?? 0),
+            totalTimeout: 3,
+            initialInterval: 0.1,
+            maxInterval: 1,
+            retryTransientHTTPResponses: true)
+        configuration.persistence = persistence
+        configuration.producerID = producerID
+        if let diagnostics {
+            configuration.onDiagnostic = { @Sendable value in diagnostics.append(value) }
+        }
+
+        let sends = RealCoreSendResultCollector()
+        let producer = try await Producer.open(
+            configuration: configuration,
+            credentials: makeCredentials(),
+            onSendResult: { @Sendable value in sends.append(value) })
+        let fixedEvent = LogEvent(
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000.123),
+            contents: ["message": .string("same-business-payload")])
+        try producer.add(fixedEvent, mode: .immediate)
+
+        try await waitForCondition(timeout: 12) {
+            sends.values.count == 1
+        }
+        try await producer.close(timeout: 5)
+        if diagnostics != nil {
+            try await waitForCondition(timeout: 3) {
+                diagnostics?.values.contains { $0.kind == .closed } == true
+            }
+        }
+
+        var directoryEntries: [String: Int64]?
+        if let producerID {
+            let directory = try TLSProducerDirectory.defaultDirectoryURL(
+                forProducerID: producerID)
+            if FileManager.default.fileExists(atPath: directory.path) {
+                let names = try FileManager.default.contentsOfDirectory(
+                    at: directory,
+                    includingPropertiesForKeys: [.fileSizeKey],
+                    options: [.skipsHiddenFiles])
+                directoryEntries = Dictionary(uniqueKeysWithValues: names.map { url in
+                    let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                    return (url.lastPathComponent, Int64(size))
+                })
+            } else {
+                directoryEntries = [:]
+            }
+        } else {
+            directoryEntries = nil
+        }
+        return PublicScenarioResult(
+            requests: requestSnapshots(),
+            sendResults: sends.values,
+            diagnostics: diagnostics?.values ?? [],
+            directoryEntries: directoryEntries)
+    }
+
+    private func addFixedLog(
+        to producer: Producer,
+        value: String = "fixed-business-payload",
+        mode: AddMode = .immediate
+    ) throws {
+        try producer.add(
+            LogEvent(
+                timestamp: Date(timeIntervalSince1970: 1_700_000_000.123),
+                contents: ["message": .string(value)]),
+            mode: mode)
+    }
+
+    private func waitForCondition(
+        timeout: TimeInterval,
+        _ condition: @escaping () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() >= deadline {
+                XCTFail("condition timed out")
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
     }
 
     // MARK: - Lifecycle
@@ -650,6 +880,438 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         try await adapter.close(timeout: 5)
     }
 
+    // MARK: - Diagnostics
+
+    func testCoreDiagnosticKindUsesExplicitMappingForLegacyAndNewEvents() {
+        XCTAssertEqual(RealCoreAdapter.coreDiagnosticKind(0), .attemptFinished)
+        XCTAssertEqual(RealCoreAdapter.coreDiagnosticKind(1), .retryScheduled)
+        XCTAssertEqual(RealCoreAdapter.coreDiagnosticKind(2), .batchRetained)
+        XCTAssertEqual(RealCoreAdapter.coreDiagnosticKind(3), .batchTerminal)
+        XCTAssertEqual(RealCoreAdapter.coreDiagnosticKind(4), .batchSealed)
+        XCTAssertEqual(RealCoreAdapter.coreDiagnosticKind(5), .attemptStarted)
+        XCTAssertEqual(RealCoreAdapter.coreDiagnosticKind(6), .unknown)
+        XCTAssertEqual(RealCoreAdapter.coreDiagnosticKind(-1), .unknown)
+        XCTAssertNotEqual(RealCoreAdapter.coreDiagnosticKind(4), .admissionRejected)
+    }
+
+    func testDiagnosticsOnAndOffPreserveSuccessfulRequestAndTerminalBehavior() async throws {
+        let withoutDiagnostics = try await runPublicScenario(diagnostics: nil)
+        let withDiagnosticsCollector = RealCoreDiagnosticCollector()
+        let withDiagnostics = try await runPublicScenario(
+            diagnostics: withDiagnosticsCollector)
+
+        XCTAssertEqual(withoutDiagnostics.requests, withDiagnostics.requests)
+        XCTAssertEqual(withoutDiagnostics.sendResults, withDiagnostics.sendResults)
+        XCTAssertEqual(withoutDiagnostics.requests.count, 1)
+        XCTAssertEqual(withDiagnostics.sendResults.count, 1)
+        XCTAssertEqual(withDiagnostics.sendResults.first?.status, .success)
+
+        let diagnostics = withDiagnostics.diagnostics
+        XCTAssertEqual(diagnostics.filter { $0.kind == .batchSealed }.count, 1)
+        XCTAssertEqual(diagnostics.filter { $0.kind == .attemptStarted }.count, 1)
+        XCTAssertEqual(diagnostics.filter { $0.kind == .batchTerminal }.count, 1)
+        let started = try XCTUnwrap(
+            diagnostics.first { $0.kind == .attemptStarted })
+        let terminal = try XCTUnwrap(
+            diagnostics.first { $0.kind == .batchTerminal })
+        XCTAssertNotNil(started.context?.attemptID)
+        XCTAssertEqual(started.context?.attemptID, terminal.context?.attemptID)
+        XCTAssertEqual(terminal.context?.disposition, "success")
+        XCTAssertEqual(terminal.reason, .success)
+    }
+
+    func testDiagnosticsOnAndOffPreserveRetryRequestSequenceAndTerminalCount() async throws {
+        let withoutDiagnostics = try await runPublicScenario(
+            diagnostics: nil,
+            responseSequence: [503, 200])
+        let withDiagnosticsCollector = RealCoreDiagnosticCollector()
+        let withDiagnostics = try await runPublicScenario(
+            diagnostics: withDiagnosticsCollector,
+            responseSequence: [503, 200])
+
+        XCTAssertEqual(withoutDiagnostics.requests, withDiagnostics.requests)
+        XCTAssertEqual(withoutDiagnostics.sendResults, withDiagnostics.sendResults)
+        XCTAssertEqual(withoutDiagnostics.requests.count, 2)
+        XCTAssertEqual(withDiagnostics.sendResults.count, 1)
+        XCTAssertEqual(withDiagnostics.sendResults.first?.status, .success)
+        XCTAssertEqual(withDiagnostics.diagnostics.filter {
+            $0.kind == .batchTerminal
+        }.count, 1)
+        XCTAssertEqual(withDiagnostics.diagnostics.filter {
+            $0.kind == .attemptStarted
+        }.count, 2)
+        XCTAssertEqual(withDiagnostics.diagnostics.filter {
+            $0.kind == .retryScheduled
+        }.count, 1)
+    }
+
+    func testDiagnosticsOnAndOffPreserveNetworkErrorRecoveryAndTransportNamespace() async throws {
+        let withoutDiagnostics = try await runPublicScenario(
+            diagnostics: nil,
+            networkErrorCodes: [NSURLErrorNetworkConnectionLost])
+        let withDiagnosticsCollector = RealCoreDiagnosticCollector()
+        let withDiagnostics = try await runPublicScenario(
+            diagnostics: withDiagnosticsCollector,
+            networkErrorCodes: [NSURLErrorNetworkConnectionLost])
+
+        XCTAssertEqual(withoutDiagnostics.requests, withDiagnostics.requests)
+        XCTAssertEqual(withoutDiagnostics.sendResults, withDiagnostics.sendResults)
+        XCTAssertEqual(withoutDiagnostics.requests.count, 2)
+        XCTAssertEqual(withDiagnostics.sendResults.first?.status, .success)
+        let transportFinished = try XCTUnwrap(
+            withDiagnostics.diagnostics.first { $0.kind == .transportFinished && $0.transportCode != 0 })
+        XCTAssertEqual(transportFinished.context?.transportKind, "generic")
+        XCTAssertEqual(
+            transportFinished.context?.transportErrorDomain,
+            "com.volcengine.tls.producer.transport")
+        XCTAssertEqual(transportFinished.context?.underlyingErrorDomain, NSURLErrorDomain)
+    }
+
+    func testDiagnosticsOnAndOffPreserveMaxAttemptTerminalFailure() async throws {
+        let withoutDiagnostics = try await runPublicScenario(
+            diagnostics: nil,
+            responseSequence: [503, 503])
+        let withDiagnosticsCollector = RealCoreDiagnosticCollector()
+        let withDiagnostics = try await runPublicScenario(
+            diagnostics: withDiagnosticsCollector,
+            responseSequence: [503, 503])
+
+        XCTAssertEqual(withoutDiagnostics.requests, withDiagnostics.requests)
+        XCTAssertEqual(withoutDiagnostics.sendResults, withDiagnostics.sendResults)
+        XCTAssertEqual(withoutDiagnostics.requests.count, 2)
+        XCTAssertEqual(withDiagnostics.sendResults.count, 1)
+        XCTAssertEqual(withDiagnostics.sendResults.first?.status, .failure)
+        let terminal = try XCTUnwrap(
+            withDiagnostics.diagnostics.first { $0.kind == .batchTerminal })
+        XCTAssertEqual(terminal.reason, .maxAttempts)
+        XCTAssertEqual(terminal.context?.disposition, "discard")
+        XCTAssertEqual(withDiagnostics.diagnostics.filter {
+            $0.kind == .batchTerminal
+        }.count, 1)
+    }
+
+    func testDiagnosticsOnAndOffPreserveHTTPClassificationMatrix() async throws {
+        let cases: [(Int, String?, Int)] = [
+            (400, "InvalidArgument", 1),
+            (400, "ClientCanceled", 2),
+            (408, nil, 2),
+            (429, "TooManyRequests", 2),
+            (500, "InternalServerError", 2)
+        ]
+        for (status, errorCode, expectedRequests) in cases {
+            let body = errorCode.map { Data("{\"errorCode\":\"\($0)\",\"errorMessage\":\"PRIVATE-SERVER-MESSAGE\"}".utf8) } ?? Data()
+            let off = try await runPublicScenario(diagnostics: nil, responseSequence: [status, 200], responseBody: body)
+            let collector = RealCoreDiagnosticCollector()
+            let on = try await runPublicScenario(diagnostics: collector, responseSequence: [status, 200], responseBody: body)
+            XCTAssertEqual(off.requests, on.requests, "HTTP \(status)/\(errorCode ?? "none")")
+            XCTAssertEqual(off.sendResults, on.sendResults)
+            XCTAssertEqual(on.requests.count, expectedRequests, "HTTP \(status)/\(errorCode ?? "none")")
+            let first = try XCTUnwrap(on.diagnostics.first { $0.kind == .attemptFinished })
+            XCTAssertEqual(first.context?.httpCode, status)
+            if let errorCode { XCTAssertEqual(first.context?.errorCode, errorCode) }
+            XCTAssertTrue(first.context?.transportCode == nil || first.context?.transportCode == 0)
+            XCTAssertEqual(first.context?.retryable, expectedRequests == 2, "HTTP \(status)/\(errorCode ?? "none")")
+            XCTAssertFalse(String(describing: on.diagnostics).contains("PRIVATE-SERVER-MESSAGE"))
+        }
+    }
+
+    func testDiagnosticsOnAndOffPreserveLocalTimeoutRecovery() async throws {
+        let off = try await runPublicScenario(diagnostics: nil, networkErrorCodes: [NSURLErrorTimedOut])
+        let collector = RealCoreDiagnosticCollector()
+        let on = try await runPublicScenario(diagnostics: collector, networkErrorCodes: [NSURLErrorTimedOut])
+        XCTAssertEqual(off.requests, on.requests)
+        XCTAssertEqual(off.sendResults, on.sendResults)
+        XCTAssertEqual(on.requests.count, 2)
+        let finished = try XCTUnwrap(on.diagnostics.first { $0.kind == .transportFinished && $0.transportCode != 0 })
+        XCTAssertEqual(finished.context?.timeoutSource, "urlsession_timeout")
+        XCTAssertEqual(finished.context?.underlyingErrorDomain, NSURLErrorDomain)
+        XCTAssertEqual(finished.context?.underlyingErrorCode, NSURLErrorTimedOut)
+    }
+
+    func testDiagnosticDirectoryPreparationFailureReportsOnce() async throws {
+        let diagnostics = RealCoreDiagnosticCollector()
+        var configuration = try makeConfig()
+        configuration.persistence = .buffered
+        configuration.producerID = "diagnostic-directory-\(UUID().uuidString)"
+        configuration.onDiagnostic = { diagnostics.append($0) }
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: try XCTUnwrap(configuration.producerID))
+        try FileManager.default.createDirectory(at: directory.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("fixture".utf8).write(to: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        do {
+            _ = try await Producer.open(configuration: configuration, credentials: makeCredentials())
+            XCTFail("a file cannot be used as the persistent directory")
+        } catch {
+            guard case ProducerError.persistence = error else { return XCTFail("unexpected error: \(error)") }
+        }
+        try await waitForCondition(timeout: 3) { diagnostics.values.contains { $0.kind == .openFailed } }
+        XCTAssertEqual(diagnostics.values.filter { $0.kind == .openFailed }.count, 1)
+        XCTAssertNotNil(diagnostics.values.first?.context?.producerInstanceID)
+        XCTAssertEqual(diagnostics.values.last?.context?.producerErrorName, "persistence")
+    }
+
+    func testDiagnosticNativeLeaseConstructionFailureReportsOnce() async throws {
+        let diagnostics = RealCoreDiagnosticCollector()
+        var configuration = try makeConfig()
+        configuration.persistence = .buffered
+        configuration.producerID = "diagnostic-lease-\(UUID().uuidString)"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: try XCTUnwrap(configuration.producerID))
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let owner = try await Producer.open(configuration: configuration, credentials: makeCredentials())
+        configuration.onDiagnostic = { diagnostics.append($0) }
+        do {
+            _ = try await Producer.open(configuration: configuration, credentials: makeCredentials())
+            XCTFail("a second native owner must fail the existing lease")
+        } catch {
+            guard case ProducerError.persistence = error else { return XCTFail("unexpected error: \(error)") }
+        }
+        try await owner.close(timeout: 5)
+        try await waitForCondition(timeout: 3) { diagnostics.values.contains { $0.kind == .openFailed } }
+        XCTAssertEqual(diagnostics.values.filter { $0.kind == .openFailed }.count, 1)
+        XCTAssertNotNil(diagnostics.values.first?.context?.producerInstanceID)
+        XCTAssertEqual(diagnostics.values.last?.context?.producerErrorName, "persistence")
+    }
+
+    func testDiagnosticsDoNotFlushBatchBeforeExistingThreshold() async throws {
+        let diagnostics = RealCoreDiagnosticCollector()
+        RealCoreStubURLProtocol.reset()
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+        var configuration = try makeConfig()
+        configuration.destination = Destination(endpoint: "https://diagnostic-no-flush.local", region: "cn-beijing", projectID: "test-project", topicID: "test-topic")
+        configuration.batch.maxLogCount = 2
+        configuration.batch.linger = 60
+        configuration.onDiagnostic = { @Sendable value in diagnostics.append(value) }
+        let producer = try await Producer.open(
+            configuration: configuration,
+            credentials: makeCredentials())
+
+        try addFixedLog(to: producer, mode: .normal)
+        try await Task.sleep(nanoseconds: 250_000_000)
+        XCTAssertTrue(RealCoreStubURLProtocol.recordedRequests().filter { $0.url.hasPrefix("https://diagnostic-no-flush.local/") }.isEmpty)
+        XCTAssertTrue(diagnostics.values.filter {
+            $0.kind == .batchSealed || $0.kind == .attemptStarted
+        }.isEmpty)
+
+        try await producer.close(timeout: 5)
+        try await waitForCondition(timeout: 3) {
+            diagnostics.values.contains { $0.kind == .batchTerminal }
+        }
+        XCTAssertEqual(RealCoreStubURLProtocol.recordedRequests().filter { $0.url.hasPrefix("https://diagnostic-no-flush.local/") }.count, 1)
+    }
+
+    func testDiagnosticSixtySecondSummaryDoesNotFlushPendingBusinessBatch() async throws {
+        RealCoreStubURLProtocol.reset()
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+        let diagnostics = RealCoreDiagnosticCollector()
+        var configuration = try makeConfig()
+        configuration.destination = Destination(endpoint: "https://diagnostic-periodic.local", region: "cn-beijing", projectID: "test-project", topicID: "test-topic")
+        configuration.batch.maxLogCount = 100
+        configuration.batch.linger = 120
+        configuration.onDiagnostic = { diagnostics.append($0) }
+        let producer = try await Producer.open(configuration: configuration, credentials: makeCredentials())
+        try addFixedLog(to: producer, mode: .normal)
+        // Exercise the actual 60-second timer, without exposing a test-only
+        // knob that could change production timing or trigger a flush.
+        try await waitForCondition(timeout: 65) { diagnostics.values.contains { $0.kind == .admissionSummary } }
+        let summary = try XCTUnwrap(diagnostics.values.first { $0.kind == .admissionSummary })
+        XCTAssertEqual(summary.context?.addAttemptedTotal, 1)
+        XCTAssertEqual(summary.context?.addAcceptedTotal, 1)
+        XCTAssertEqual(summary.context?.coreRequestsTotal, 0)
+        XCTAssertTrue(RealCoreStubURLProtocol.recordedRequests().filter { $0.url.hasPrefix("https://diagnostic-periodic.local/") }.isEmpty)
+        XCTAssertFalse(diagnostics.values.contains { $0.kind == .batchSealed || $0.kind == .attemptStarted })
+        try await producer.close(timeout: 5)
+        XCTAssertEqual(RealCoreStubURLProtocol.recordedRequests().filter { $0.url.hasPrefix("https://diagnostic-periodic.local/") }.count, 1)
+    }
+
+    func testConcurrentAdmissionSummarySeparatesFacadeCountsFromCoreCounts() async throws {
+        let diagnostics = RealCoreDiagnosticCollector()
+        RealCoreStubURLProtocol.reset()
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+        var configuration = try makeConfig()
+        configuration.batch.maxLogCount = 64
+        configuration.batch.linger = 60
+        configuration.onDiagnostic = { @Sendable value in diagnostics.append(value) }
+        let producer = try await Producer.open(
+            configuration: configuration,
+            credentials: makeCredentials())
+
+        let acceptedCount = 24
+        let rejectedCount = 8
+        let outcomes = NSLockBox()
+        await withTaskGroup(of: Void.self) { group in
+            for index in 0..<(acceptedCount + rejectedCount) {
+                group.addTask {
+                    if index < acceptedCount {
+                        do {
+                            try producer.add(
+                                LogEvent(
+                                    timestamp: Date(timeIntervalSince1970: 1_700_000_000.123),
+                                    contents: ["message": .string("concurrent-\(index)")]),
+                                mode: .normal)
+                            outcomes.record(accepted: true)
+                        } catch {
+                            outcomes.record(accepted: false)
+                        }
+                    } else {
+                        do {
+                            try producer.add(
+                                LogEvent(contents: [:]),
+                                mode: .normal)
+                            outcomes.record(accepted: true)
+                        } catch {
+                            outcomes.record(accepted: false)
+                        }
+                    }
+                }
+            }
+        }
+
+        XCTAssertEqual(outcomes.accepted, acceptedCount)
+        XCTAssertEqual(outcomes.rejected, rejectedCount)
+        try await producer.close(timeout: 5)
+        try await waitForCondition(timeout: 3) {
+            diagnostics.values.contains { $0.kind == .admissionSummary }
+        }
+        let summary = try XCTUnwrap(
+            diagnostics.values.last { $0.kind == .admissionSummary })
+        XCTAssertEqual(summary.context?.addAttemptedTotal,
+                       Int64(acceptedCount + rejectedCount))
+        XCTAssertEqual(summary.context?.addAcceptedTotal, Int64(acceptedCount))
+        XCTAssertEqual(summary.context?.addRejectedByError?["invalidLog"],
+                       Int64(rejectedCount))
+        // RealCoreAdapter samples native counters immediately before Core
+        // close seals this below-threshold batch, so the request counter is
+        // still zero at this boundary. The terminal event is checked below
+        // to prove the original close/send path still runs once.
+        XCTAssertEqual(summary.context?.coreRequestsTotal, 0)
+        XCTAssertEqual(diagnostics.values.filter { $0.kind == .batchTerminal }.count, 1)
+    }
+
+    func testSlowDiagnosticHandlerDoesNotBlockCloseOrNativeSnapshotRead() async throws {
+        let handlerStarted = expectation(description: "attempt diagnostic handler started")
+        let releaseHandler = DispatchSemaphore(value: 0)
+        let diagnostics = RealCoreDiagnosticCollector()
+        RealCoreStubURLProtocol.reset()
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+        var configuration = try makeConfig()
+        configuration.batch.maxLogCount = 1
+        configuration.batch.linger = 60
+        configuration.onDiagnostic = { @Sendable value in
+            diagnostics.append(value)
+            if value.kind == .attemptStarted {
+                handlerStarted.fulfill()
+                _ = releaseHandler.wait(timeout: .now() + 10)
+            }
+        }
+        let producer = try await Producer.open(
+            configuration: configuration,
+            credentials: makeCredentials())
+        try addFixedLog(to: producer)
+        await fulfillment(of: [handlerStarted], timeout: 5)
+
+        let closeFinished = expectation(description: "close completed while handler blocked")
+        let closeTask = Task {
+            do {
+                try await producer.close(timeout: 5)
+                closeFinished.fulfill()
+            } catch {
+                XCTFail("close unexpectedly failed: \(error)")
+            }
+        }
+        await fulfillment(of: [closeFinished], timeout: 3)
+        releaseHandler.signal()
+        _ = await closeTask.value
+        try await waitForCondition(timeout: 3) {
+            diagnostics.values.contains { $0.kind == .admissionSummary } &&
+                diagnostics.values.contains { $0.kind == .closed }
+        }
+        XCTAssertTrue(diagnostics.values.contains {
+            $0.kind == .admissionSummary && $0.context?.coreRequestsTotal != nil
+        })
+    }
+
+    func testSlowTextHandlerOverflowDoesNotBlockSendResultOrClose() async throws {
+        let handlerStarted = expectation(description: "text handler started")
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let diagnostics = RealCoreDiagnosticCollector()
+        let sends = RealCoreSendResultCollector()
+        RealCoreStubURLProtocol.reset()
+        RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+        var configuration = try makeConfig()
+        configuration.destination = Destination(endpoint: "https://diagnostic-text-overflow.local", region: "cn-beijing", projectID: "test-project", topicID: "test-topic")
+        configuration.batch.maxLogCount = 1
+        configuration.onDiagnostic = { diagnostics.append($0) }
+        configuration.diagnosticLogLevel = .debug
+        configuration.diagnosticHandler = { _, message in
+            guard let data = message.data(using: .utf8),
+                  let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            if event["event"] as? String == "open_started" {
+                handlerStarted.fulfill()
+                _ = release.wait(timeout: .now() + 20)
+            }
+        }
+        let producer = try await Producer.open(configuration: configuration, credentials: makeCredentials(), onSendResult: { sends.append($0) })
+        await fulfillment(of: [handlerStarted], timeout: 3)
+        for _ in 0..<1_100 {
+            XCTAssertThrowsError(try producer.add(LogEvent(contents: [:])))
+        }
+        try addFixedLog(to: producer)
+        try await waitForCondition(timeout: 5) { sends.values.count == 1 }
+        XCTAssertEqual(sends.values.first?.status, .success)
+        try await producer.close(timeout: 3)
+        XCTAssertEqual(RealCoreStubURLProtocol.recordedRequests().filter { $0.url.hasPrefix("https://diagnostic-text-overflow.local/") }.count, 1)
+        release.signal()
+        try await waitForCondition(timeout: 5) { diagnostics.values.contains { $0.kind == .diagnosticsDropped } }
+        let dropped = try XCTUnwrap(diagnostics.values.first { $0.kind == .diagnosticsDropped })
+        XCTAssertGreaterThanOrEqual(dropped.context?.diagnosticDroppedSinceLastReport ?? 0, 76)
+    }
+
+    func testDiagnosticsOnAndOffPreserveBufferedAndSyncWALAckCleanup() async throws {
+        for persistence in [Persistence.buffered, Persistence.sync] {
+            let modeName = persistence == .buffered ? "buffered" : "sync"
+            let producerID = "diagnostic-wal-\(modeName)-\(UUID().uuidString.prefix(10))"
+            let directory = try TLSProducerDirectory.defaultDirectoryURL(
+                forProducerID: producerID)
+            defer { try? FileManager.default.removeItem(at: directory) }
+
+            let withoutDiagnostics = try await runPublicScenario(
+                diagnostics: nil,
+                persistence: persistence,
+                producerID: producerID)
+            let withDiagnosticsCollector = RealCoreDiagnosticCollector()
+            let withDiagnostics = try await runPublicScenario(
+                diagnostics: withDiagnosticsCollector,
+                persistence: persistence,
+                producerID: producerID)
+
+            XCTAssertEqual(withoutDiagnostics.requests, withDiagnostics.requests)
+            XCTAssertEqual(withoutDiagnostics.sendResults, withDiagnostics.sendResults)
+            XCTAssertEqual(withoutDiagnostics.sendResults.count, 1)
+            XCTAssertEqual(withDiagnostics.sendResults.count, 1)
+            // The two runs intentionally reuse one producer directory so the
+            // second open exercises recovery after the first ACK. A segment
+            // can grow when the next batch is appended, so compare the
+            // durable file set and replay/request behavior rather than raw
+            // segment byte size.
+            let withoutNames = Set(
+                withoutDiagnostics.directoryEntries.map { Array($0.keys) } ?? [])
+            let withNames = Set(
+                withDiagnostics.directoryEntries.map { Array($0.keys) } ?? [])
+            XCTAssertEqual(
+                withoutNames,
+                withNames,
+                "diagnostic observation must not change WAL file cleanup")
+            XCTAssertEqual(withoutNames, Set(["manifest", "checkpoint", "seg-000001.log", "lease.lock"]))
+            XCTAssertEqual(
+                withDiagnostics.diagnostics.filter { $0.kind == .batchTerminal }.count,
+                1)
+            XCTAssertEqual(
+                withDiagnostics.diagnostics.first { $0.kind == .batchTerminal }?.context?.disposition,
+                "success")
+        }
+    }
+
     // MARK: - Send
 
     func testPublicProducerSendsWithEmptyMetadata() async throws {
@@ -898,7 +1560,7 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
                 contents: ["message": "persistent-recovery"],
                 flush: false)
 
-            let files = [".ios-producer.lock", "manifest", "checkpoint", "lease", "seg-000001.log"]
+            let files = [".ios-producer.lock", "manifest", "checkpoint", "lease", "lease.lock", "seg-000001.log"]
                 .map { directory.appendingPathComponent($0) }
             for file in files {
                 XCTAssertTrue(
@@ -943,6 +1605,88 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
             XCTAssertFalse(recovered.isClosed)
             try recovered.close(withTimeout: 5)
         }
+    }
+
+    func testPersistentDirectoryRejectsBusyCoreGuardWithoutRemovingLease() throws {
+        let producerID = "bridge-core-lock-\(UUID().uuidString.prefix(12))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let leaseURL = directory.appendingPathComponent("lease")
+        let originalLease = Data("existing-core-owner".utf8)
+        try originalLease.write(to: leaseURL)
+        let lockURL = directory.appendingPathComponent("lease.lock")
+        let fd = lockURL.path.withCString {
+            Darwin.open($0, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, mode_t(0o600))
+        }
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        guard fd >= 0 else { return }
+        defer { _ = Darwin.close(fd) }
+        // Some Darwin Swift overlays import the flock struct but hide the
+        // same-named C function. Resolve libc explicitly; absence is a failure.
+        let libc = try XCTUnwrap(dlopen(nil, RTLD_NOW))
+        defer { _ = dlclose(libc) }
+        let symbol = try XCTUnwrap(dlsym(libc, "flock"))
+        typealias FileLock = @convention(c) (Int32, Int32) -> Int32
+        let fileLock = unsafeBitCast(symbol, to: FileLock.self)
+        let locked = fileLock(fd, LOCK_EX | LOCK_NB)
+        XCTAssertEqual(locked, 0)
+        guard locked == 0 else { return }
+        defer { _ = fileLock(fd, LOCK_UN) }
+
+        XCTAssertThrowsError(try makeBridgeAdapter(
+            requestTimeout: 0.2,
+            maxLogCount: 1,
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path))
+        XCTAssertEqual(try Data(contentsOf: leaseURL), originalLease,
+                       "Bridge must not remove a lease while its Core guard is held")
+    }
+
+    /// Persistence keeps the Core guard for the same lifetime as the bridge
+    /// directory lock. A successful close must release both even while the
+    /// adapter object remains alive, so a new instance can recover immediately.
+    func testPersistentCoreGuardIsHeldUntilSuccessfulClose() throws {
+        let producerID = "bridge-lifetime-\(UUID().uuidString.prefix(12))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let first = try makeBridgeAdapter(
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)
+        defer { try? first.close(withTimeout: 5) }
+        try first.open()
+
+        let fd = directory.appendingPathComponent("lease.lock").path.withCString {
+            Darwin.open($0, O_RDWR | O_CLOEXEC | O_NOFOLLOW)
+        }
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        guard fd >= 0 else { return }
+        defer { _ = Darwin.close(fd) }
+        let libc = try XCTUnwrap(dlopen(nil, RTLD_NOW))
+        defer { _ = dlclose(libc) }
+        let symbol = try XCTUnwrap(dlsym(libc, "flock"))
+        typealias FileLock = @convention(c) (Int32, Int32) -> Int32
+        let fileLock = unsafeBitCast(symbol, to: FileLock.self)
+
+        let liveLockResult = fileLock(fd, LOCK_EX | LOCK_NB)
+        let liveLockError = errno
+        if liveLockResult == 0 { _ = fileLock(fd, LOCK_UN) }
+        XCTAssertEqual(liveLockResult, -1, "a live persistent adapter must hold the Core guard")
+        XCTAssertTrue(liveLockError == EWOULDBLOCK || liveLockError == EAGAIN)
+
+        try first.close(withTimeout: 5)
+        let closedLockResult = fileLock(fd, LOCK_EX | LOCK_NB)
+        XCTAssertEqual(closedLockResult, 0, "successful close must release the Core guard")
+        if closedLockResult == 0 { _ = fileLock(fd, LOCK_UN) }
+
+        let reopened = try makeBridgeAdapter(
+            persistenceMode: .buffered,
+            persistentDirectory: directory.path)
+        try reopened.open()
+        try reopened.close(withTimeout: 5)
     }
 
     /// The bridge lock is the live-process exclusion. A second adapter for
@@ -1727,5 +2471,67 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         }
         XCTAssertEqual(requests.count, 256)
         try adapter.close(withTimeout: 5)
+    }
+}
+
+private final class RealCoreDiagnosticCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _values: [ProducerDiagnostic] = []
+
+    var values: [ProducerDiagnostic] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _values
+    }
+
+    func append(_ value: ProducerDiagnostic) {
+        lock.lock()
+        _values.append(value)
+        lock.unlock()
+    }
+}
+
+private final class RealCoreSendResultCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _values: [SendResult] = []
+
+    var values: [SendResult] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _values
+    }
+
+    func append(_ value: SendResult) {
+        lock.lock()
+        _values.append(value)
+        lock.unlock()
+    }
+}
+
+private final class NSLockBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _accepted = 0
+    private var _rejected = 0
+
+    var accepted: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _accepted
+    }
+
+    var rejected: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _rejected
+    }
+
+    func record(accepted: Bool) {
+        lock.lock()
+        if accepted {
+            _accepted += 1
+        } else {
+            _rejected += 1
+        }
+        lock.unlock()
     }
 }

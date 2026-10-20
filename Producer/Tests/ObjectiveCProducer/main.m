@@ -16,7 +16,7 @@
 @import VolcengineTLSProducer;
 
 static NSString *const TLSExpectedProducerUserAgent =
-    @"volc-tls-ios/producer/v2.0.1";
+    @"volc-tls-ios/producer/v2.0.2";
 static NSString *const TLSExpectedAPIVersion = @"0.3.0";
 
 static void TLSRequire(BOOL condition, NSString *message) {
@@ -34,6 +34,45 @@ static BOOL TLSRunLoopWait(BOOL (^predicate)(void), NSTimeInterval timeout) {
                                  beforeDate:next];
     }
     return predicate();
+}
+
+// App-owned file logger used by the callback smoke. No SDK file sink exists.
+static NSLock *TLSDiagnosticFileLock(void) {
+    static NSLock *lock;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ lock = [[NSLock alloc] init]; });
+    return lock;
+}
+static FILE *TLSDiagnosticFile;
+static NSUInteger TLSDiagnosticClosedCount;
+static NSUInteger TLSDiagnosticLineCount;
+static BOOL TLSDiagnosticInvalid;
+static NSMutableDictionary<NSString *, NSNumber *> *TLSDiagnosticSequences;
+
+static void TLSWriteSDKDiagnostic(NSInteger level, NSString *message) {
+    NSData *data = [message dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *event = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    [TLSDiagnosticFileLock() lock];
+    BOOL valid = [event isKindOfClass:NSDictionary.class] && level >= 0 && level <= 3 &&
+        data.length <= 4096 && [message rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location == NSNotFound &&
+        !NSThread.isMainThread && ![message containsString:@"fixture-ak"] && ![message containsString:@"fixture-sk"];
+    NSString *instance = event[@"producer_instance_id"];
+    NSNumber *sequence = event[@"sequence"];
+    valid = valid && [instance isKindOfClass:NSString.class] && [sequence isKindOfClass:NSNumber.class];
+    if (valid) {
+        NSNumber *previous = TLSDiagnosticSequences[instance];
+        valid = previous == nil || sequence.longLongValue > previous.longLongValue;
+        TLSDiagnosticSequences[instance] = sequence;
+        if ([event[@"event"] isEqual:@"closed"]) TLSDiagnosticClosedCount++;
+    }
+    TLSDiagnosticInvalid |= !valid;
+    if (TLSDiagnosticFile && data) {
+        fwrite(data.bytes, 1, data.length, TLSDiagnosticFile);
+        fputc('\n', TLSDiagnosticFile);
+        fflush(TLSDiagnosticFile); // App choice, never waited on by SDK close.
+    }
+    TLSDiagnosticLineCount++;
+    [TLSDiagnosticFileLock() unlock];
 }
 
 static NSData *TLSRequestBody(NSData *httpBody, NSInputStream *stream) {
@@ -565,12 +604,28 @@ static void TLSRequireProducerHeadersForAllRequests(NSString *caseName) {
 
 static TLSProducerConfiguration *TLSMakeConfiguration(void) {
     TLSProducerConfiguration *configuration = [[TLSProducerConfiguration alloc] init];
+    TLSRequire(configuration.retryMaxAttempts == 0 &&
+               configuration.retryTotalTimeout == 90.0 &&
+               configuration.retryInitialInterval == 0.5 &&
+               configuration.retryMaxInterval == 10.0 &&
+               configuration.requestTimeout == 90.0 &&
+               configuration.requestIdleTimeout == 50.0 &&
+               configuration.retryTransientHTTPResponses &&
+               configuration.memoryRetryRetention == 0.0,
+               @"Objective-C delivery defaults do not match the Swift contract");
     TLSDestination *destination = [[TLSDestination alloc]
         initWithEndpoint:@"https://objc-producer.invalid"
                  region:@"cn-beijing"
               projectID:@"objc-project"
                topicID:@"objc-topic"];
     configuration.destination = destination;
+    if (getenv("TLS_OBJC_DIAGNOSTICS") != NULL) {
+        configuration.diagnosticLogLevel = TLSProducerDiagnosticLogLevelDebug;
+        // This is the exact NSInteger/NSString customer block contract.
+        configuration.diagnosticHandler = ^(NSInteger level, NSString *message) {
+            TLSWriteSDKDiagnostic(level, message);
+        };
+    }
     configuration.batchMaxLogCount = 16;
     configuration.batchMaxRawBytes = 1024 * 1024;
     configuration.batchLinger = 60.0;
@@ -615,6 +670,7 @@ static TLSProducerConfiguration *TLSMakeFaultConfiguration(
     // public configuration contract.
     configuration.connectTimeout = 0.5;
     configuration.requestTimeout = 0.5;
+    configuration.retryMaxAttempts = 3;
     return configuration;
 }
 
@@ -1149,6 +1205,13 @@ static void TLSWriteIOSResult(NSArray<NSDictionary *> *cases,
 #endif
 
 static int TLSRunAllCases(void) {
+    if (getenv("TLS_OBJC_DIAGNOSTICS") != NULL) {
+        const char *path = getenv("TLS_OBJC_DIAGNOSTIC_FILE");
+        TLSRequire(path != NULL, @"callback file path must be supplied by the App fixture");
+        TLSDiagnosticFile = fopen(path, "w");
+        TLSRequire(TLSDiagnosticFile != NULL, @"App diagnostic file could not be opened");
+        TLSDiagnosticSequences = [NSMutableDictionary dictionary];
+    }
     NSString *runID = [[NSUUID UUID] UUIDString];
     NSDate *startedAt = [NSDate date];
     NSMutableArray<NSDictionary *> *cases = [NSMutableArray array];
@@ -1168,6 +1231,23 @@ static int TLSRunAllCases(void) {
     for (NSDictionary *caseResult in cases) {
         totalRequests += [caseResult[@"request_count"] unsignedIntegerValue];
         totalCallbacks += [caseResult[@"callback_count"] unsignedIntegerValue];
+    }
+    if (getenv("TLS_OBJC_DIAGNOSTICS") != NULL) {
+        // The App fixture may wait for its own logger; the SDK close never does.
+        TLSRequire(TLSRunLoopWait(^BOOL {
+            [TLSDiagnosticFileLock() lock];
+            BOOL ready = TLSDiagnosticClosedCount >= 7;
+            [TLSDiagnosticFileLock() unlock];
+            return ready;
+        }, 5.0), @"SDK diagnostic callbacks did not finish the smoke");
+        [TLSDiagnosticFileLock() lock];
+        TLSRequire(!TLSDiagnosticInvalid && TLSDiagnosticLineCount > 0,
+                   @"SDK diagnostic callback JSON/level/queue/sequence contract failed");
+        printf("Objective-C diagnostic callback PASS (lines=%lu, closed=%lu)\n",
+               (unsigned long)TLSDiagnosticLineCount, (unsigned long)TLSDiagnosticClosedCount);
+        fclose(TLSDiagnosticFile);
+        TLSDiagnosticFile = NULL;
+        [TLSDiagnosticFileLock() unlock];
     }
     NSDate *finishedAt = [NSDate date];
 #if !TARGET_OS_OSX

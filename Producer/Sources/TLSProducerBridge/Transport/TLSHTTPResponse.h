@@ -40,8 +40,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 4xx/5xx are successful transport deliveries whose classification
 /// (auth/quota/service) is the Core layer's job, not the transport's.
 /// The error's userInfo only ever carries the safe fields declared in
-/// TLSTransport.h (status code, request ID, underlying NSURLError code);
-/// it never contains credentials, Authorization headers or raw bodies.
+/// TLSTransport.h (status code, request ID, underlying NSURLError code and
+/// retryable flag); it never contains credentials, Authorization headers or
+/// raw bodies.
 @property (nullable, nonatomic, readonly, copy) NSError *error;
 
 - (instancetype)initWithStatusCode:(NSInteger)statusCode

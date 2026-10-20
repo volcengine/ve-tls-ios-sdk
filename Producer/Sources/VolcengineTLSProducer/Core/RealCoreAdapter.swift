@@ -45,6 +45,12 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
 
     private let adapter: TLSRealCoreAdapter
     private let automaticLifecycleHandling: Bool
+    private let diagnosticEmitter: DiagnosticEmitter
+    private let bufferLimitBytes: Int64
+    private var diagnosticTimer: DispatchSourceTimer?
+    private var diagnosticSamplingStopped = false
+    private var diagnosticAppState = "unknown"
+    internal static var sdkVersion: String { TLSRealCoreAdapter.sdkVersion }
     private let callbackDeliveryQueue: DispatchQueue
 
     var onSendResult: (@Sendable (SendResult) -> Void)? {
@@ -77,6 +83,13 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
             label: "com.volcengine.tls.producer.callback.delivery",
             qos: .utility,
             target: configuration.callbackQueue)
+        diagnosticEmitter = configuration.diagnosticEmitter ?? Producer.makeDiagnosticEmitter(configuration)
+        bufferLimitBytes = Int64(configuration.buffer.maxBytes)
+        let emitter = diagnosticEmitter
+        let sink: TLSRealCoreAdapterDiagnosticHandler?
+        if emitter.isEnabled {
+            sink = { fields in emitter.offer(RealCoreAdapter.diagnostic(from: fields)) }
+        } else { sink = nil }
         automaticLifecycleHandling = configuration.automaticLifecycleHandling
 
         do {
@@ -97,6 +110,13 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
                 maxBufferBytes: configuration.buffer.maxBytes,
                 connectTimeout: configuration.connectTimeout,
                 requestTimeout: configuration.requestTimeout,
+                requestIdleTimeout: configuration.requestIdleTimeout,
+                retryMaxAttempts: configuration.retry.maxAttempts,
+                retryTotalTimeout: configuration.retry.totalTimeout,
+                retryInitialInterval: configuration.retry.initialInterval,
+                retryMaxInterval: configuration.retry.maxInterval,
+                memoryRetryRetention: configuration.memoryRetryRetention,
+                retryTransientHTTPResponses: configuration.retry.retryTransientHTTPResponses,
                 lz4Enabled: configuration.compression == .lz4,
                 sessionConfiguration: configuration.urlSessionConfiguration,
                 bufferFullPolicy: configuration.buffer.fullPolicy == .block ? 1 : 0,
@@ -109,6 +129,7 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
                 maxLogAgeSeconds: Int(configuration.maxLogAge),
                 expiredLogPolicy: configuration.expiredLogPolicy == .drop ? 1 : 0,
                 authFailurePolicy: configuration.unauthorizedPolicy == .drop ? 1 : 0,
+                diagnosticSink: sink,
                 callbackQueue: callbackDeliveryQueue)
         } catch {
             throw Self.mapBridgeError(error, operation: .open)
@@ -146,6 +167,7 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
     }
 
     deinit {
+        stopDiagnosticSampling()
         transferLifecycleManagerReleaseToMainThread()
     }
 
@@ -164,6 +186,7 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
         }
         withStateLock { opened = true }
         installLifecycleManagerIfNeeded()
+        startDiagnosticSampling()
     }
 
     func add(_ event: PreparedLogEvent, mode: AddMode) throws {
@@ -225,6 +248,7 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
     func close(timeout: TimeInterval) async throws {
         if withStateLock({ closed }) { return }
 
+        stopDiagnosticSampling()
         removeLifecycleManager()
         do {
             // The C Core close joins worker threads and may consume the full
@@ -289,6 +313,112 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
         }
     }
 
+    func notifyNetworkRecovered() { adapter.notifyNetworkRecovered() }
+
+    func emitDiagnostic(_ diagnostic: ProducerDiagnostic) {
+        diagnosticEmitter.offer(diagnostic)
+    }
+
+    // MARK: - Read-only diagnostics
+
+    internal static func coreDiagnosticKind(_ raw: Int) -> ProducerDiagnostic.Kind {
+        switch raw {
+        case 0: return .attemptFinished
+        case 1: return .retryScheduled
+        case 2: return .batchRetained
+        case 3: return .batchTerminal
+        case 4: return .batchSealed
+        case 5: return .attemptStarted
+        default: return .unknown
+        }
+    }
+
+    internal static func diagnostic(from fields: [String: Any]) -> ProducerDiagnostic {
+        var context = ProducerDiagnosticDetails(nativeFields: fields as NSDictionary)
+        context.source = fields["source"] as? String
+        if let counters = fields["counters"] as? [String: Any] {
+            context.attemptCount = (counters["attempt_count"] as? NSNumber)?.intValue
+            context.cycleAttemptCount = (counters["cycle_attempt_count"] as? NSNumber)?.intValue
+            context.logCount = (counters["log_count"] as? NSNumber)?.intValue
+        }
+        let kind: ProducerDiagnostic.Kind
+        let reason: ProducerDiagnostic.Reason
+        if context.source == "core" {
+            kind = coreDiagnosticKind((fields["core_event"] as? NSNumber)?.intValue ?? -1)
+            switch (fields["core_reason"] as? NSNumber)?.intValue {
+            case 0: reason = .none
+            case 1: reason = .success
+            case 2: reason = .nonRetryable
+            case 3: reason = .maxAttempts
+            case 4: reason = .retryBudget
+            case 5: reason = .retentionExpired
+            case 6: reason = .closed
+            default: reason = .unknown
+            }
+            if let code = context.transportCode, code != 0 { context.transportKind = "generic" }
+            // Core's legacy diagnostic has a numeric transport code but no
+            // NSError namespace. The correlated transport event owns that
+            // information; do not infer a namespace from the number's sign.
+            if kind == .batchSealed || kind == .attemptStarted { context.retryable = nil; context.transportCode = nil }
+        } else if context.source == "lifecycle" {
+            kind = .lifecycle
+            reason = context.reason == "expiration" ? .unknown : .none
+        } else {
+            kind = fields["event"] as? String == "transport_metrics" ? .transportMetrics : .transportFinished
+            let failed = fields["error_domain"] is String || (context.httpCode ?? 0) >= 400
+            reason = failed ? .unknown : .success
+            context.transportKind = context.transportCode == nil ? nil : "generic"
+            if let duration = fields["duration_ms"] as? NSNumber,
+                duration.doubleValue.isFinite, duration.doubleValue >= 0,
+                duration.doubleValue < Double(Int64.max) {
+                context.attemptElapsedMs = Int64(duration.doubleValue.rounded())
+            }
+        }
+        return ProducerDiagnostic(kind: kind, reason: reason,
+            startID: context.batchStartID ?? 0, endID: context.batchEndID ?? 0,
+            attemptCount: context.attemptCount ?? 0, cycleAttemptCount: context.cycleAttemptCount ?? 0,
+            elapsed: Double(context.deliveryElapsedMs ?? 0) / 1000,
+            retryDelay: Double(context.retryDelayMs ?? 0) / 1000,
+            logCount: context.logCount ?? 0, rawBytes: context.rawBytes ?? 0,
+            compressedBytes: context.compressedBytes ?? 0,
+            httpCode: context.httpCode ?? 0, transportCode: context.transportCode ?? 0,
+            retryable: context.retryable ?? false, requestID: context.requestID,
+            errorCode: context.errorCode, context: context)
+    }
+
+    internal func readDiagnosticSnapshot() -> ProducerDiagnosticDetails? {
+        guard diagnosticEmitter.isEnabled else { return nil }
+        guard let fields = adapter.diagnosticSnapshot() else { return nil }
+        var context = ProducerDiagnosticDetails(nativeFields: fields as NSDictionary)
+        context.bufferLimitBytes = bufferLimitBytes
+        context.automaticLifecycleHandling = automaticLifecycleHandling
+        context.appState = withStateLock { diagnosticAppState }
+        return context
+    }
+
+    private func startDiagnosticSampling() {
+        guard diagnosticEmitter.isEnabled else { return }
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(
+            label: "com.volcengine.tls.producer.diagnostic-sampling", qos: .utility))
+        timer.schedule(deadline: .now() + 60, repeating: 60)
+        timer.setEventHandler { [weak self] in
+            guard let self, !self.withStateLock({ self.diagnosticSamplingStopped }) else { return }
+            self.diagnosticEmitter.admissionSummary(nativeFields: self.readDiagnosticSnapshot())
+        }
+        withStateLock { diagnosticTimer = timer }
+        timer.resume()
+    }
+
+    private func stopDiagnosticSampling() {
+        let timer = withStateLock { () -> DispatchSourceTimer? in
+            diagnosticSamplingStopped = true
+            let timer = diagnosticTimer
+            diagnosticTimer = nil
+            return timer
+        }
+        timer?.cancel()
+    }
+
     // MARK: - Lifecycle
 
     private func installLifecycleManagerIfNeeded() {
@@ -297,8 +427,18 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
         runOnMainSync {
             guard self.lifecycleManager == nil else { return }
             self.lifecycleManager = TLSLifecycleManager(
-                flushHandler: { [weak self] in self?.adapter.flush() },
-                wakeHandler: { [weak self] in self?.adapter.flush() })
+                flushHandler: { [weak self = self] in self?.adapter.flush() },
+                wakeHandler: { [weak self = self] in
+                    self?.adapter.flush()
+                    self?.adapter.notifyNetworkRecovered()
+                },
+                host: TLSDefaultLifecycleHost(), extensionCheck: nil,
+                observer: self.diagnosticEmitter.isEnabled ? { [weak self = self] fields in
+                    guard let self else { return }
+                    let diagnostic = RealCoreAdapter.diagnostic(from: fields)
+                    self.withStateLock { self.diagnosticAppState = diagnostic.context?.appState ?? "unknown" }
+                    self.diagnosticEmitter.offer(diagnostic)
+                } : nil)
         }
 #endif
     }
@@ -419,6 +559,8 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
         if transportCode == 0 {
             let normalized = errorCode?.lowercased() ?? ""
             switch normalized {
+            case "retrybudgetexceeded", "retryretentionexpired":
+                return .timeout
             case "producerclosed", "sendqueuestopped":
                 return .closed
             case "keyqueuelimitexceeded", "sendqueuefull", "sendqueuetimeout":
@@ -427,6 +569,8 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
                 return .bufferFull
             case "payloadtoolarge":
                 return .internal("C Core rejected a validated batch size")
+            case "outofmemory":
+                return .internal("C Core could not retain a pending batch")
             case "memoryallocfailed", "clienterror", "credentialsrefreshfailed":
                 return .internal("C Core failed before starting the HTTP request")
             default:
@@ -434,7 +578,7 @@ internal final class RealCoreAdapter: CoreAdapter, @unchecked Sendable {
             }
         }
 
-        if result == CoreResult.timeout.rawValue || transportCode == 2103 {
+        if result == CoreResult.timeout.rawValue || (transportCode == 2103 || transportCode == NSURLErrorTimedOut) {
             return .timeout
         }
         if transportCode == 2104 {

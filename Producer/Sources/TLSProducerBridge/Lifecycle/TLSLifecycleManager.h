@@ -86,6 +86,12 @@ FOUNDATION_EXPORT const NSUInteger TLSLifecycleInvalidBackgroundTaskIdentifier;
 /// Block returning YES when the process is an App Extension.
 typedef BOOL (^TLSExtensionCheckBlock)(void);
 
+/// Internal lifecycle diagnostic observer. The manager supplies only bounded
+/// scalar fields describing an existing lifecycle branch; it never forwards
+/// the notification object or UIKit instances.
+typedef void (^TLSLifecycleObserverBlock)(NSDictionary<NSString *, id> *safeFields);
+typedef TLSLifecycleObserverBlock TLSLifecycleDiagnosticObserver;
+
 /// App lifecycle helper. One instance per Producer.
 ///
 /// Threading contract: must be used from the main thread. UIKit lifecycle
@@ -95,6 +101,10 @@ typedef BOOL (^TLSExtensionCheckBlock)(void);
 /// threads.
 @interface TLSLifecycleManager : NSObject
 
+/// Optional owner-side observer. Calls are synchronous on the thread that
+/// executes the existing lifecycle branch and are omitted for extensions.
+@property (nonatomic, copy, nullable) TLSLifecycleObserverBlock diagnosticObserver;
+
 /// Full initializer.
 /// @param flushHandler    Called on didEnterBackground (best-effort flush).
 /// @param wakeHandler     Called on willEnterForeground (wake sender/retry).
@@ -102,6 +112,13 @@ typedef BOOL (^TLSExtensionCheckBlock)(void);
 ///                        tasks (notifications are still observed).
 /// @param extensionCheck  Extension probe. Pass nil for the default
 ///                        (mainBundle infoDictionary[@"NSExtension"] != nil).
+- (instancetype)initWithFlushHandler:(void (^)(void))flushHandler
+                         wakeHandler:(void (^)(void))wakeHandler
+                                host:(nullable id<TLSLifecycleHost>)host
+                      extensionCheck:(nullable TLSExtensionCheckBlock)extensionCheck
+                           observer:(nullable TLSLifecycleObserverBlock)observer;
+
+/// Full initializer without an observer, retained for existing callers.
 - (instancetype)initWithFlushHandler:(void (^)(void))flushHandler
                          wakeHandler:(void (^)(void))wakeHandler
                                 host:(nullable id<TLSLifecycleHost>)host

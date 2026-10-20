@@ -120,8 +120,25 @@ public struct ProducerConfiguration: Sendable {
     public var sendConcurrency: Int
     public var compression: Compression
     public var persistence: Persistence
+    /// Compatibility hint. NSURLSession cannot enforce an independent TCP
+    /// connect deadline; this must not override `requestIdleTimeout`.
     public var connectTimeout: TimeInterval
+    /// Whole-attempt safety deadline, further limited by the retry budget.
     public var requestTimeout: TimeInterval
+    /// URLSession idle timeout, reset by network loading activity.
+    public var requestIdleTimeout: TimeInterval
+    public var retry: RetryConfiguration
+    /// Opt-in memory retention across retry cycles, from the first attempt.
+    /// Zero disables it. It uses the same buffer and cannot survive app exit.
+    /// Persistent batches already retain retryable failures in WAL.
+    public var memoryRetryRetention: TimeInterval
+    /// Structured diagnostics on an SDK-owned, bounded serial diagnostic queue.
+    public var onDiagnostic: (@Sendable (ProducerDiagnostic) -> Void)?
+    public var diagnosticLogLevel: ProducerDiagnosticLogLevel
+    /// Best-effort text output with per-instance rate/byte limits and repeated-error coalescing.
+    /// App-owned loggers must also bound total file size; typed diagnostics are unaffected.
+    public var diagnosticHandler: (@Sendable (ProducerDiagnosticLogLevel, String) -> Void)?
+    internal var diagnosticEmitter: DiagnosticEmitter?
     public var metadata: ProducerMetadata
     public var maxLogAge: TimeInterval
     public var expiredLogPolicy: ExpiredLogPolicy
@@ -161,7 +178,13 @@ public struct ProducerConfiguration: Sendable {
         compression: Compression = .lz4,
         persistence: Persistence = .disabled,
         connectTimeout: TimeInterval = 10,
-        requestTimeout: TimeInterval = 15,
+        requestTimeout: TimeInterval = 90,
+        requestIdleTimeout: TimeInterval = 50,
+        retry: RetryConfiguration = RetryConfiguration(),
+        memoryRetryRetention: TimeInterval = 0,
+        onDiagnostic: (@Sendable (ProducerDiagnostic) -> Void)? = nil,
+        diagnosticLogLevel: ProducerDiagnosticLogLevel = .info,
+        diagnosticHandler: (@Sendable (ProducerDiagnosticLogLevel, String) -> Void)? = nil,
         metadata: ProducerMetadata = ProducerMetadata(),
         maxLogAge: TimeInterval = 7 * 24 * 60 * 60,
         expiredLogPolicy: ExpiredLogPolicy = .rewriteTimestamp,
@@ -223,6 +246,9 @@ public struct ProducerConfiguration: Sendable {
             requestTimeout,
             name: "requestTimeout",
             allowZero: false)
+        try Self.validateMilliseconds(requestIdleTimeout, name: "requestIdleTimeout", allowZero: false)
+        try retry.validate()
+        try Self.validateMilliseconds(memoryRetryRetention, name: "memoryRetryRetention", allowZero: true)
         try metadata.validate()
         try Self.validateWholeSeconds(maxLogAge, name: "maxLogAge")
 
@@ -257,6 +283,13 @@ public struct ProducerConfiguration: Sendable {
         self.persistence = persistence
         self.connectTimeout = connectTimeout
         self.requestTimeout = requestTimeout
+        self.requestIdleTimeout = requestIdleTimeout
+        self.retry = retry
+        self.memoryRetryRetention = memoryRetryRetention
+        self.onDiagnostic = onDiagnostic
+        self.diagnosticLogLevel = diagnosticLogLevel
+        self.diagnosticHandler = diagnosticHandler
+        self.diagnosticEmitter = nil
         self.metadata = metadata
         self.maxLogAge = maxLogAge
         self.expiredLogPolicy = expiredLogPolicy
@@ -329,6 +362,9 @@ public struct ProducerConfiguration: Sendable {
         }
         try Self.validateMilliseconds(connectTimeout, name: "connectTimeout", allowZero: false)
         try Self.validateMilliseconds(requestTimeout, name: "requestTimeout", allowZero: false)
+        try Self.validateMilliseconds(requestIdleTimeout, name: "requestIdleTimeout", allowZero: false)
+        try retry.validate()
+        try Self.validateMilliseconds(memoryRetryRetention, name: "memoryRetryRetention", allowZero: true)
         try metadata.validate()
         try Self.validateWholeSeconds(maxLogAge, name: "maxLogAge")
 
@@ -454,6 +490,12 @@ internal struct ConfigurationSnapshot {
     let persistence: Persistence
     let connectTimeout: TimeInterval
     let requestTimeout: TimeInterval
+    let requestIdleTimeout: TimeInterval
+    let retry: RetryConfiguration
+    let memoryRetryRetention: TimeInterval
+    let onDiagnostic: (@Sendable (ProducerDiagnostic) -> Void)?
+    let diagnosticLogLevel: ProducerDiagnosticLogLevel
+    let diagnosticHandler: (@Sendable (ProducerDiagnosticLogLevel, String) -> Void)?
     let metadata: ProducerMetadata
     let maxLogAge: TimeInterval
     let expiredLogPolicy: ExpiredLogPolicy
@@ -472,6 +514,12 @@ internal struct ConfigurationSnapshot {
         self.persistence = configuration.persistence
         self.connectTimeout = configuration.connectTimeout
         self.requestTimeout = configuration.requestTimeout
+        self.requestIdleTimeout = configuration.requestIdleTimeout
+        self.retry = configuration.retry
+        self.memoryRetryRetention = configuration.memoryRetryRetention
+        self.onDiagnostic = configuration.onDiagnostic
+        self.diagnosticLogLevel = configuration.diagnosticLogLevel
+        self.diagnosticHandler = configuration.diagnosticHandler
         self.metadata = configuration.metadata
         self.maxLogAge = configuration.maxLogAge
         self.expiredLogPolicy = configuration.expiredLogPolicy

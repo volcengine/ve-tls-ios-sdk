@@ -29,7 +29,7 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
 
         // Timeouts
         XCTAssertEqual(config.connectTimeout, 10, accuracy: 0.0001)
-        XCTAssertEqual(config.requestTimeout, 15, accuracy: 0.0001)
+        XCTAssertEqual(config.requestTimeout, 90, accuracy: 0.0001)
 
         // Metadata
 #if os(macOS)

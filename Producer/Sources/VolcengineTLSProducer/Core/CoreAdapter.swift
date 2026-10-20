@@ -47,7 +47,19 @@ protocol CoreAdapter: AnyObject {
     /// previously accepted logs are later sent to the new destination).
     func updateDestination(_ destination: Destination) throws
 
+    /// Hint to advance retained transient failures without cancelling requests.
+    func notifyNetworkRecovered()
+    func emitDiagnostic(_ diagnostic: ProducerDiagnostic)
+    /// Optional read-only native counters; never an atomic snapshot.
+    func readDiagnosticSnapshot() -> ProducerDiagnosticDetails?
+
     /// Bounded local shutdown. Idempotent from the `Producer`'s perspective;
     /// conformers may assume a single in-flight call.
     func close(timeout: TimeInterval) async throws
+}
+
+extension CoreAdapter {
+    func notifyNetworkRecovered() {}
+    func emitDiagnostic(_ diagnostic: ProducerDiagnostic) {}
+    func readDiagnosticSnapshot() -> ProducerDiagnosticDetails? { nil }
 }

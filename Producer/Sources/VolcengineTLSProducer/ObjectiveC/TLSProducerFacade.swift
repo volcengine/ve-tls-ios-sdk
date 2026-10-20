@@ -11,6 +11,16 @@ import Foundation
 
 // MARK: - Objective-C enums
 
+@objc(TLSProducerDiagnosticLogLevel)
+public enum TLSProducerDiagnosticLogLevel: Int {
+    case debug = 0
+    case info = 1
+    case warning = 2
+    case error = 3
+    case off = 4
+}
+
+
 /// Buffer admission policy exposed to Objective-C callers.
 @objc(TLSBufferFullPolicy)
 public enum TLSBufferFullPolicy: Int {
@@ -427,6 +437,18 @@ public final class TLSProducerConfiguration: NSObject {
     public var persistence: TLSPersistence
     public var connectTimeout: TimeInterval
     public var requestTimeout: TimeInterval
+    public var requestIdleTimeout: TimeInterval
+    public var retryMaxAttempts: Int
+    public var retryTotalTimeout: TimeInterval
+    public var retryInitialInterval: TimeInterval
+    public var retryMaxInterval: TimeInterval
+    public var retryTransientHTTPResponses: Bool
+    public var memoryRetryRetention: TimeInterval
+    public var onDiagnostic: (@Sendable (TLSProducerDiagnostic) -> Void)?
+    public var diagnosticLogLevel: TLSProducerDiagnosticLogLevel
+    /// Best-effort text output with per-instance rate/byte limits and repeated-error coalescing.
+    /// App-owned loggers must also bound total file size; typed diagnostics are unaffected.
+    public var diagnosticHandler: (@Sendable (Int, String) -> Void)?
 
     // ProducerMetadata
     public var metadataSource: String
@@ -459,6 +481,16 @@ public final class TLSProducerConfiguration: NSObject {
         persistence = defaults.persistence.objcValue
         connectTimeout = defaults.connectTimeout
         requestTimeout = defaults.requestTimeout
+        requestIdleTimeout = defaults.requestIdleTimeout
+        retryMaxAttempts = defaults.retry.maxAttempts
+        retryTotalTimeout = defaults.retry.totalTimeout
+        retryInitialInterval = defaults.retry.initialInterval
+        retryMaxInterval = defaults.retry.maxInterval
+        retryTransientHTTPResponses = defaults.retry.retryTransientHTTPResponses
+        memoryRetryRetention = defaults.memoryRetryRetention
+        onDiagnostic = nil
+        diagnosticLogLevel = .info
+        diagnosticHandler = nil
         metadataSource = defaults.metadata.source
         metadataFileName = defaults.metadata.fileName
         metadataTags = defaults.metadata.tags
@@ -499,6 +531,23 @@ public final class TLSProducerConfiguration: NSObject {
             fileName: metadataFileName,
             tags: metadataTags)
 
+        guard let swiftLevel = ProducerDiagnosticLogLevel(rawValue: diagnosticLogLevel.rawValue) else {
+            throw ProducerError.configuration("unsupported Objective-C diagnostic level")
+        }
+        let textHandler = self.diagnosticHandler
+        let swiftText: (@Sendable (ProducerDiagnosticLogLevel, String) -> Void)?
+        if let textHandler {
+            swiftText = { @Sendable level, message in textHandler(level.rawValue, message) }
+        } else { swiftText = nil }
+        let diagnosticHandler = onDiagnostic
+        let swiftDiagnostic: (@Sendable (ProducerDiagnostic) -> Void)?
+        if let handler = diagnosticHandler {
+            swiftDiagnostic = { @Sendable value in
+                handler(TLSProducerDiagnostic(value))
+            }
+        } else {
+            swiftDiagnostic = nil
+        }
         return try ProducerConfiguration(
             batch: batch,
             buffer: buffer,
@@ -507,6 +556,15 @@ public final class TLSProducerConfiguration: NSObject {
             persistence: persistence,
             connectTimeout: connectTimeout,
             requestTimeout: requestTimeout,
+            requestIdleTimeout: requestIdleTimeout,
+            retry: RetryConfiguration(maxAttempts: retryMaxAttempts,
+                totalTimeout: retryTotalTimeout, initialInterval: retryInitialInterval,
+                maxInterval: retryMaxInterval,
+                retryTransientHTTPResponses: retryTransientHTTPResponses),
+            memoryRetryRetention: memoryRetryRetention,
+            onDiagnostic: swiftDiagnostic,
+            diagnosticLogLevel: swiftLevel,
+            diagnosticHandler: swiftText,
             metadata: metadata,
             maxLogAge: maxLogAge,
             expiredLogPolicy: expiredPolicy,
@@ -594,16 +652,35 @@ public final class TLSProducer: NSObject, @unchecked Sendable {
         // Capture the queue first so even a synchronous snapshot-validation
         // failure follows the callback-queue contract.
         let queue = configuration.callbackQueue
+        let structured = configuration.onDiagnostic
+        let text = configuration.diagnosticHandler
+        let swiftStructured: (@Sendable (ProducerDiagnostic) -> Void)?
+        let swiftText: (@Sendable (ProducerDiagnosticLogLevel, String) -> Void)?
+        if let structured { swiftStructured = { @Sendable event in structured(TLSProducerDiagnostic(event)) } }
+        else { swiftStructured = nil }
+        if let text { swiftText = { @Sendable level, message in text(level.rawValue, message) } }
+        else { swiftText = nil }
+        let emitter = DiagnosticEmitter(structuredHandler: swiftStructured, textHandler: swiftText,
+            level: ProducerDiagnosticLogLevel(rawValue: configuration.diagnosticLogLevel.rawValue) ?? .info,
+            producerID: configuration.producerID, topicID: configuration.destination?.topicID,
+            endpoint: configuration.destination?.endpoint, sdkVersion: RealCoreAdapter.sdkVersion, source: "facade")
+        if emitter.isEnabled {
+            var context = ProducerDiagnosticDetails()
+            context.source = "facade"
+            emitter.offer(ProducerDiagnostic(kind: .openStarted, context: context))
+        }
         let swiftConfiguration: ProducerConfiguration
         let swiftCredentials: Credentials
         do {
-            swiftConfiguration = try configuration.swiftValue()
+            var value = try configuration.swiftValue()
+            value.diagnosticEmitter = emitter
+            swiftConfiguration = value
             swiftCredentials = credentials.swiftValue()
         } catch {
             let nsError = Self.makeNSError(error)
-            queue.async {
-                completion(nil, nsError)
-            }
+            Producer.emitDiagnosticFailure(emitter, kind: .openFailed, error: error, source: "facade")
+            emitter.finish()
+            queue.async { completion(nil, nsError) }
             return
         }
 
@@ -684,16 +761,21 @@ public final class TLSProducer: NSObject, @unchecked Sendable {
     ) -> Bool {
         errorPointer?.pointee = nil
         guard let swiftMode = mode.swiftValue else {
-            errorPointer?.pointee = Self.makeNSError(
-                ProducerError.configuration("unsupported Objective-C enum value"))
+            let failure = ProducerError.configuration("unsupported Objective-C enum value")
+            errorPointer?.pointee = Self.makeNSError(failure)
+            swiftProducer.recordFacadeRejection(failure, stage: "facade_mode")
             return false
         }
+        var reachedProducer = false
         do {
-            // Convert the mutable NSObject synchronously at the call boundary.
-            try swiftProducer.add(log.swiftValue(), mode: swiftMode)
+            // Convert at the same boundary; diagnostics never re-admit a log.
+            let value = try log.swiftValue()
+            reachedProducer = true
+            try swiftProducer.add(value, mode: swiftMode)
             return true
         } catch {
             errorPointer?.pointee = Self.makeNSError(error)
+            if !reachedProducer { swiftProducer.recordFacadeRejection(error, stage: "facade_log") }
             return false
         }
     }
@@ -762,6 +844,19 @@ public final class TLSProducer: NSObject, @unchecked Sendable {
                 NSLocalizedDescriptionKey: producerError.safeDescription,
                 errorCodeKey: code.stableString,
             ])
+    }
+
+    /// Advance retained transient failures after an application network hint.
+    /// Does not cancel requests or recover an already-discarded memory batch.
+    @objc(notifyNetworkRecoveredWithError:)
+    public func notifyNetworkRecovered(error: NSErrorPointer) -> Bool {
+        do {
+            try swiftProducer.notifyNetworkRecovered()
+            return true
+        } catch let failure {
+            error?.pointee = Self.makeNSError(failure)
+            return false
+        }
     }
 
     @available(*, unavailable, message: "Use TLSProducer.openWithConfiguration:credentials:completion:")
