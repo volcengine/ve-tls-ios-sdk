@@ -67,7 +67,7 @@
 回调仍按 `callbackQueue` 执行。结构化事件字段只包含安全的计数、状态、HTTP/transport code、
 `retryable`、`requestID` 和 `errorCode`，回调不会补回已经丢弃的批次。
 
-### 文本诊断适配器（未发布）
+### 文本诊断适配器（2.0.2+）
 
 `ProducerDiagnosticLogLevel` 的原始值固定为 `.debug = 0`、`.info = 1`、`.warning = 2`、
 `.error = 3`、`.off = 4`，默认 `.info`；`diagnosticHandler` 默认 `nil`。等级是阈值，只影响
@@ -104,7 +104,7 @@ App 负责 logger 的文件路径、轮转、导出和 `fsync`；建议单文件
 必须同时配置文件总容量。App 自行持久化 `onDiagnostic` 时也需要自行限频；handler 直接交给文件 logger，不自行重组
 SDK 内部数据。同一文件由两个 Producer 写入时，logger 必须并发安全。handler 不得重新进入同一
 Producer，也不得同步等待自身文件回调。诊断仅观察，不改变上传、重试、超时或 WAL。`open` 会
-冻结等级和 handler；本节新 API 属于待发布的 2.0.2，线上 2.0.1 不能直接配置。
+冻结等级和 handler；本节新 API 自 2.0.2 起提供，2.0.1 不支持直接配置。
 
 ## 枚举
 

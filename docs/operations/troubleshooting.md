@@ -17,8 +17,8 @@
 
 ### CocoaPods 编译提示 `module map file ... not found`
 
-如果缺失的是 `TLSProducerBridge.modulemap`，按[升级步骤](../getting-started/installation.md#版本选择与升级)
-更新到 `2.0.1` 或后续兼容版本，确认 `Podfile.lock` 已更新，并从 `.xcworkspace` 重新编译。
+如果缺失的是 `TLSProducerBridge.modulemap`，该修复自 `2.0.1` 引入；当前推荐按[升级步骤](../getting-started/installation.md#版本选择与升级)
+更新到已发布的 `2.0.2` 或后续兼容版本，确认 `Podfile.lock` 已更新，并从 `.xcworkspace` 重新编译。
 使用 `:path` 时，同时更新所引用的本地 SDK 源码。
 
 ### `open` 抛出 `configuration`

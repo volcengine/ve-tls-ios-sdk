@@ -31,18 +31,20 @@ swift test -Xswiftc -swift-version -Xswiftc 6
 ```
 
 完整包验证需要 Xcode、CocoaPods、Ruby 的 `xcodeproj` gem、Python 3、ripgrep，以及一个
-已安装的 iOS Simulator。将工具加入 `PATH` 后，未发布 Core 集成候选的开发验证执行：
+已安装的 iOS Simulator。当前 2.0.2 使用已发布的 Core `v0.3.4`；将工具加入 `PATH` 后执行完整发布验证：
 
 ```bash
-Producer/scripts/verify-all.sh --integration
+Producer/scripts/verify-all.sh --release
 ```
 
-`--integration` 校验集成补丁及 vendor 完整性，不表示该 Core 快照已发布。
-发布验证执行 `Producer/scripts/verify-all.sh --release`（也是不带参数时的默认模式）；
-`UNRELEASED_INTEGRATION` 会明确阻止发布验证，不能通过改写状态跳过发布门禁。
-完整 Core 版本候选可以先登记冻结的源码提交并做发布前验证，再按授权创建 tag。
-`INTEGRATED` 表示 vendor 已与该提交逐文件核对，不表示 tag 或包已发布；
-`upstream_core_tag_status: NOT_CREATED` 明确表示标签仍未创建。校验时设置
+`--release` 也是不带参数时的默认模式。开发未来尚未发布的 Core 临时集成时，可使用
+`Producer/scripts/verify-all.sh --integration` 校验补丁及 vendor 完整性，但这不表示
+该 Core 快照已发布。`UNRELEASED_INTEGRATION` 会明确阻止发布验证，不能通过改写状态跳过发布门禁。
+
+当前 `Producer/CORE_VERSION` 登记 Core `v0.3.4` 和 `upstream_core_tag_status: CREATED`，
+表示该 Core tag 已创建；`INTEGRATED` 表示 vendor 已与登记提交逐文件核对。
+开发版本可先登记冻结提交并做发布前验证，tag 尚未创建时应使用 `NOT_CREATED`。
+Core tag 的状态不代表 iOS 完整发布验收已通过。校验时设置
 `VE_TLS_CORE_SOURCE_ROOT` 指向登记提交的干净 Core checkout，并核对该提交的
 `VE_TLS_C_SDK_VERSION` 与登记版本一致；不得保留临时集成补丁后仅改状态放行。
 发布套件可通过 `PUBLIC_SYMBOL_PRODUCT` 指定本轮最终链接的 SDK/App 产物，

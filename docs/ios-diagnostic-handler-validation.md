@@ -1,8 +1,21 @@
 # iOS 内部诊断日志回调验收记录
 
+## 当前发布状态（2026-10-20）
+
+`diagnosticHandler` 已随 [v2.0.2](https://github.com/volcengine/ve-tls-ios-sdk/releases/tag/v2.0.2)
+在 GitHub 发布，Core `v0.3.4` 也已发布；当前来源提交与 `CREATED` 标签状态见
+`Producer/CORE_VERSION`。安装与 API 使用说明见[安装](getting-started/installation.md)和
+[配置参数](reference/configuration.md)。
+
+本页以下内容按日期保留实施和验收快照，其中“未发布”“NOT_CREATED”和临时分支/路径
+描述的是对应日期的状态，不代表当前发布状态。历史 FAIL、SKIP 和未完成项不因发布而改为
+PASS；完整 iOS 13/macOS 10.15 发布验收尚未补齐，静态检查或当前系统运行不能替代它。
+
+## 实施背景与历史验收
+
 本工作区已实现文本 `diagnosticHandler`，应用可直接在回调中调用自己的文件 logger。复用原 `onDiagnostic` 与 Core 事件源；诊断共享每实例的独立 1024 条有界队列，文本使用等级过滤与最多 4096 bytes 的单行 JSON。只读统计每 60 秒输出，受控关闭前另输出汇总。
 
-原始实施分支：`feat/ios-delivery-policy-alignment`；内部交付分支：`feat/ios-delivery-policy-alignment-internal`，以内部 `master` 为提交基线。实施前 Git 基线：`8b8a142d3c20a60f0b4a72ed7fd79c991a0b4976`。已有交付策略与诊断增量一并纳入功能分支，提交范围以 Git 记录为准。当前源码版本为待发布的 2.0.2；已发布 2.0.1 不含新接口，当时 Core 状态为 `UNRELEASED_INTEGRATION`；当前来源和候选/标签状态以 `Producer/CORE_VERSION` 为准。
+原始实施分支：`feat/ios-delivery-policy-alignment`；内部交付分支：`feat/ios-delivery-policy-alignment-internal`，以内部 `master` 为提交基线。实施前 Git 基线：`8b8a142d3c20a60f0b4a72ed7fd79c991a0b4976`。已有交付策略与诊断增量一并纳入功能分支，提交范围以 Git 记录为准。实施时源码为 2.0.2 开发版；2.0.1 不含新接口，当时 Core 状态为 `UNRELEASED_INTEGRATION`；当前来源和标签状态以 `Producer/CORE_VERSION` 为准。
 
 业务基线是开始本任务时的交付策略工作区，并非 Git HEAD 的原始 2.0.1。Core 基线已从原已登记补丁重建，位于 `/tmp/tls-ios-diagnostic-business-baseline/core`。独立只读复核和 owner 检查确认，本次增量只观察原动作；未调整请求载荷、签名、批次、并发、分类、请求超时、尝试计数、退避、预算或 WAL 决策。
 
@@ -185,12 +198,12 @@ POD_BIN=/opt/homebrew/lib/ruby/gems/3.3.0/bin/pod RUBY_BIN=/opt/homebrew/opt/rub
 - 在 `arm64-apple-ios13.0` 和 `x86_64-apple-macos10.15` 目标下，对 4 个 Bridge Objective-C 源和 3 个 Core C 源执行 availability 检查，共 14 项通过；对全部 17 个 Swift 源执行两个目标的 typecheck，均通过。命令与结果位于 `/tmp/tls-ios-compatibility-static-audit/`。这些检查不包含最低系统上的完整链接、打包或运行。
 - 当前已验证的二进制和 CocoaPods 客户端运行在 macOS；iOS 真机/模拟器的网络、生命周期及慢回调运行验收仍待完成。
 - 当前 Transport 使用 `NSProcessInfo.systemUptime` 计算耗时，Privacy Manifest 尚需补充相应 SystemBootTime required-reason 声明（elapsed time 用途为 `35F9.1`）。本功能提交保留此发布前待办，不将其标记为已完成。
-- 提交前重新核对已验收的 45 个源/测试/配套文件哈希，业务源码未变化；仅补齐未发布 CHANGELOG 和文档状态。Core vendor 重构/补丁/SHA256 校验及现有最终静态库的公开符号检查再次通过。
+- 提交前重新核对已验收的 45 个源/测试/配套文件哈希，业务源码未变化；仅补齐当时开发版本的 CHANGELOG 和文档状态。Core vendor 重构/补丁/SHA256 校验及现有最终静态库的公开符号检查再次通过。
 - 暂存区 whitespace 检查通过：源码和文档使用默认 `git diff --cached --check`；补丁容器单独关闭 `blank-at-eol` 检查。补丁中的 54 个单空格行全部是 unified diff 的空白上下文标记，未修改补丁字节或已登记哈希。
 
 ## 2026-10-13 2.0.2 版本同步与内部交付
 
-podspec、固定请求 `User-Agent`、诊断 `sdk_version`、版本校验器与对应测试统一为 2.0.2；未发布 tag 或 Pods 版本。除版本字符串及对应断言/文档外，本轮不调整业务或诊断行为。
+该轮将 podspec、固定请求 `User-Agent`、诊断 `sdk_version`、版本校验器与对应测试统一为 2.0.2；当时尚未发布 tag 或 Pods 版本。除版本字符串及对应断言/文档外，该轮不调整业务或诊断行为。
 
 - 完整 `swift test --package-path Producer --scratch-path /tmp/tls-ios-diagnostic-build`：379 项，0 failures，4 skipped；日志 `/tmp/tls-ios-v202-swift-tests.log`。
 - 实际生成 Objective-C 头、重新链接当前 SDK 并运行：off 环境不设置诊断变量，on 设置 handler。各 6 个用例、10 请求、6 发送回调，业务结果一致；on 的 106 行 JSON 中 `sdk_version` 全为 `2.0.2`，最大 2122 bytes。日志 `/tmp/tls-ios-v202-objc-{off,on}.log`，回调文件 `/tmp/tls-ios-v202-callback.jsonl`，夹具 `/tmp/tls-ios-v202-objc-fixture`。
@@ -205,7 +218,7 @@ podspec、固定请求 `User-Agent`、诊断 `sdk_version`、版本校验器与�
 Core SDK/CMake/SBOM 版本为 `0.3.4`，冻结来源提交为
 `383eaae464a6b707280304284f06e015448ddd70`。vendor 对应该完整源码提交及既有
 Apple overlays/wrapper，已移除临时集成补丁。`INTEGRATED` 只表示源码集成完成；
-登记中的 `upstream_core_tag_status: NOT_CREATED` 明确表示尚未打 tag 或发布。
+该轮登记中的 `upstream_core_tag_status: NOT_CREATED` 表示截至当时尚未打 tag 或发布。
 默认服务请求头 `x-tls-apiversion` 仍为 `0.3.0`，它不是 C ABI 版本；iOS 包、UA 和诊断版本仍为 `2.0.2`。
 
 发布校验修复了 `INTEGRATED` 状态漏检 vendor 的问题，并拒绝残留临时补丁字段。
@@ -233,5 +246,5 @@ SwiftPM 外部纯 Objective-C 的生成头导入、链接和运行通过；这�
 
 完整日志：`tls-ios-core034-verify-all-release-frozen-20261016.log`。
 ASan 使用 `detect_leaks=0`，LZ4 既有 UBSan 例外保持不变；不声称 LSan 或真实 TLS 入库通过。
-当前仍不具备正式发布 2.0.2 的完整验证条件，需要在支持声明最低系统的工具链上重跑失败子项及完整套件。
-未创建 Core/iOS tag，未发布任何包，未通过改状态、提高产品最低版本或跳过门禁放行。
+该轮完整发布验收未通过，需要在支持声明最低系统的工具链上重跑失败子项及完整套件。
+截至 2026-10-16，该轮未创建 Core/iOS tag、未发布任何包，也未通过改状态、提高产品最低版本或跳过门禁放行。后续发布状态见本页开头，未完成验证不因此变更。

@@ -1,6 +1,10 @@
-# iOS delivery policy alignment (unreleased)
+# iOS Producer 2.0.2 delivery policy contract
 
-Baseline: iOS Producer 2.0.1 (`8b8a142`), Android Producer 2.1.4
+Status: implemented and released in [v2.0.2](https://github.com/volcengine/ve-tls-ios-sdk/releases/tag/v2.0.2).
+This document records the delivery contract; executed validation and outstanding
+platform coverage are tracked in the [validation record](ios-diagnostic-handler-validation.md).
+
+Historical investigation baseline: iOS Producer 2.0.1 (`8b8a142`), Android Producer 2.1.4
 (`da3173f645f56a9592e470e350d64c2aea1dad44`), shared Core
 `1d41ec4edb850ee7dd0b7f63c49738d6a9669c21`. SLS iOS 4.3.4 is a
 reference implementation; the affected application's SLS version is unknown.
