@@ -1,6 +1,6 @@
 # 安装
 
-当前源码版本为 `2.0.2`（待发布），尚未创建对应公开 tag 或 Pods 版本。以下版本安装示例仍使用已发布的 `2.0.1`；要验证本分支新增的重试配置和诊断回调，需要从本分支源码构建。
+当前发布版本为 [`2.0.2`](https://github.com/volcengine/ve-tls-ios-sdk/releases/tag/v2.0.2)，GitHub 仓库已有对应的 `v2.0.2` tag。下文 SwiftPM 和 CocoaPods Git tag 示例使用该版本；CocoaPods 传统 Specs 版本约束仅在所用 Specs 源已包含 `2.0.2` 时可用。
 
 ## 环境要求
 
@@ -17,7 +17,7 @@
 
 1. 选择 **File > Add Package Dependencies**。
 2. 输入 `https://github.com/volcengine/ve-tls-ios-sdk.git`。
-3. 选择 `2.0.1` 或更高的兼容版本。
+3. 选择 `2.0.2` 版本。
 4. 将 `VolcengineTLSProducer` product 添加到需要写日志的 target。
 
 ### Package.swift
@@ -26,7 +26,7 @@
 dependencies: [
     .package(
         url: "https://github.com/volcengine/ve-tls-ios-sdk.git",
-        from: "2.0.1"
+        from: "2.0.2"
     )
 ],
 targets: [
@@ -44,18 +44,28 @@ targets: [
 
 ## CocoaPods
 
-在 `Podfile` 中选择与宿主一致的平台。
+通过仓库的 `v2.0.2` tag 安装，在 `Podfile` 中选择与宿主一致的平台。
 
 ```ruby
 # iOS
 platform :ios, '13.0'
-pod 'VolcengineTLSProducer', '~> 2.0.1'
+pod 'VolcengineTLSProducer',
+    :git => 'https://github.com/volcengine/ve-tls-ios-sdk.git',
+    :tag => 'v2.0.2'
 ```
 
 ```ruby
 # macOS
 platform :osx, '10.15'
-pod 'VolcengineTLSProducer', '~> 2.0.1'
+pod 'VolcengineTLSProducer',
+    :git => 'https://github.com/volcengine/ve-tls-ios-sdk.git',
+    :tag => 'v2.0.2'
+```
+
+若所用 CocoaPods Specs 源已包含 `2.0.2`，也可使用传统版本约束：
+
+```ruby
+pod 'VolcengineTLSProducer', '~> 2.0.2'
 ```
 
 执行：
@@ -65,14 +75,6 @@ pod install
 ```
 
 之后使用生成的 `.xcworkspace` 打开工程。
-
-也可通过 Git tag 安装：
-
-```ruby
-pod 'VolcengineTLSProducer',
-    :git => 'https://github.com/volcengine/ve-tls-ios-sdk.git',
-    :tag => 'v2.0.1'
-```
 
 ## 验证安装
 
@@ -97,8 +99,8 @@ Objective-C 项目的导入方式和完整使用步骤见 [Objective-C 接入](o
 
 ## 版本选择与升级
 
-- 新接入 Producer 使用 `v2.0.1`。
-- CocoaPods 的 `~> 2.0.1` 允许 `2.0.x` 补丁升级；SwiftPM 的 `from: "2.0.1"` 允许
+- 新接入 Producer 使用已发布的 `v2.0.2`；CocoaPods 使用 Git tag 时直接指向 `v2.0.2`。
+- CocoaPods 的 `~> 2.0.2` 仅在所用 Specs 源已包含 `2.0.2` 时可用，并允许 `2.0.x` 补丁升级；SwiftPM 的 `from: "2.0.2"` 允许
   `< 3.0.0` 的兼容升级，需要固定补丁版本时在 Xcode 中选择 Exact Version。
 - 升级前阅读 [CHANGELOG](../../CHANGELOG.md)，并在测试环境验证回调、持久化恢复和关闭流程。
 - v1.x 与 v2.0.x 的关系见[迁移说明](../migration/v1-to-v2.md)。

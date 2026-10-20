@@ -17,6 +17,10 @@ Objective-C 业务代码无需添加 Swift 源文件，SDK 内部仍使用 Swift
 包清单声明 iOS 13.0 和 macOS 10.15。某个 Xcode 版本可安装的最低 Simulator runtime
 可能高于 iOS 13，这不改变 iPhoneOS 设备产物的 iOS 13 deployment target。
 
+本表是包的声明范围，2.0.2 的完整 iOS 13/macOS 10.15 最低系统验收仍待补齐；静态检查及
+较新系统上的运行结果不能替代该验收。已执行和未完成范围见[验收记录](../ios-diagnostic-handler-validation.md)，
+所用 Xcode 需支持宿主选择的 deployment target。
+
 ## 工具链
 
 - Swift 5.8+

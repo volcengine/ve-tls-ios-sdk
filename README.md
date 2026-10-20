@@ -1,7 +1,7 @@
 # Volcengine TLS Producer SDK
 
-本仓库提供面向 Apple 平台的 Volcengine TLS 异步日志上传 Producer，当前源码版本为
-`v2.0.2`（待发布），提供 Swift 和 Objective-C 接口。支持 iOS、iPadOS 和原生 macOS，提供批处理、压缩、重试、背压和可选
+本仓库提供面向 Apple 平台的 Volcengine TLS 异步日志上传 Producer，当前发布版本为
+[`v2.0.2`](https://github.com/volcengine/ve-tls-ios-sdk/releases/tag/v2.0.2)，提供 Swift 和 Objective-C 接口。支持 iOS、iPadOS 和原生 macOS，提供批处理、压缩、重试、背压和可选
 WAL。
 
 旧版 `v1.x` Objective-C 客户端的使用入口和迁移边界见
@@ -12,26 +12,31 @@ macOS 11，要求 Swift 5.8+。
 
 ## 安装 Producer v2
 
-下面版本安装示例使用已发布的 `2.0.1`。本分支新增的重试配置和诊断回调属于待发布的 `2.0.2`，验证时需要使用本分支源码；尚不能通过 `v2.0.2` tag 或 Pods 版本安装。
+下面安装示例使用已发布的 `2.0.2`。SwiftPM 和 Git tag 可直接使用；CocoaPods 的传统 Specs 版本约束仅在所用 Specs 源已包含 `2.0.2` 时可用。
 
 Swift Package Manager：
 
 ```swift
 .package(
     url: "https://github.com/volcengine/ve-tls-ios-sdk.git",
-    from: "2.0.1"
+    from: "2.0.2"
 )
 ```
 
 将 `VolcengineTLSProducer` product 添加到 App 或 executable target。
 
-CocoaPods：
+CocoaPods（Git tag）：
 
 ```ruby
-pod 'VolcengineTLSProducer', '~> 2.0.1'
+pod 'VolcengineTLSProducer',
+    :git => 'https://github.com/volcengine/ve-tls-ios-sdk.git',
+    :tag => 'v2.0.2'
 ```
 
-完整步骤见[安装](docs/getting-started/installation.md)。
+若所用 CocoaPods Specs 源已包含 `2.0.2`，也可使用 `pod 'VolcengineTLSProducer', '~> 2.0.2'`。
+
+完整步骤见[安装](docs/getting-started/installation.md)，本次变更与升级要点见
+[2.0.2 发布说明](docs/releases/2.0.2.md)。
 
 ## 快速开始
 

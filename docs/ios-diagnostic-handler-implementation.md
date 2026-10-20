@@ -1,28 +1,28 @@
 **iOS SDK 内部诊断日志回调实现说明**
 
-状态：已在本功能分支实现，尚未发布。本文件保留为实现合同，具体已执行与未完成的验收见[验收记录](ios-diagnostic-handler-validation.md)。目标是在现有结构化 `onDiagnostic` 上增加文本日志适配，让 App 将 SDK 诊断直接写入自己的文件日志系统。
+状态：文本 `diagnosticHandler` 已随 [v2.0.2](https://github.com/volcengine/ve-tls-ios-sdk/releases/tag/v2.0.2) 发布。本文件保留实现合同和历史分工；当前接入说明见[配置参数](reference/configuration.md)，已执行与未完成的验收见[验收记录](ios-diagnostic-handler-validation.md)。文本回调复用结构化 `onDiagnostic`，让 App 将 SDK 诊断直接写入自己的文件日志系统。
 
-合同核对日期：2026-10-12。原始工作目录：`ve-tls-ios-sdk-modulemap-fix`；原始实施分支：`feat/ios-delivery-policy-alignment`；内部交付分支：`feat/ios-delivery-policy-alignment-internal`；实施前 Git 基线：`8b8a142d3c20a60f0b4a72ed7fd79c991a0b4976`。本方案以当时已有的交付策略工作区为业务基线；交付策略与诊断增量一并纳入功能分支，保留已有改动，不重置为已发布 2.0.1。当前源码标识为待发布的 2.0.2，内部提交基线与文件树一致性核对见验收记录。
+历史实施背景（合同核对日期：2026-10-12）：原始工作目录为 `ve-tls-ios-sdk-modulemap-fix`，原始实施分支为 `feat/ios-delivery-policy-alignment`，内部交付分支为 `feat/ios-delivery-policy-alignment-internal`，实施前 Git 基线为 `8b8a142d3c20a60f0b4a72ed7fd79c991a0b4976`。实现以当时已有的交付策略工作区为业务基线；2.0.1 是历史比较版本，文本回调自 2.0.2 起提供。实施提交与文件树一致性核对见验收记录。
 
 **1. 目标与不可变约束**
 
-交付目标是让客户端辨别初始化失败、未入队、入队拒绝、批次等待、请求失败、重试耗尽、数据保留/释放及生命周期影响。新增公开回调需要 SDK 发版；已发布的 2.0.1 不包含 `diagnosticHandler`，不能将下面的接口当作 2.0.1 现有接口。
+交付目标是让客户端辨别初始化失败、未入队、入队拒绝、批次等待、请求失败、重试耗尽、数据保留/释放及生命周期影响。公开文本回调从 2.0.2 起提供；2.0.1 及更早版本不包含 `diagnosticHandler`。
 
 - **复用现有 `onDiagnostic` 及 Core delivery diagnostic 事件源。** 文本回调是同一事件的格式化适配，不新增一套独立埋点或全局 NSLog 拦截。
 - **不改变上传行为。** 不增加或减少请求，不改变载荷、签名、HTTP 头、压缩、批次阈值、发送并发、排序或触发时机。
 - **不改变重试行为。** 不调整错误码分类、尝试次数、预算、间隔、唤醒、保留周期或请求超时。
 - **不改变持久化行为。** 不改变 WAL 格式、追加、确认、恢复、清理或关闭规则；诊断不能触发业务日志再入队、重发或释放。
-- 以主会话当前交付策略草稿为业务基线，诊断启用/关闭的回归对比必须使用完全相同的业务配置。
+- 该次实现以已有交付策略为业务基线，诊断启用/关闭的回归对比必须使用完全相同的业务配置。
 - App 负责文件路径、轮转和导出。SDK 只负责提供诊断；默认不写文件，也不自动输出 Console。
 - 诊断属于有限资源下的尽力投递，不保证进程突然终止前全部回调完成或文件 fsync。
 
-**2. 已有实现与需要补齐的部分**
+**2. 实施前能力与 2.0.2 增量**
 
-| 当前文件 | 已有能力 | 本次增量 |
+| 文件 | 实施前已有能力 | 2.0.2 增量 |
 | --- | --- | --- |
 | `Producer/Sources/VolcengineTLSProducer/ProducerDiagnostic.swift` | 结构化事件及 Objective-C 包装，含尝试、重试、保留/最终处理、初始化和入队拒绝 | 补公共上下文、等级、统计及网络信息，保持已有字段和 raw value |
 | `Producer/Sources/VolcengineTLSProducer/ProducerConfiguration.swift` | `onDiagnostic` 和 open 快照 | 加文本 handler/等级，并纳入快照 |
-| `Producer/Sources/VolcengineTLSProducer/Core/RealCoreAdapter.swift` | 连接 Core 诊断与 Swift；当前与发送结果共用 callbackDeliveryQueue | 接入独立、有界的诊断投递器 |
+| `Producer/Sources/VolcengineTLSProducer/Core/RealCoreAdapter.swift` | 连接 Core 诊断与 Swift；实施前与发送结果共用 callbackDeliveryQueue | 接入独立、有界的诊断投递器 |
 | `Producer/Sources/TLSProducerBridge/Core/TLSRealCoreAdapter.m` | 复制 Core 借用字符串，再 dispatch 到回调队列 | 在无界 dispatch 之前接入有界投递入口，补统计/请求关联 |
 | `Producer/Sources/CTLSProducerCore/include/ve_tls_producer.h` | delivery diagnostic、get_metrics、get_buffered_bytes | 复用读取接口，按需追加观察事件/关联信息，不改策略 |
 | `Producer/Sources/TLSProducerBridge/Transport/TLSTransport.m` | 请求上下文、SDK 请求截止、底层 NSError 数字码 | 补超时/取消来源、上传进度和可用 Task Metrics |
@@ -58,7 +58,7 @@ Objective-C Facade 新增同值 `TLSProducerDiagnosticLogLevel` 枚举，以及�
 // 保留现有 onDiagnostic(TLSProducerDiagnostic *)。
 ```
 
-Objective-C block 的 level 使用 NSInteger，保证客户截图中的写法能直接编译；Facade 将 Swift 等级转换为 rawValue。以下是未来新版本的接入示例：
+Objective-C block 的 level 使用 NSInteger；Facade 将 Swift 等级转换为 rawValue。以下是 2.0.2 及后续版本的接入示例：
 
 ```objc
 config.diagnosticLogLevel = TLSProducerDiagnosticLogLevelInfo;
@@ -74,7 +74,7 @@ config.diagnosticHandler = ^(NSInteger level, NSString *message) {
 3. 文本 threshold 规则：Debug 接收 0..3；Info 接收 1..3；Warning 接收 2..3；Error 仅接收 3；Off 不产生文本。Off 不作为回调事件等级。
 4. handler 与等级在 open 边界复制到不可变快照。open 后修改原 config 不热更新，也不能由修改 block 影响其他 Producer。
 5. 客户回调在 SDK 自有串行诊断队列执行，默认不在主线程，不使用 onSendResult 的队列。两种诊断回调在同一事件上先结构化、后文本。
-   这是对当前未发布草稿的诊断线程合同调整，需同步公开文档和测试；原 onSendResult/completion 的回调线程合同保持不变。若客户把两个诊断 handler 接到同一文件，可能主动记录两份同一事件，SDK 不替其去重。
+   这是 2.0.2 的诊断线程合同；原 onSendResult/completion 的回调线程合同保持不变。若客户把两个诊断 handler 接到同一文件，可能主动记录两份同一事件，SDK 不替其去重。
 6. 客户可在回调中调用现有文件 logger；不要同步等待 SDK 的 add/close，也不要把诊断重新送入同一 Producer。
 
 **4. 统一事件源与投递器**
@@ -205,7 +205,7 @@ App 自行将 typed `onDiagnostic` 落盘时也必须自行限制频率。SDK �
 
 **9. 修改文件清单**
 
-以下路径相对当前 SDK 仓库根。新增文件为规划项，其余为已有文件；按最小增量修改，不覆盖主会话已有策略改动。
+以下保留 2.0.2 实施时的文件分工，路径相对 SDK 仓库根；“新增”相对实施前基线，并非当前待实现项。
 
 | 文件 | 修改责任 |
 | --- | --- |
@@ -275,7 +275,7 @@ Core 变化须同步主 C 仓库或现有 core-patches 机制，再更新 `Produ
 
 HTTP、计时、重试和 WAL 行为对比优先使用受控 transport/fake clock 或现有夹具，不能根据公网波动判断策略改变。先跑相关定向测试；发生新变化或失败再扩展检查，不重复跑无关大范围测试。
 
-供主会话实施后运行（从仓库根，新增测试实际落地后）：
+诊断相关回归命令（从仓库根执行，已执行结果见验收记录）：
 
 ```sh
 swift test --filter Diagnostic
@@ -294,4 +294,4 @@ Objective-C 使用现有 `Producer/scripts/verify-objective-c-producer.sh`，先
 
 SDK 日志足以显示哪个 SDK 边界异常，但不能证明 SDK 从未被业务调用，也不能可靠捕获进程被强杀的最后一刻；App 仍应保留启动、业务调用和自己的文件导出信息。message 回调完成也不等于 App 文件已持久化。
 
-原始合同交接时只新增本 Markdown，尚未实现 SDK 接口或执行验收；后续实现与验证结果以本功能分支及验收记录为准。
+历史说明：最初交接时只新增本 Markdown；后续接口实现已纳入 2.0.2，验证结果和未完成范围以验收记录为准。

@@ -59,7 +59,7 @@ public func validate() throws
 `diagnosticHandler` 在每个 Producer 独立的串行诊断队列中投递，与 `onSendResult` 的
 `callbackQueue` 隔离；同一事件先投递结构化回调，再投递文本回调，业务结果回调合同不变。
 
-### 文本诊断适配器（未发布）
+### 文本诊断适配器（2.0.2+）
 
 Swift API 为：
 
@@ -109,7 +109,7 @@ configuration.diagnosticHandler = ^(NSInteger level, NSString *message) {
 两个 Producer 共用文件时 logger 必须并发安全。handler 不得重新进入同一 Producer，也不得
 同步等待自己的文件回调。诊断只观察，不改变上传、重试、超时或 WAL。
 
-`open` 会冻结等级和 handler；这些新增 API 属于待发布的 2.0.2，线上 2.0.1 不能直接配置。
+`open` 会冻结等级和 handler；这些新增 API 自 2.0.2 起提供，2.0.1 不支持直接配置。
 
 ## Producer.open
 

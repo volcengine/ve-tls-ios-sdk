@@ -13,7 +13,7 @@ Objective-C 接口。
 
 iOS 示例工程位于 [Examples/SwiftExample](Examples/SwiftExample/README.md)。
 
-## 交付策略快速配置（未发布）
+## 交付策略快速配置（2.0.2+）
 
 下面的配置使用公开 Producer v2 API。所有 `TimeInterval` 参数的单位都是秒，
 不是毫秒；配置在 `open` 时复制并冻结。
@@ -86,7 +86,7 @@ Objective-C 内存模式对应 `TLSPersistenceMemory` 和
 Objective-C 的 `onDiagnostic` 都只应记录数值计数、稳定 kind/reason、HTTP/transport
 code、`retryable`、`requestID` 和 `errorCode`，不要记录日志正文、URL、服务端原文或凭据。
 
-### 文本诊断适配器（未发布）
+### 文本诊断适配器（2.0.2+）
 
 文本诊断使用 `ProducerDiagnosticLogLevel`，原始值固定为 `debug = 0`、`info = 1`、
 `warning = 2`、`error = 3`、`off = 4`。默认值是 `.info`，`diagnosticHandler` 默认为
@@ -141,8 +141,8 @@ App 负责文件 logger、路径、轮转、导出和 `fsync`。建议设置单�
 handler 不得重新进入同一个 Producer，也不得同步等待自己的文件回调。诊断只用于观察，不改变
 上传、重试、超时或 WAL 行为。
 
-`open` 会冻结诊断等级和 handler；之后修改原配置不会影响已打开的 Producer。本节 API 属于
-待发布的 2.0.2；线上 2.0.1 不能直接配置这些字段。
+`open` 会冻结诊断等级和 handler；之后修改原配置不会影响已打开的 Producer。本节 API 自
+2.0.2 起提供；2.0.1 不能直接配置这些字段。
 
 `automaticLifecycleHandling` 在 iOS App 进程默认开启，在 App Extension 和 macOS 默认关闭；
 它只负责接入系统生命周期通知、触发后台 flush 和回到前台后的 retry，不保证系统挂起期间送达。
