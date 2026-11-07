@@ -29,7 +29,7 @@
 - endpoint 包含路径、query、fragment、userinfo，或不是 HTTPS；
 - 持久化模式没有设置 `producerID`；
 - timeout 不是整毫秒、为 0、无穷大或超过上限；
-- `maxLogAge` 不是正整数秒；
+- `maxLogAge` 不是有限的非负整数秒，或换算为 64 位毫秒时溢出；
 - 配置初始化后被修改成无效值。
 
 ### `open` 抛出 `persistence`
@@ -96,7 +96,7 @@
 2. 查询时间范围是否依据事件时间而不是发送时间；
 3. 是否在正确的 Topic 查询；
 4. 字段名和事件 ID 是否完全一致；
-5. `maxLogAge` 和 `expiredLogPolicy` 是否改写或丢弃了过期事件；
+5. 是否显式设置了正数 `maxLogAge`，使 `expiredLogPolicy` 在 WAL 恢复时改写 protobuf Time 或丢弃过期记录；默认 0 不检查过期；
 6. 动态调用 `updateDestination` 后，事件是否按 current-target 语义去了新目标。
 
 ### 出现重复日志

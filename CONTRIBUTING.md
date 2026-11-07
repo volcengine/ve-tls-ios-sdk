@@ -31,7 +31,7 @@ swift test -Xswiftc -swift-version -Xswiftc 6
 ```
 
 完整包验证需要 Xcode、CocoaPods、Ruby 的 `xcodeproj` gem、Python 3、ripgrep，以及一个
-已安装的 iOS Simulator。当前 2.0.2 使用已发布的 Core `v0.3.4`；将工具加入 `PATH` 后执行完整发布验证：
+已安装的 iOS Simulator。将工具加入 `PATH` 后执行完整发布验证：
 
 ```bash
 Producer/scripts/verify-all.sh --release
@@ -41,8 +41,8 @@ Producer/scripts/verify-all.sh --release
 `Producer/scripts/verify-all.sh --integration` 校验补丁及 vendor 完整性，但这不表示
 该 Core 快照已发布。`UNRELEASED_INTEGRATION` 会明确阻止发布验证，不能通过改写状态跳过发布门禁。
 
-当前 `Producer/CORE_VERSION` 登记 Core `v0.3.4` 和 `upstream_core_tag_status: CREATED`，
-表示该 Core tag 已创建；`INTEGRATED` 表示 vendor 已与登记提交逐文件核对。
+`Producer/CORE_VERSION` 记录 vendor 对应的 Core 版本和提交。`upstream_core_tag_status: CREATED`
+表示该 Core tag 已创建，`INTEGRATED` 表示 vendor 已与登记提交逐文件核对。
 开发版本可先登记冻结提交并做发布前验证，tag 尚未创建时应使用 `NOT_CREATED`。
 Core tag 的状态不代表 iOS 完整发布验收已通过。校验时设置
 `VE_TLS_CORE_SOURCE_ROOT` 指向登记提交的干净 Core checkout，并核对该提交的

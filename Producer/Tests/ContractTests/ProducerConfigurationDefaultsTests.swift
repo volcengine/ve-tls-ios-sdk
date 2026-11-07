@@ -41,7 +41,7 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
         XCTAssertTrue(config.metadata.tags.isEmpty)
 
         // Expiry
-        XCTAssertEqual(config.maxLogAge, 7 * 24 * 60 * 60, accuracy: 0.0001)
+        XCTAssertEqual(config.maxLogAge, 0, accuracy: 0.0001)
         XCTAssertEqual(config.expiredLogPolicy, .rewriteTimestamp)
         XCTAssertEqual(config.unauthorizedPolicy, .retain)
 
@@ -253,9 +253,29 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
         }
     }
 
-    func testInvalidMaxLogAge() {
-        XCTAssertThrowsError(try ProducerConfiguration(maxLogAge: 0)) { error in
-            assertConfigurationError(error, containing: "maxLogAge")
+    func testMaxLogAgeAcceptsZeroAndRepresentableWholeSeconds() throws {
+        let overflowBoundary = Double(Int64.max) / 1_000
+        for value in [0.0, 1.0, overflowBoundary.nextDown] {
+            let configuration = try ProducerConfiguration(maxLogAge: value)
+            XCTAssertEqual(configuration.maxLogAge, value)
+            XCTAssertEqual(try configuration.validatedForOpen(requireDestination: false).maxLogAge, value)
+        }
+    }
+
+    func testMaxLogAgeRejectsInvalidValuesAtInitializationAndOpen() throws {
+        let overflowBoundary = Double(Int64.max) / 1_000
+        for value in [-1.0, -0.5, Double.nan, .infinity, -.infinity, 1.5, overflowBoundary] {
+            XCTAssertThrowsError(try ProducerConfiguration(maxLogAge: value), "value: \(value)") { error in
+                assertConfigurationError(error, containing: "maxLogAge")
+            }
+
+            var configuration = try ProducerConfiguration()
+            configuration.maxLogAge = value
+            XCTAssertThrowsError(
+                try configuration.validatedForOpen(requireDestination: false), "value: \(value)"
+            ) { error in
+                assertConfigurationError(error, containing: "maxLogAge")
+            }
         }
     }
 
@@ -361,6 +381,29 @@ final class ProducerConfigurationDefaultsTests: XCTestCase {
     }
 
     // MARK: - URLSession normalization
+
+    func testBackgroundURLSessionConfigurationIsRejectedAtInitialization() {
+        let sessionConfig = URLSessionConfiguration.background(withIdentifier: "tls.test.background-init")
+
+        XCTAssertThrowsError(try ProducerConfiguration(urlSessionConfiguration: sessionConfig)) { error in
+            assertConfigurationError(error, containing: "background")
+        }
+    }
+
+    func testBackgroundURLSessionConfigurationReplacementIsRejectedAtOpen() async throws {
+        var configuration = try ProducerConfiguration(destination: Destination(
+            endpoint: "https://tls-test.example", region: "cn-beijing",
+            projectID: "project", topicID: "topic"))
+        configuration.urlSessionConfiguration = .background(withIdentifier: "tls.test.background-open")
+
+        do {
+            let producer = try await Producer.open(configuration: configuration, credentials: .testing)
+            try await producer.close(timeout: 1)
+            XCTFail("expected a background session configuration to fail at open")
+        } catch let error as ProducerError {
+            assertConfigurationError(error, containing: "background")
+        }
+    }
 
     func testCallerURLSessionConfigurationIsSanitized() throws {
         let sessionConfig = URLSessionConfiguration.ephemeral

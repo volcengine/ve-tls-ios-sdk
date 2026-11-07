@@ -131,7 +131,7 @@ final class ProducerIntegrationTests: XCTestCase {
 
     // MARK: - Fixtures (producer-visible construction only)
 
-    private static let producerUserAgent = "volc-tls-ios/producer/v2.0.2"
+    private static let producerUserAgent = "volc-tls-ios/producer/v2.0.3"
     private static let apiVersion = "0.3.0"
     private static let endpoint = "https://producer.stub.local"
     private static let region = "cn-beijing"
@@ -419,7 +419,7 @@ final class ProducerIntegrationTests: XCTestCase {
         XCTAssertEqual(config.requestTimeout, 90, accuracy: 0.0001)
 
         // Expiry / unauthorized
-        XCTAssertEqual(config.maxLogAge, 7 * 24 * 60 * 60, accuracy: 0.0001)
+        XCTAssertEqual(config.maxLogAge, 0, accuracy: 0.0001)
         XCTAssertEqual(config.expiredLogPolicy, .rewriteTimestamp)
         XCTAssertEqual(config.unauthorizedPolicy, .retain)
 

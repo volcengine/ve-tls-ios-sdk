@@ -39,7 +39,7 @@ public enum Persistence: Equatable, Sendable {
     case sync
 }
 
-/// Policy for logs older than `maxLogAge`.
+/// Policy for WAL records older than a positive `maxLogAge` during recovery.
 public enum ExpiredLogPolicy: Equatable, Sendable {
     /// Rewrite the timestamp to the current time before sending.
     case rewriteTimestamp
@@ -114,6 +114,9 @@ public struct ProducerConfiguration: Sendable {
     internal static let maxBufferBytes = 256 * 1024 * 1024
     internal static let maxSendConcurrency = 8
 
+    internal static let unsupportedBackgroundSessionReason =
+        "urlSessionConfiguration does not support background sessions. Use .default or .ephemeral."
+
     public var batch: BatchConfiguration
     public var buffer: BufferConfiguration
     /// Number of Core sender threads. Valid range: 1...8.
@@ -140,6 +143,8 @@ public struct ProducerConfiguration: Sendable {
     public var diagnosticHandler: (@Sendable (ProducerDiagnosticLogLevel, String) -> Void)?
     internal var diagnosticEmitter: DiagnosticEmitter?
     public var metadata: ProducerMetadata
+    /// Maximum WAL age in whole seconds during recovery. The default, zero,
+    /// disables expiration and preserves the original event timestamp.
     public var maxLogAge: TimeInterval
     public var expiredLogPolicy: ExpiredLogPolicy
     public var unauthorizedPolicy: UnauthorizedPolicy
@@ -152,6 +157,7 @@ public struct ProducerConfiguration: Sendable {
     /// cache/cookie/credential store). The initializer defensively clears
     /// `urlCache`, `httpCookieStorage`, `urlCredentialStorage`, and disables
     /// automatic cookies even for caller-supplied configurations.
+    /// Only default and ephemeral sessions are supported.
     public var urlSessionConfiguration: URLSessionConfiguration
 
     /// Whether the SDK manages iOS app lifecycle notifications (background
@@ -186,7 +192,7 @@ public struct ProducerConfiguration: Sendable {
         diagnosticLogLevel: ProducerDiagnosticLogLevel = .info,
         diagnosticHandler: (@Sendable (ProducerDiagnosticLogLevel, String) -> Void)? = nil,
         metadata: ProducerMetadata = ProducerMetadata(),
-        maxLogAge: TimeInterval = 7 * 24 * 60 * 60,
+        maxLogAge: TimeInterval = 0,
         expiredLogPolicy: ExpiredLogPolicy = .rewriteTimestamp,
         unauthorizedPolicy: UnauthorizedPolicy = .retain,
         callbackQueue: DispatchQueue = DispatchQueue(
@@ -262,19 +268,7 @@ public struct ProducerConfiguration: Sendable {
         }
 
         // --- normalization ----------------------------------------------
-        // Copy before sanitizing: the caller's instance must not be mutated
-        // The configuration is copied before the session is built; the
-        // session configuration is not hot-updated afterwards.
-        guard let sanitizedSessionConfiguration = urlSessionConfiguration.copy()
-            as? URLSessionConfiguration else {
-            throw ProducerError.configuration(
-                "urlSessionConfiguration could not be copied")
-        }
-        // Guarantee no on-disk caches/stores regardless of caller input.
-        sanitizedSessionConfiguration.urlCache = nil
-        sanitizedSessionConfiguration.httpCookieStorage = nil
-        sanitizedSessionConfiguration.urlCredentialStorage = nil
-        sanitizedSessionConfiguration.httpShouldSetCookies = false
+        let sanitizedSessionConfiguration = try Self.validatedSessionConfiguration(urlSessionConfiguration)
 
         self.batch = batch
         self.buffer = buffer
@@ -382,15 +376,8 @@ public struct ProducerConfiguration: Sendable {
             throw ProducerError.configuration("destination is required")
         }
 
-        guard let sanitizedSessionConfiguration = urlSessionConfiguration.copy()
-            as? URLSessionConfiguration else {
-            throw ProducerError.configuration(
-                "urlSessionConfiguration could not be copied")
-        }
-        Self.sanitize(sanitizedSessionConfiguration)
-
         var validated = self
-        validated.urlSessionConfiguration = sanitizedSessionConfiguration
+        validated.urlSessionConfiguration = try Self.validatedSessionConfiguration(urlSessionConfiguration)
         return validated
     }
 
@@ -442,13 +429,15 @@ public struct ProducerConfiguration: Sendable {
         guard value.isFinite else {
             throw ProducerError.configuration("\(name) must be finite")
         }
-        guard value > 0 else {
-            throw ProducerError.configuration("\(name) must be greater than 0")
+        guard value >= 0 else {
+            throw ProducerError.configuration("\(name) must be non-negative")
         }
         guard value.rounded() == value else {
             throw ProducerError.configuration("\(name) must be representable in whole seconds")
         }
-        guard value <= Double(Int64.max) / 1_000 else {
+        // Double rounds this boundary up to the next representable integer;
+        // that value already exceeds the bridge's Int64.max / 1_000 limit.
+        guard value < Double(Int64.max) / 1_000 else {
             throw ProducerError.configuration(
                 "\(name) exceeds the supported integer millisecond range")
         }
@@ -472,11 +461,21 @@ public struct ProducerConfiguration: Sendable {
         }
     }
 
-    private static func sanitize(_ configuration: URLSessionConfiguration) {
-        configuration.urlCache = nil
-        configuration.httpCookieStorage = nil
-        configuration.urlCredentialStorage = nil
-        configuration.httpShouldSetCookies = false
+    private static func validatedSessionConfiguration(
+        _ configuration: URLSessionConfiguration
+    ) throws -> URLSessionConfiguration {
+        // Copy before sanitizing so the caller's configuration stays untouched.
+        guard let copy = configuration.copy() as? URLSessionConfiguration else {
+            throw ProducerError.configuration("urlSessionConfiguration could not be copied")
+        }
+        guard copy.identifier == nil else {
+            throw ProducerError.configuration(unsupportedBackgroundSessionReason)
+        }
+        copy.urlCache = nil
+        copy.httpCookieStorage = nil
+        copy.urlCredentialStorage = nil
+        copy.httpShouldSetCookies = false
+        return copy
     }
 }
 

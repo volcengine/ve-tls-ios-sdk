@@ -455,6 +455,7 @@ public final class TLSProducerConfiguration: NSObject {
     public var metadataFileName: String?
     public var metadataTags: [String: String]
 
+    /// WAL recovery age in whole seconds. Zero (the default) disables expiry.
     public var maxLogAge: TimeInterval
     public var expiredLogPolicy: TLSExpiredLogPolicy
     public var unauthorizedPolicy: TLSUnauthorizedPolicy
@@ -822,9 +823,9 @@ public final class TLSProducer: NSObject, @unchecked Sendable {
     }
 
     /// Converts every current ProducerError case to a stable ObjC NSError.
-    /// Associated text is intentionally not copied into userInfo or the
-    /// localized description. Unknown Error values use code 0 and a generic
-    /// description so arbitrary underlying text cannot escape this boundary.
+    /// Descriptions come from fixed safe messages. Unknown Error values use
+    /// code 0 and a generic description so arbitrary underlying text cannot
+    /// escape this boundary.
     internal static func makeNSError(_ error: Error) -> NSError {
         guard let producerError = error as? ProducerError else {
             return NSError(
@@ -870,6 +871,8 @@ public final class TLSProducer: NSObject, @unchecked Sendable {
 private extension ProducerError {
     var safeDescription: String {
         switch self {
+        case .configuration(let reason) where reason == ProducerConfiguration.unsupportedBackgroundSessionReason:
+            return ProducerConfiguration.unsupportedBackgroundSessionReason
         case .configuration:
             return "TLS producer configuration is invalid."
         case .invalidLog:

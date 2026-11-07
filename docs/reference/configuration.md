@@ -27,6 +27,8 @@
 
 ## ProducerConfiguration
 
+从 2.0.3 起，`maxLogAge` 默认值为 0。2.0.1 和 2.0.2 默认值为 7 天，且不接受 0。
+
 | 参数 | 类型 | 默认值 | 约束与语义 |
 |---|---|---:|---|
 | `batch` | `BatchConfiguration` | 见上表 | 打开时冻结 |
@@ -43,11 +45,11 @@
 | `diagnosticLogLevel` | `ProducerDiagnosticLogLevel` | `.info` | 只过滤文本 `diagnosticHandler`；`.off` 不关闭结构化 `onDiagnostic` |
 | `diagnosticHandler` | `(@Sendable (ProducerDiagnosticLogLevel, String) -> Void)?` | `nil` | 可选的安全 JSON 文本回调；由 SDK 独立的串行诊断队列投递 |
 | `metadata` | `ProducerMetadata` | 平台默认 | 可使用空字符串或空 tags；字符串不支持 NUL |
-| `maxLogAge` | `TimeInterval` | 7 天 | 大于 0、有限、整秒且不溢出 64 位毫秒 |
-| `expiredLogPolicy` | `ExpiredLogPolicy` | `.rewriteTimestamp` | 过期日志改写当前时间或丢弃 |
+| `maxLogAge` | `TimeInterval` | 0 | 非负、有限、整秒且不溢出 64 位毫秒；0 表示恢复 WAL 时不检查过期时间 |
+| `expiredLogPolicy` | `ExpiredLogPolicy` | `.rewriteTimestamp` | `maxLogAge` 大于 0 时，对恢复的过期日志改写当前时间或丢弃 |
 | `unauthorizedPolicy` | `UnauthorizedPolicy` | `.retain` | 401/403 后保留或丢弃 |
 | `callbackQueue` | `DispatchQueue` | SDK 串行 utility 队列 | 指定回调执行环境；SDK 使用私有串行投递队列保证结果串行 |
-| `urlSessionConfiguration` | `URLSessionConfiguration` | `.ephemeral` | 打开时复制并清除 cache、Cookie 和 credential storage |
+| `urlSessionConfiguration` | `URLSessionConfiguration` | `.ephemeral` | 支持 `.default` 和 `.ephemeral`。传入 `.background` 时返回配置错误。配置会被复制，并清除 cache、Cookie 和 credential storage |
 | `automaticLifecycleHandling` | `Bool` | iOS App 为 `true`；Extension/macOS 为 `false` | macOS 上无效果 |
 | `producerID` | `String?` | `nil` | `.buffered` / `.sync` 必填；字符集 `[A-Za-z0-9._-]`；最多 64 字节；不能为 `.` / `..` |
 | `destination` | `Destination?` | `nil` | 公共 `Producer.open` 必填 |
@@ -122,8 +124,11 @@ Producer，也不得同步等待自身文件回调。诊断仅观察，不改变
 
 ### ExpiredLogPolicy
 
-- `.rewriteTimestamp`：发送前将过期日志时间改为当前时间；
-- `.drop`：丢弃过期日志。
+该策略只在 `maxLogAge` 大于 0 时用于 WAL 恢复。过期时间从日志写入 WAL 时开始计算；
+默认 `maxLogAge = 0` 不检查过期时间，保留原事件时间，不应用此策略。
+
+- `.rewriteTimestamp`：将恢复的过期日志的 protobuf Time 改为当前时间，业务字段不变；
+- `.drop`：丢弃恢复的过期日志。
 
 ### UnauthorizedPolicy
 
@@ -158,6 +163,9 @@ Metadata 对整个 Producer 生效，不由单条 `LogEvent` 覆盖。不需要�
 
 ## 配置示例
 
+以下示例保留原始事件时间；需要在恢复 WAL 时检查过期记录，可显式设置正整数秒并选择
+`expiredLogPolicy`。
+
 ```swift
 let configuration = try ProducerConfiguration(
     batch: BatchConfiguration(
@@ -187,7 +195,7 @@ let configuration = try ProducerConfiguration(
         source: "my-app",
         tags: ["environment": "production"]
     ),
-    maxLogAge: 7 * 24 * 60 * 60,
+    maxLogAge: 0,
     expiredLogPolicy: .rewriteTimestamp,
     unauthorizedPolicy: .retain,
     producerID: "main-app",
