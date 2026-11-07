@@ -82,6 +82,12 @@ let recovered = try await Producer.open(
 或后台路径。
 恢复批次使用重新打开时提供的当前凭证和目标；WAL 不用于固定历史目标。
 
+从 2.0.3 起默认 `maxLogAge = 0`，恢复 WAL 时不检查记录是否过期，protobuf Time 保持事件原始时间，
+与日志内容中的业务时间字段一样不会改写。若显式设置正整数秒，SDK 按记录写入 WAL 的时间
+计算是否过期：默认 `.rewriteTimestamp` 将过期记录的 protobuf Time 改为恢复时的当前时间，
+不修改业务字段；`.drop` 则丢弃过期记录。`expiredLogPolicy` 在 `maxLogAge = 0` 时不生效。
+已发布的 2.0.1 和 2.0.2 默认值为 7 天，且不接受 `maxLogAge = 0`。
+
 ## at-least-once 边界
 
 以下窗口可能产生重复日志：

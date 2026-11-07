@@ -37,6 +37,7 @@ final class ObjectiveCFacadeTests: XCTestCase {
                        swiftConfiguration.metadata.tags)
         XCTAssertEqual(objcConfiguration.maxLogAge,
                        swiftConfiguration.maxLogAge)
+        XCTAssertEqual(objcConfiguration.maxLogAge, 0)
         XCTAssertEqual(objcConfiguration.automaticLifecycleHandling,
                        swiftConfiguration.automaticLifecycleHandling)
         XCTAssertEqual(objcConfiguration.producerID,
@@ -48,6 +49,17 @@ final class ObjectiveCFacadeTests: XCTestCase {
         XCTAssertNil(swiftConfiguration.urlSessionConfiguration.httpCookieStorage)
         XCTAssertNil(swiftConfiguration.urlSessionConfiguration.urlCredentialStorage)
         XCTAssertFalse(swiftConfiguration.urlSessionConfiguration.httpShouldSetCookies)
+    }
+
+    func testConfigurationAcceptsExplicitZeroMaxLogAge() throws {
+        let objcConfiguration = TLSProducerConfiguration()
+        objcConfiguration.maxLogAge = 0
+        objcConfiguration.expiredLogPolicy = .drop
+
+        let swiftConfiguration = try objcConfiguration.swiftValue()
+        XCTAssertEqual(swiftConfiguration.maxLogAge, 0)
+        XCTAssertEqual(swiftConfiguration.expiredLogPolicy, .drop)
+        XCTAssertEqual(try swiftConfiguration.validatedForOpen(requireDestination: false).maxLogAge, 0)
     }
 
     func testConfigurationMapsEveryFlattenedField() throws {
@@ -329,6 +341,28 @@ final class ObjectiveCFacadeTests: XCTestCase {
         XCTAssertEqual(recording.updateDestinationCalls.last,
                        newDestination.swiftValue())
         try await swiftProducer.close(timeout: 1)
+    }
+
+    func testOpenRejectsBackgroundURLSessionConfiguration() async {
+        let configuration = TLSProducerConfiguration()
+        configuration.destination = TLSDestination(
+            endpoint: "https://tls-test.example", region: "cn-beijing",
+            projectID: "project", topicID: "topic")
+        let identifier = "tls.test.objc-background-open"
+        configuration.urlSessionConfiguration = .background(withIdentifier: identifier)
+        let completion = expectation(description: "configuration rejection")
+
+        TLSProducer.open(with: configuration, credentials: TLSCredentials(
+            accessKeyID: "ak", accessKeySecret: UUID().uuidString)) { producer, error in
+            XCTAssertNil(producer)
+            XCTAssertEqual(error?.domain, TLSProducer.errorDomain)
+            XCTAssertEqual(error?.code, TLSProducerErrorCode.configuration.rawValue)
+            XCTAssertTrue(error?.localizedDescription.contains("background") == true)
+            XCTAssertFalse(error?.localizedDescription.contains(identifier) == true)
+            completion.fulfill()
+        }
+
+        await fulfillment(of: [completion], timeout: 2)
     }
 
     func testOpenSnapshotsConfigurationBeforeTaskAndCompletesOnQueue() async {

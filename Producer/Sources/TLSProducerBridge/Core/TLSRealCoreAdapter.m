@@ -42,7 +42,7 @@ static const NSInteger kTLSMaxBufferBytes = 256 * 1024 * 1024;
 static const NSInteger kTLSMaxSendConcurrency = 8;
 static NSString *const kTLSProcessLockFileName = @".ios-producer.lock";
 static NSString *const kTLSCoreLeaseFileName = @"lease";
-static const char *const kTLSProducerUserAgent = "volc-tls-ios/producer/v2.0.2";
+static const char *const kTLSProducerUserAgent = "volc-tls-ios/producer/v2.0.3";
 
 /// The callback context is deliberately independent from the adapter object.
 /// C Core stores a raw user pointer; keeping this object alive through Core

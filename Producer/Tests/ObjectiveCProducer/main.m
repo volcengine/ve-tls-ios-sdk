@@ -16,7 +16,7 @@
 @import VolcengineTLSProducer;
 
 static NSString *const TLSExpectedProducerUserAgent =
-    @"volc-tls-ios/producer/v2.0.2";
+    @"volc-tls-ios/producer/v2.0.3";
 static NSString *const TLSExpectedAPIVersion = @"0.3.0";
 
 static void TLSRequire(BOOL condition, NSString *message) {
@@ -611,7 +611,8 @@ static TLSProducerConfiguration *TLSMakeConfiguration(void) {
                configuration.requestTimeout == 90.0 &&
                configuration.requestIdleTimeout == 50.0 &&
                configuration.retryTransientHTTPResponses &&
-               configuration.memoryRetryRetention == 0.0,
+               configuration.memoryRetryRetention == 0.0 &&
+               configuration.maxLogAge == 0.0,
                @"Objective-C delivery defaults do not match the Swift contract");
     TLSDestination *destination = [[TLSDestination alloc]
         initWithEndpoint:@"https://objc-producer.invalid"
@@ -640,7 +641,7 @@ static TLSProducerConfiguration *TLSMakeConfiguration(void) {
     configuration.metadataSource = @"";
     configuration.metadataFileName = nil;
     configuration.metadataTags = @{};
-    configuration.maxLogAge = 7.0 * 24.0 * 60.0 * 60.0;
+    configuration.maxLogAge = 0.0;
     configuration.expiredLogPolicy = TLSExpiredLogPolicyRewriteTimestamp;
     configuration.unauthorizedPolicy = TLSUnauthorizedPolicyRetain;
     // Keep all fixture state on the main queue. The run loop below services

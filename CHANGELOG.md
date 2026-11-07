@@ -2,6 +2,14 @@
 
 VolcengineTLSProducer 的重要用户可见变更记录在此文件中。
 
+## 2.0.3
+
+- 集成 C Core `v0.3.5`。
+- 修复 WAL 确认存在缺口时，已确认日志在重启后被重复恢复的问题。修复 WAL 记录编号复用可能导致新日志被跳过的问题。
+- `maxLogAge` 默认改为 0，WAL 恢复时保留原始事件时间。显式设置正整数秒时，仍按 `expiredLogPolicy` 处理过期记录。
+- 修复 `maxLogAge` 上界因浮点舍入放过 64 位毫秒溢出的配置校验问题。
+- `urlSessionConfiguration` 传入 `.background` 时，在打开 Producer 前返回配置错误。请使用 `.default` 或 `.ephemeral`。
+
 ## 2.0.2 — 2026-10-20
 
 - Core 来源切换为已发布的 `v0.3.4`，移除临时交付策略补丁；登记正式 tag 的来源提交与文件校验值。

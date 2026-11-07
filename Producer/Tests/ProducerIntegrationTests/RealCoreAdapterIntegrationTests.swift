@@ -25,6 +25,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         var responseDelays: [String: TimeInterval] = [:]
         var hangingPaths: Set<String> = []
         var scriptedOutcomes: [String: [ScriptedOutcome]] = [:]
+        var eventResponses: [String: [String: (HTTPURLResponse, Data)]] = [:]
         var requestLog: [(url: String, body: Data?, headers: [String: String])] = []
         var requestExpectation: XCTestExpectation?
     }
@@ -46,6 +47,46 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
             headerFields: requestID.map { [requestIDHeaderName: $0] })!
         registry.stubbedResponses[path] = (response, body)
         registry.responseDelays[path] = delay
+        registry.hangingPaths.remove(path)
+        registry.scriptedOutcomes.removeValue(forKey: path)
+        registry.eventResponses.removeValue(forKey: path)
+    }
+
+    /// Matches the complete uncompressed protobuf Log.Content field, not a
+    /// substring of an arbitrary value. These short ASCII IDs fit in one-byte
+    /// protobuf lengths and are the only contents in the gap-recovery test.
+    static func eventIDs(in body: Data, candidates: [String]) -> [String] {
+        candidates.filter { eventID in
+            let value = Data(eventID.utf8)
+            precondition(value.count < 116)
+            var content = Data([0x0a, 0x08]) // Content.key
+            content.append(Data("event_id".utf8))
+            content.append(contentsOf: [0x12, UInt8(value.count)]) // Content.value
+            content.append(value)
+            var field = Data([0x12, UInt8(content.count)]) // Log.contents
+            field.append(content)
+            return body.range(of: field) != nil
+        }
+    }
+
+    /// Route each request by its actual event_id, regardless of request order.
+    static func setEventResponses(_ statuses: [String: Int], forPath path: String) {
+        registry.lock.lock()
+        defer { registry.lock.unlock() }
+        registry.eventResponses[path] = statuses.reduce(into: [:]) { responses, item in
+            let (eventID, status) = item
+            let response = HTTPURLResponse(
+                url: URL(string: "https://stub.local\(path)")!,
+                statusCode: status,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["x-tls-request-id": "gap-\(eventID)-\(status)"])!
+            let body = status == 400
+                ? Data("{\"errorCode\":\"InvalidArgument\",\"errorMessage\":\"fixture\"}".utf8)
+                : Data()
+            responses[eventID] = (response, body)
+        }
+        registry.stubbedResponses.removeValue(forKey: path)
+        registry.responseDelays.removeValue(forKey: path)
         registry.hangingPaths.remove(path)
         registry.scriptedOutcomes.removeValue(forKey: path)
     }
@@ -73,6 +114,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
                 response: (response, body), error: nil, delay: delay, hangs: false)
         }
         registry.hangingPaths.remove(path)
+        registry.eventResponses.removeValue(forKey: path)
     }
 
     /// Installs a finite NSError script for one path. This is used only for
@@ -100,6 +142,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
                 hangs: false)
         }
         registry.hangingPaths.remove(path)
+        registry.eventResponses.removeValue(forKey: path)
     }
 
     static func setHanging(forPath path: String) {
@@ -109,6 +152,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         registry.stubbedResponses.removeValue(forKey: path)
         registry.responseDelays.removeValue(forKey: path)
         registry.scriptedOutcomes.removeValue(forKey: path)
+        registry.eventResponses.removeValue(forKey: path)
     }
 
     static func recordedRequests() -> [(url: String, body: Data?, headers: [String: String])] {
@@ -130,6 +174,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         registry.responseDelays.removeAll()
         registry.hangingPaths.removeAll()
         registry.scriptedOutcomes.removeAll()
+        registry.eventResponses.removeAll()
         registry.requestLog.removeAll()
         registry.requestExpectation = nil
     }
@@ -167,6 +212,7 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         let path = request.url?.path ?? "/"
+        let requestBody = Self.bodyData(for: request)
         Self.registry.lock.lock()
         let scripted: Registry.ScriptedOutcome?
         if var outcomes = Self.registry.scriptedOutcomes[path], !outcomes.isEmpty {
@@ -177,15 +223,35 @@ final class RealCoreStubURLProtocol: URLProtocol, @unchecked Sendable {
         }
         let isHanging = Self.registry.hangingPaths.contains(path)
         let stub = Self.registry.stubbedResponses[path]
+        let eventResponses = Self.registry.eventResponses[path]
         let delay = Self.registry.responseDelays[path] ?? 0
         Self.registry.requestLog.append((
             url: request.url?.absoluteString ?? "",
-            body: Self.bodyData(for: request),
+            body: requestBody,
             headers: request.allHTTPHeaderFields ?? [:]))
         let requestExpectation = Self.registry.requestExpectation
         Self.registry.requestExpectation = nil
         Self.registry.lock.unlock()
         requestExpectation?.fulfill()
+
+        if let eventResponses {
+            let matches = requestBody.map {
+                Self.eventIDs(in: $0, candidates: Array(eventResponses.keys))
+            } ?? []
+            guard matches.count == 1, let response = eventResponses[matches[0]] else {
+                let error = NSError(domain: "RealCoreStub", code: 400,
+                                    userInfo: [NSLocalizedDescriptionKey:
+                                        "expected exactly one configured event_id in the request"])
+                client?.urlProtocol(self, didFailWithError: error)
+                return
+            }
+            client?.urlProtocol(self, didReceive: response.0, cacheStoragePolicy: .notAllowed)
+            if !response.1.isEmpty {
+                client?.urlProtocol(self, didLoad: response.1)
+            }
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
 
         if isHanging || scripted?.hangs == true {
             // Deliberately do not call any URLProtocol client callback. The
@@ -396,10 +462,12 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
     private func installCallback(
         on adapter: TLSRealCoreAdapter,
         collector: BridgeCallbackCollector,
-        expectation: XCTestExpectation,
+        expectation: XCTestExpectation? = nil,
         expectedValueCount: Int = 1
     ) {
-        collector.waitFor(expectation, expectedValueCount: expectedValueCount)
+        if let expectation {
+            collector.waitFor(expectation, expectedValueCount: expectedValueCount)
+        }
         adapter.onSendResult = {
             result, rawBytes, compressedBytes, httpCode, errorCode, errorMessage,
             requestID, transportKind, transportCode, retryable, startID, endID in
@@ -1530,6 +1598,131 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
 
     // MARK: - Real bridge acceptance coverage
 
+    func testWALRecoveryPreservesOrExpiresOriginalEventTime() async throws {
+        // One v2 Core WAL record: enqueue time and PB Time are both
+        // 2023-11-14T22:13:20Z; the content contains the same business time.
+        // Seed a freshly closed Core directory with this fixed, CRC-valid
+        // record so the test does not wait seven days or alter a live WAL.
+        let record = try XCTUnwrap(Data(base64Encoded:
+            "MUxQVHYAAAABAAAAAAAAAAEAAADXbSgTFAAAAAIAEAACAAAAAGjlz4sBAABE9OE5" +
+            "CkQIgNCV/7wxEhUKBHRpbWUSDTE3MDAwMDAwMDAwMDASJAoIZXZlbnRfaWQSGHNh" +
+            "bWUtZXZlbnQtb3JpZ2luYWwtdGltZQ=="))
+        let eventTime: UInt64 = 1_700_000_000_000
+        let scenarios: [(name: String, maxLogAge: TimeInterval?, policy: ExpiredLogPolicy, expected: String)] = [
+            ("default", nil, .rewriteTimestamp, "preserved"),
+            ("zero", 0, .rewriteTimestamp, "preserved"),
+            ("zero-drop", 0, .drop, "preserved"),
+            ("rewrite", 7 * 24 * 60 * 60, .rewriteTimestamp, "rewritten"),
+            ("drop", 7 * 24 * 60 * 60, .drop, "dropped"),
+        ]
+
+        for scenario in scenarios {
+            RealCoreStubURLProtocol.reset()
+            RealCoreStubURLProtocol.setResponse(statusCode: 200, forPath: "/PutLogs")
+            var configuration = try makeConfig(persistent: true)
+            configuration.compression = .disabled
+            configuration.batch.maxLogCount = 1
+            configuration.batch.linger = 0.05
+            configuration.expiredLogPolicy = scenario.policy
+            if let maxLogAge = scenario.maxLogAge {
+                configuration.maxLogAge = maxLogAge
+            }
+
+            let producerID = try XCTUnwrap(configuration.producerID)
+            let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+            _ = try TLSProducerDirectory.createDirectory(at: directory)
+            defer { try? FileManager.default.removeItem(at: directory) }
+
+            let bootstrap = try makeBridgeAdapter(
+                persistenceMode: .sync,
+                persistentDirectory: directory.path)
+            try bootstrap.open()
+            try bootstrap.close(withTimeout: 5)
+            try record.write(to: directory.appendingPathComponent("seg-000001.log"))
+
+            let recoveryStart = UInt64(Date().timeIntervalSince1970 * 1_000)
+            let producer = try await Producer.open(
+                configuration: configuration,
+                credentials: makeCredentials())
+            if scenario.expected != "dropped" {
+                try await waitForCondition(timeout: 5) {
+                    !RealCoreStubURLProtocol.recordedRequests().isEmpty
+                }
+            }
+            try await producer.close(timeout: 5)
+
+            let requests = RealCoreStubURLProtocol.recordedRequests()
+            if scenario.expected == "dropped" {
+                XCTAssertTrue(requests.isEmpty, scenario.name)
+                // Reopen with expiry disabled: a dropped record must not be
+                // left pending and sent by a subsequent recovery.
+                configuration.maxLogAge = 0
+                let reopened = try await Producer.open(
+                    configuration: configuration,
+                    credentials: makeCredentials())
+                try await reopened.close(timeout: 5)
+                XCTAssertTrue(RealCoreStubURLProtocol.recordedRequests().isEmpty, scenario.name)
+                continue
+            }
+
+            XCTAssertEqual(requests.count, 1, scenario.name)
+            let body = try XCTUnwrap(requests.first?.body, scenario.name)
+            let decoded = try decodeRecoveryRequest(body)
+            XCTAssertEqual(decoded.contents["time"], String(eventTime), scenario.name)
+            XCTAssertEqual(decoded.contents["event_id"], "same-event-original-time", scenario.name)
+            if scenario.expected == "preserved" {
+                XCTAssertEqual(decoded.time, eventTime, scenario.name)
+            } else {
+                XCTAssertGreaterThanOrEqual(decoded.time, recoveryStart, scenario.name)
+                XCTAssertLessThanOrEqual(decoded.time, UInt64(Date().timeIntervalSince1970 * 1_000), scenario.name)
+            }
+        }
+    }
+
+    private func decodeRecoveryRequest(_ data: Data) throws -> (time: UInt64, contents: [String: String]) {
+        func readVarint(_ bytes: [UInt8], _ offset: inout Int) throws -> UInt64 {
+            var value: UInt64 = 0
+            for shift in stride(from: 0, to: 64, by: 7) {
+                let byte = try XCTUnwrap(offset < bytes.count ? bytes[offset] : nil)
+                offset += 1
+                value |= UInt64(byte & 0x7f) << shift
+                if byte & 0x80 == 0 { return value }
+            }
+            throw NSError(domain: "RecoveryTestProtobuf", code: 1)
+        }
+
+        func readMessage(_ bytes: [UInt8], _ offset: inout Int) throws -> [UInt8] {
+            let size = try XCTUnwrap(Int(exactly: readVarint(bytes, &offset)))
+            let end = try XCTUnwrap(size <= bytes.count - offset ? offset + size : nil)
+            defer { offset = end }
+            return Array(bytes[offset..<end])
+        }
+
+        let bytes = Array(data)
+        var offset = 0
+        XCTAssertEqual(try readVarint(bytes, &offset), 10) // LogGroupList.groups
+        let group = try readMessage(bytes, &offset)
+        var groupOffset = 0
+        XCTAssertEqual(try readVarint(group, &groupOffset), 10) // LogGroup.logs
+        let log = try readMessage(group, &groupOffset)
+        var logOffset = 0
+        XCTAssertEqual(try readVarint(log, &logOffset), 8) // Log.time
+        let time = try readVarint(log, &logOffset)
+        var contents: [String: String] = [:]
+        while logOffset < log.count {
+            XCTAssertEqual(try readVarint(log, &logOffset), 18) // Log.contents
+            let content = try readMessage(log, &logOffset)
+            var contentOffset = 0
+            XCTAssertEqual(try readVarint(content, &contentOffset), 10)
+            let key = String(decoding: try readMessage(content, &contentOffset), as: UTF8.self)
+            XCTAssertEqual(try readVarint(content, &contentOffset), 18)
+            let value = String(decoding: try readMessage(content, &contentOffset), as: UTF8.self)
+            XCTAssertEqual(contentOffset, content.count)
+            contents[key] = value
+        }
+        return (time, contents)
+    }
+
     /// The persistent path is exercised through the ObjC bridge directly so
     /// this test can inspect the actual Core files rather than only the Swift
     /// facade's configuration values. The UUID keeps cleanup scoped to this
@@ -2158,6 +2351,266 @@ final class RealCoreAdapterIntegrationTests: XCTestCase {
         XCTAssertEqual(callback.first?.result, 0)
         XCTAssertEqual(callback.first?.requestID, "retry-cycle-resumed")
         try adapter.close(withTimeout: 5)
+    }
+
+    func testBufferedRecoveryDoesNotReplaySuccessBeyondFailedGap() async throws {
+        try await assertRecoveryDoesNotReplaySuccessBeyondFailedGap(.buffered)
+    }
+
+    func testSyncRecoveryDoesNotReplaySuccessBeyondFailedGap() async throws {
+        try await assertRecoveryDoesNotReplaySuccessBeyondFailedGap(.sync)
+    }
+
+    private func assertRecoveryDoesNotReplaySuccessBeyondFailedGap(
+        _ persistenceMode: TLSRealCoreAdapterPersistenceMode
+    ) async throws {
+        let modeName = persistenceMode == .buffered ? "buffered" : "sync"
+        let producerID = "bridge-gap-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // The same key is used for all three batches. A terminal HTTP 400
+        // leaves B pending in WAL but must not block C from completing.
+        let eventIDs = ["gap-event-A", "gap-event-B", "gap-event-C"]
+        RealCoreStubURLProtocol.reset()
+        RealCoreStubURLProtocol.setEventResponses([
+            eventIDs[0]: 200, eventIDs[1]: 400, eventIDs[2]: 200,
+        ], forPath: "/PutLogs")
+        let callback = BridgeCallbackCollector()
+        let initialResults = expectation(description: "A and C succeed; B fails with HTTP 400")
+        let adapter = try makeBridgeAdapter(
+            requestTimeout: 1,
+            lz4Enabled: false,
+            maxLogCount: 1,
+            persistenceMode: persistenceMode,
+            persistentDirectory: directory.path)
+        installCallback(on: adapter, collector: callback,
+                        expectation: initialResults, expectedValueCount: 3)
+        try adapter.open()
+
+        for (index, eventID) in eventIDs.enumerated() {
+            try adapter.addLog(
+                withTimestamp: Int64(Date().timeIntervalSince1970 * 1_000),
+                hashKey: nil as String?,
+                contents: ["event_id": eventID],
+                flush: true)
+            try await waitForCondition(timeout: 5) { callback.count > index }
+            let result = try XCTUnwrap(callback.all.dropFirst(index).first)
+            XCTAssertEqual(result.startID, Int64(index + 1), modeName)
+            XCTAssertEqual(result.endID, Int64(index + 1), modeName)
+            XCTAssertEqual(result.httpCode, index == 1 ? 400 : 200, modeName)
+            if index == 1 {
+                XCTAssertNotEqual(result.result, 0, modeName)
+                XCTAssertFalse(result.retryable, modeName)
+            } else {
+                XCTAssertEqual(result.result, 0, modeName)
+            }
+        }
+        await fulfillment(of: [initialResults], timeout: 5)
+        try adapter.close(withTimeout: 5)
+
+        let initialRequests = RealCoreStubURLProtocol.recordedRequests()
+        XCTAssertEqual(initialRequests.count, 3, modeName)
+        for (index, request) in initialRequests.enumerated() {
+            let body = try XCTUnwrap(request.body)
+            XCTAssertEqual(
+                RealCoreStubURLProtocol.eventIDs(in: body, candidates: eventIDs),
+                index < eventIDs.count ? [eventIDs[index]] : [], modeName)
+        }
+
+        // Reopen the very same WAL without adding logs. B must still be sent;
+        // C was acknowledged before close and must not be sent again.
+        RealCoreStubURLProtocol.reset()
+        RealCoreStubURLProtocol.setEventResponses([
+            eventIDs[0]: 200, eventIDs[1]: 200, eventIDs[2]: 200,
+        ], forPath: "/PutLogs")
+        let recoveredCallback = BridgeCallbackCollector()
+        let recoveredSuccess = expectation(description: "B succeeds after recovery")
+        let recovered = try makeBridgeAdapter(
+            requestTimeout: 1,
+            lz4Enabled: false,
+            maxLogCount: 1,
+            persistenceMode: persistenceMode,
+            persistentDirectory: directory.path)
+        installCallback(on: recovered, collector: recoveredCallback, expectation: recoveredSuccess)
+        try recovered.open()
+        await fulfillment(of: [recoveredSuccess], timeout: 5)
+        try recovered.close(withTimeout: 5)
+
+        let recoveredRequests = RealCoreStubURLProtocol.recordedRequests()
+        let recoveredEventIDs = try recoveredRequests.flatMap { request in
+            RealCoreStubURLProtocol.eventIDs(in: try XCTUnwrap(request.body), candidates: eventIDs)
+        }
+        XCTAssertEqual(recoveredEventIDs, [eventIDs[1]],
+                       "\(modeName): only the failed B may be replayed")
+        XCTAssertEqual(recoveredRequests.count, 1, modeName)
+        XCTAssertEqual(recoveredCallback.first?.result, 0, modeName)
+        XCTAssertEqual(recoveredCallback.first?.startID, 2, modeName)
+        XCTAssertEqual(recoveredCallback.first?.endID, 2, modeName)
+
+        RealCoreStubURLProtocol.reset()
+        RealCoreStubURLProtocol.setEventResponses([
+            eventIDs[0]: 200, eventIDs[1]: 200, eventIDs[2]: 200,
+        ], forPath: "/PutLogs")
+        let reopened = try makeBridgeAdapter(
+            requestTimeout: 1,
+            lz4Enabled: false,
+            maxLogCount: 1,
+            persistenceMode: persistenceMode,
+            persistentDirectory: directory.path)
+        try reopened.open()
+        try reopened.close(withTimeout: 5)
+        XCTAssertTrue(RealCoreStubURLProtocol.recordedRequests().isEmpty,
+                      "\(modeName): the WAL must be empty after B succeeds")
+    }
+
+    func testBufferedNewLogAfterFullyAcknowledgedRecoveryIsNotLost() async throws {
+        try await assertNewLogAfterRecoveryIsNotLost(.buffered, sparseAcknowledgement: false)
+    }
+
+    func testSyncNewLogAfterFullyAcknowledgedRecoveryIsNotLost() async throws {
+        try await assertNewLogAfterRecoveryIsNotLost(.sync, sparseAcknowledgement: false)
+    }
+
+    func testBufferedNewLogAfterSparseAcknowledgementIsNotLost() async throws {
+        try await assertNewLogAfterRecoveryIsNotLost(.buffered, sparseAcknowledgement: true)
+    }
+
+    func testSyncNewLogAfterSparseAcknowledgementIsNotLost() async throws {
+        try await assertNewLogAfterRecoveryIsNotLost(.sync, sparseAcknowledgement: true)
+    }
+
+    private func assertNewLogAfterRecoveryIsNotLost(
+        _ persistenceMode: TLSRealCoreAdapterPersistenceMode,
+        sparseAcknowledgement: Bool
+    ) async throws {
+        let modeName = persistenceMode == .buffered ? "buffered" : "sync"
+        let scenario = "\(modeName), sparse=\(sparseAcknowledgement)"
+        let producerID = "bridge-new-id-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))"
+        let directory = try TLSProducerDirectory.defaultDirectoryURL(forProducerID: producerID)
+        _ = try TLSProducerDirectory.createDirectory(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let eventIDs = ["new-id-A", "new-id-B", "new-id-C", "new-id-D"]
+
+        RealCoreStubURLProtocol.reset()
+        RealCoreStubURLProtocol.setEventResponses([
+            eventIDs[0]: 200, eventIDs[1]: sparseAcknowledgement ? 400 : 200,
+            eventIDs[2]: 200, eventIDs[3]: 400,
+        ], forPath: "/PutLogs")
+        let initialCallback = BridgeCallbackCollector()
+        let initialResults = expectation(description: "initial three terminal results")
+        let initial = try makeBridgeAdapter(
+            requestTimeout: 1,
+            lz4Enabled: false,
+            maxLogCount: 1,
+            persistenceMode: persistenceMode,
+            persistentDirectory: directory.path)
+        installCallback(on: initial, collector: initialCallback,
+                        expectation: initialResults, expectedValueCount: 3)
+        try initial.open()
+        for index in 0..<3 {
+            try initial.addLog(
+                withTimestamp: Int64(Date().timeIntervalSince1970 * 1_000),
+                hashKey: nil as String?,
+                contents: ["event_id": eventIDs[index]],
+                flush: true)
+            try await waitForCondition(timeout: 5) { initialCallback.count > index }
+            let result = try XCTUnwrap(initialCallback.all.dropFirst(index).first)
+            XCTAssertEqual(result.startID, Int64(index + 1), scenario)
+            XCTAssertEqual(result.endID, Int64(index + 1), scenario)
+            let fails = sparseAcknowledgement && index == 1
+            XCTAssertEqual(result.httpCode, fails ? 400 : 200, scenario)
+            if fails {
+                XCTAssertNotEqual(result.result, 0, scenario)
+                XCTAssertFalse(result.retryable, scenario)
+            } else {
+                XCTAssertEqual(result.result, 0, scenario)
+            }
+        }
+        await fulfillment(of: [initialResults], timeout: 5)
+        try initial.close(withTimeout: 5)
+
+        // Keep the old gap failed. D is new after recovery and also fails,
+        // so its ID must not collide with either kind of prior acknowledgement.
+        RealCoreStubURLProtocol.reset()
+        RealCoreStubURLProtocol.setEventResponses([
+            eventIDs[0]: 200, eventIDs[1]: 400, eventIDs[2]: 200, eventIDs[3]: 400,
+        ], forPath: "/PutLogs")
+        let nextCallback = BridgeCallbackCollector()
+        let reopened = try makeBridgeAdapter(
+            requestTimeout: 1,
+            lz4Enabled: false,
+            maxLogCount: 1,
+            persistenceMode: persistenceMode,
+            persistentDirectory: directory.path)
+        installCallback(on: reopened, collector: nextCallback)
+        try reopened.open()
+        if sparseAcknowledgement {
+            try await waitForCondition(timeout: 5) {
+                nextCallback.all.contains { $0.requestID == "gap-\(eventIDs[1])-400" }
+            }
+        }
+        try reopened.addLog(
+            withTimestamp: Int64(Date().timeIntervalSince1970 * 1_000),
+            hashKey: nil as String?,
+            contents: ["event_id": eventIDs[3]],
+            flush: true)
+        try await waitForCondition(timeout: 5) {
+            nextCallback.all.contains { $0.requestID == "gap-\(eventIDs[3])-400" }
+        }
+        let failedD = try XCTUnwrap(nextCallback.all.first {
+            $0.requestID == "gap-\(eventIDs[3])-400"
+        })
+        XCTAssertNotEqual(failedD.result, 0, scenario)
+        XCTAssertEqual(failedD.httpCode, 400, scenario)
+        XCTAssertFalse(failedD.retryable, scenario)
+        XCTAssertGreaterThan(failedD.startID, 3, "\(scenario): D must use a new log ID")
+        XCTAssertEqual(failedD.endID, failedD.startID, scenario)
+        try reopened.close(withTimeout: 5)
+
+        let reopenedRequests = RealCoreStubURLProtocol.recordedRequests()
+        let reopenedMatches = try reopenedRequests.map { request in
+            RealCoreStubURLProtocol.eventIDs(in: try XCTUnwrap(request.body), candidates: eventIDs)
+        }
+        let reopenedExpected = sparseAcknowledgement ? [eventIDs[1], eventIDs[3]] : [eventIDs[3]]
+        XCTAssertEqual(reopenedRequests.count, reopenedExpected.count, scenario)
+        XCTAssertTrue(reopenedMatches.allSatisfy { $0.count == 1 }, scenario)
+        XCTAssertEqual(reopenedMatches.flatMap { $0 }, reopenedExpected, scenario)
+
+        // On the next open D must be recovered, rather than skipped as an
+        // already acknowledged ID. B is also recovered in the sparse case.
+        RealCoreStubURLProtocol.reset()
+        RealCoreStubURLProtocol.setEventResponses([
+            eventIDs[0]: 200, eventIDs[1]: 200, eventIDs[2]: 200, eventIDs[3]: 200,
+        ], forPath: "/PutLogs")
+        let recoveryCallback = BridgeCallbackCollector()
+        let recovered = try makeBridgeAdapter(
+            requestTimeout: 1,
+            lz4Enabled: false,
+            maxLogCount: 1,
+            persistenceMode: persistenceMode,
+            persistentDirectory: directory.path)
+        installCallback(on: recovered, collector: recoveryCallback)
+        try recovered.open()
+        try recovered.close(withTimeout: 5)
+        let recoveredRequests = RealCoreStubURLProtocol.recordedRequests()
+        let recoveredMatches = try recoveredRequests.map { request in
+            RealCoreStubURLProtocol.eventIDs(in: try XCTUnwrap(request.body), candidates: eventIDs)
+        }
+        let recoveredIDs = recoveredMatches.flatMap { $0 }
+        let expectedIDs = sparseAcknowledgement ? [eventIDs[1], eventIDs[3]] : [eventIDs[3]]
+        XCTAssertEqual(recoveredRequests.count, expectedIDs.count, scenario)
+        XCTAssertTrue(recoveredMatches.allSatisfy { $0.count == 1 }, scenario)
+        XCTAssertTrue(recoveredIDs.contains(eventIDs[3]),
+                      "\(scenario): failed D must survive recovery")
+        XCTAssertEqual(recoveredIDs, expectedIDs,
+                       "\(scenario): only failed records may be recovered")
+        if recoveredIDs == expectedIDs {
+            try await waitForCondition(timeout: 5) { recoveryCallback.count == expectedIDs.count }
+            XCTAssertTrue(recoveryCallback.all.allSatisfy { $0.result == 0 }, scenario)
+            XCTAssertTrue(recoveryCallback.all.contains { $0.startID == failedD.startID }, scenario)
+        }
     }
 
     /// A durable retry delayed for a later network window must not turn
