@@ -131,7 +131,7 @@ final class ProducerIntegrationTests: XCTestCase {
 
     // MARK: - Fixtures (producer-visible construction only)
 
-    private static let producerUserAgent = "volc-tls-ios/producer/v2.0.3"
+    private static let producerUserAgent = "volc-tls-ios/producer/v2.0.4"
     private static let apiVersion = "0.3.0"
     private static let endpoint = "https://producer.stub.local"
     private static let region = "cn-beijing"
@@ -611,7 +611,7 @@ final class ProducerIntegrationTests: XCTestCase {
 
     // MARK: - Invalid log rejection
 
-    func testProducerPersistentAdmissionErrorCanReplayAfterReopen() async throws {
+    func testPersistentRecordLargerThanRecoveryBudgetIsRejectedBeforeWrite() async throws {
         for persistence in [Persistence.buffered, .sync] {
             ProducerStubURLProtocol.reset()
             let marker = "admission-replay-\(UUID().uuidString)"
@@ -625,8 +625,7 @@ final class ProducerIntegrationTests: XCTestCase {
             configuration.producerID = "replay-\(UUID().uuidString.prefix(12))"
             configuration.compression = .disabled
             configuration.automaticLifecycleHandling = false
-            // The event is valid, but its encoded bytes cannot fit in RAM.
-            // Persistent admission writes WAL before checking this budget.
+            // The event cannot fit in the recovery budget of this Producer.
             configuration.buffer = BufferConfiguration(maxBytes: 1, fullPolicy: .reject)
             let firstResults = SendResultCollector()
             let first = try await Producer.open(
@@ -638,21 +637,31 @@ final class ProducerIntegrationTests: XCTestCase {
                     return XCTFail("invalid input must fail before WAL admission")
                 }
             }
-            XCTAssertThrowsError(try first.add(event, mode: .immediate)) {
-                XCTAssertEqual($0 as? ProducerError, .bufferFull)
+            XCTAssertThrowsError(try first.add(event, mode: .immediate)) { error in
+                guard case ProducerError.internal = error else {
+                    return XCTFail("expected Core validation error, got \(error)")
+                }
             }
             try await first.close(timeout: 5)
             XCTAssertTrue(firstResults.results.isEmpty)
             XCTAssertTrue(ProducerStubURLProtocol.recordedRequests().isEmpty)
 
-            // Do not add the event again: reopening alone must recover it.
+            // A larger budget on the next open must not resurrect the rejection.
             configuration.buffer = BufferConfiguration()
             let recoveredResults = SendResultCollector()
             let recovered = try await Producer.open(
                 configuration: configuration,
                 credentials: makeCredentials()) { recoveredResults.append($0) }
-            try await waitUntil(timeout: 10) { recoveredResults.results.count == 1 }
             try await recovered.close(timeout: 5)
+            XCTAssertTrue(recoveredResults.results.isEmpty)
+            XCTAssertTrue(ProducerStubURLProtocol.recordedRequests().isEmpty)
+
+            let next = try await Producer.open(
+                configuration: configuration,
+                credentials: makeCredentials()) { recoveredResults.append($0) }
+            try next.add(event, mode: .immediate)
+            try await waitUntil(timeout: 10) { recoveredResults.results.count == 1 }
+            try await next.close(timeout: 5)
             XCTAssertEqual(recoveredResults.results.map(\.status), [.success])
             let requests = ProducerStubURLProtocol.recordedRequests()
             XCTAssertEqual(requests.count, 1)
@@ -662,7 +671,7 @@ final class ProducerIntegrationTests: XCTestCase {
             let markerBytes = Data(marker.utf8)
             let markerRange = try XCTUnwrap(body.range(of: markerBytes))
             XCTAssertNil(body.range(of: markerBytes, in: markerRange.upperBound..<body.endIndex))
-            XCTAssertNotNil(body.range(of: Data(payload.utf8)), "the complete value must survive WAL recovery")
+            XCTAssertNotNil(body.range(of: Data(payload.utf8)), "the explicit re-submission must keep the value")
 
             // A successful recovery is ACKed; a further clean open is empty.
             let empty = try await Producer.open(
@@ -672,7 +681,7 @@ final class ProducerIntegrationTests: XCTestCase {
         }
     }
 
-    /// Diagnostic handlers must observe the persistent admission/recovery
+    /// Diagnostic handlers must observe the persistent send and recovery
     /// path without changing the business outcome or the durable cleanup.
     /// The independent off/on runs intentionally share one producerID. Their
     /// fixture directory is reset between runs so each starts from the same
@@ -708,10 +717,10 @@ final class ProducerIntegrationTests: XCTestCase {
                 event: event,
                 diagnosticsEnabled: true)
 
-            XCTAssertEqual(withoutDiagnostics.firstRequests, [])
-            XCTAssertEqual(withDiagnostics.firstRequests, [])
-            XCTAssertEqual(withoutDiagnostics.firstCallbackCount, 0)
-            XCTAssertEqual(withDiagnostics.firstCallbackCount, 0)
+            XCTAssertEqual(withoutDiagnostics.firstRequests.count, 1)
+            XCTAssertEqual(withDiagnostics.firstRequests, withoutDiagnostics.firstRequests)
+            XCTAssertEqual(withoutDiagnostics.firstCallbackCount, 1)
+            XCTAssertEqual(withDiagnostics.firstCallbackCount, 1)
 
             XCTAssertEqual(withoutDiagnostics.recoveredRequests.count, 1)
             XCTAssertEqual(withDiagnostics.recoveredRequests.count, 1)
@@ -720,10 +729,12 @@ final class ProducerIntegrationTests: XCTestCase {
             XCTAssertEqual(withoutDiagnostics.recoveredStatuses, [.success])
             XCTAssertEqual(withDiagnostics.recoveredStatuses, [.success])
 
-            // The only request is the recovery send. A clean reopen after its
-            // ACK must remain empty in both configurations.
-            XCTAssertEqual(withoutDiagnostics.finalRequests, withoutDiagnostics.recoveredRequests)
-            XCTAssertEqual(withDiagnostics.finalRequests, withDiagnostics.recoveredRequests)
+            // A failed send stays pending until recovery. A clean reopen after
+            // the recovery ACK must remain empty in both configurations.
+            XCTAssertEqual(withoutDiagnostics.finalRequests,
+                           withoutDiagnostics.firstRequests + withoutDiagnostics.recoveredRequests)
+            XCTAssertEqual(withDiagnostics.finalRequests,
+                           withDiagnostics.firstRequests + withDiagnostics.recoveredRequests)
             XCTAssertEqual(withoutDiagnostics.recoveredRequests, withDiagnostics.recoveredRequests)
             XCTAssertEqual(withoutDiagnostics.finalRequests, withDiagnostics.finalRequests)
             XCTAssertEqual(withoutDiagnostics.walFileNames, withDiagnostics.walFileNames)
@@ -735,16 +746,9 @@ final class ProducerIntegrationTests: XCTestCase {
 
             XCTAssertEqual(withoutDiagnostics.textMessageCount, 0)
             XCTAssertGreaterThan(withDiagnostics.textMessageCount, 0)
-            let admissionEvents = withDiagnostics.diagnostics.filter {
-                $0.kind == .admissionRejected
-            }
-            XCTAssertEqual(admissionEvents.count, 1)
             XCTAssertEqual(
                 withDiagnostics.diagnostics.filter { $0.kind == .batchTerminal }.count,
-                1)
-            XCTAssertTrue(admissionEvents.allSatisfy {
-                $0.context?.disposition != "discard"
-            })
+                2)
         }
     }
 
@@ -767,7 +771,6 @@ final class ProducerIntegrationTests: XCTestCase {
         configuration.producerID = producerID
         configuration.compression = .disabled
         configuration.automaticLifecycleHandling = false
-        configuration.buffer = BufferConfiguration(maxBytes: 1, fullPolicy: .reject)
         if let structuredCollector {
             configuration.onDiagnostic = { @Sendable diagnostic in
                 structuredCollector.append(diagnostic)
@@ -784,29 +787,23 @@ final class ProducerIntegrationTests: XCTestCase {
         let first = try await Producer.open(
             configuration: configuration,
             credentials: makeCredentials()) { firstResults.append($0) }
-        XCTAssertThrowsError(try first.add(event, mode: .immediate)) {
-            XCTAssertEqual($0 as? ProducerError, .bufferFull)
-        }
+        ProducerStubURLProtocol.setRecovery(statusCode: 400,
+            body: try makeServiceErrorBody(code: "InvalidParameter", message: "fixture rejected first send"),
+            afterFailures: 1)
+        try first.add(event, mode: .immediate)
+        try await waitUntil(timeout: 10) { firstResults.results.count == 1 }
+        XCTAssertEqual(firstResults.results.map(\.status), [.failure])
         try await first.close(timeout: 5)
 
         let firstRequests = producerRequestSnapshots()
-        XCTAssertTrue(firstRequests.isEmpty)
-        XCTAssertTrue(firstResults.results.isEmpty)
 
-        if let structuredCollector {
-            try await waitUntil(timeout: 3) {
-                structuredCollector.events.contains { $0.kind == .admissionRejected }
-            }
-        }
-
-        configuration.buffer = BufferConfiguration()
         let recoveredResults = SendResultCollector()
         let recovered = try await Producer.open(
             configuration: configuration,
             credentials: makeCredentials()) { recoveredResults.append($0) }
         try await waitUntil(timeout: 10) { recoveredResults.results.count == 1 }
         try await recovered.close(timeout: 5)
-        let recoveredRequests = producerRequestSnapshots()
+        let recoveredRequests = Array(producerRequestSnapshots().dropFirst(firstRequests.count))
         let recoveredStatuses = recoveredResults.results.map(\.status)
 
         let empty = try await Producer.open(

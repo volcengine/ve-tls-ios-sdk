@@ -10,14 +10,14 @@ macOS 11，要求 Swift 5.8+。
 
 ## 安装 Producer v2
 
-下面的 SwiftPM 和 CocoaPods Git tag 安装示例对应 `2.0.3`。通过 CocoaPods Specs 安装时，所用 Specs 源需包含该版本。
+下面的 SwiftPM 和 CocoaPods Git tag 安装示例对应 `2.0.4`。通过 CocoaPods Specs 安装时，所用 Specs 源需包含该版本。
 
 Swift Package Manager：
 
 ```swift
 .package(
     url: "https://github.com/volcengine/ve-tls-ios-sdk.git",
-    from: "2.0.3"
+    from: "2.0.4"
 )
 ```
 
@@ -28,12 +28,12 @@ CocoaPods（Git tag）：
 ```ruby
 pod 'VolcengineTLSProducer',
     :git => 'https://github.com/volcengine/ve-tls-ios-sdk.git',
-    :tag => 'v2.0.3'
+    :tag => 'v2.0.4'
 ```
 
-若所用 CocoaPods Specs 源已包含 `2.0.3`，也可使用 `pod 'VolcengineTLSProducer', '~> 2.0.3'`。
+若所用 CocoaPods Specs 源已包含 `2.0.4`，也可使用 `pod 'VolcengineTLSProducer', '~> 2.0.4'`。
 
-完整步骤见[安装](docs/getting-started/installation.md)，版本变更见 [CHANGELOG](CHANGELOG.md#203)。
+完整步骤见[安装](docs/getting-started/installation.md)，版本变更见 [CHANGELOG](CHANGELOG.md#204)。
 
 ## 快速开始
 

@@ -2,16 +2,16 @@
 
 status: INTEGRATED
 component: ve-tls-c-sdk
-upstream_core_version: 0.3.5
-upstream_core_tag: v0.3.5
+upstream_core_version: 0.3.6
+upstream_core_tag: v0.3.6
 upstream_core_tag_status: CREATED
-upstream_core_full_sha: 3e368a18330f529f984e51f8d274ecd582d15ca6
+upstream_core_full_sha: 736d953c306c4f6e447600dda6132f62b8290903
 vendor_manifest: Producer/CORE_VENDOR_SHA256SUMS
 vendor_overlays: include/ve_tls_export.h,third_party/lz4/lz4.c
 vendor_additions: include/CTLSProducerCore.h,core/ve_tls_iosp_version.c
 license: Apache-2.0
 
-The vendor matches the mapped Core 0.3.5 source at the registered commit
+The vendor matches the mapped Core 0.3.6 source at the registered commit
 with the listed Apple packaging overlays and wrapper files.
 INTEGRATED records the source comparison. CREATED records the published upstream tag state.
 Applications use the public VolcengineTLSProducer Swift or Objective-C API;

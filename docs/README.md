@@ -1,7 +1,7 @@
 # Volcengine TLS Producer 文档
 
-`VolcengineTLSProducer` 是面向 Apple 平台的异步日志上传 SDK，本文档对应 `v2.0.3`。
-版本变化见 [CHANGELOG](../CHANGELOG.md#203)。
+`VolcengineTLSProducer` 是面向 Apple 平台的异步日志上传 SDK，本文档对应 `v2.0.4`。
+版本变化见 [CHANGELOG](../CHANGELOG.md#204)。
 
 ## 开始接入
 

@@ -16,7 +16,7 @@
 @import VolcengineTLSProducer;
 
 static NSString *const TLSExpectedProducerUserAgent =
-    @"volc-tls-ios/producer/v2.0.3";
+    @"volc-tls-ios/producer/v2.0.4";
 static NSString *const TLSExpectedAPIVersion = @"0.3.0";
 
 static void TLSRequire(BOOL condition, NSString *message) {
